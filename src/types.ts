@@ -42,6 +42,19 @@ export interface MalAnimeNode {
     large?: string;
   };
   num_episodes?: number;
+  synopsis?: string;
+  mean?: number;
+  status?: string;
+  media_type?: string;
+  start_season?: {
+    year?: number;
+    season?: string;
+  };
+  alternative_titles?: {
+    synonyms?: string[];
+    en?: string;
+    ja?: string;
+  };
 }
 
 export interface MalListStatus {
@@ -52,6 +65,8 @@ export interface MalListStatus {
   start_date?: string;
   finish_date?: string;
   updated_at?: string;
+  comments?: string;
+  tags?: string[];
 }
 
 export interface MalListItem {
@@ -64,5 +79,11 @@ export interface MalUserListResponse {
   paging?: {
     next?: string;
   };
+}
+
+export interface SeasonalAnimeNode extends MalAnimeNode {}
+
+export interface SeasonalAnimeItem {
+  node: SeasonalAnimeNode;
 }
 

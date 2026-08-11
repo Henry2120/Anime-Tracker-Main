@@ -350,9 +350,15 @@ app.get("/api/mal/animelist", async (req, res) => {
 
   try {
     const fields = [
-      "list_status{status,score,num_episodes_watched,is_rewatching,updated_at,start_date,finish_date}",
+      "list_status{status,score,num_episodes_watched,is_rewatching,updated_at,start_date,finish_date,comments,tags}",
       "num_episodes",
       "main_picture",
+      "synopsis",
+      "mean",
+      "status",
+      "media_type",
+      "start_season",
+      "alternative_titles",
     ].join(",");
 
     const allItems: any[] = [];
@@ -414,6 +420,74 @@ app.post("/api/mal/logout", (req, res) => {
     sameSite: "none",
   });
   res.json({ success: true });
+});
+
+// 6. Seasonal Anime Endpoint (with pagination & client-id fallback)
+app.get("/api/mal/season/:year/:season", async (req, res) => {
+  const { year, season } = req.params;
+  const sessionId = req.cookies.mal_session;
+
+  let headers: Record<string, string> = {};
+
+  if (sessionId) {
+    const accessToken = await getValidAccessToken(sessionId);
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+  }
+
+  if (!headers["Authorization"] && process.env.MAL_CLIENT_ID) {
+    headers["X-MAL-CLIENT-ID"] = process.env.MAL_CLIENT_ID.trim();
+  }
+
+  if (Object.keys(headers).length === 0) {
+    return res.status(401).json({ error: "MyAnimeList API Client ID or authentication required" });
+  }
+
+  try {
+    const fields = "num_episodes,main_picture,synopsis,mean,status,media_type,start_season,alternative_titles";
+    const allItems: any[] = [];
+    const seenIds = new Set<number>();
+    let nextUrl: string | null = `https://api.myanimelist.net/v2/anime/season/${encodeURIComponent(year)}/${encodeURIComponent(season)}?limit=100&fields=${encodeURIComponent(fields)}`;
+
+    while (nextUrl) {
+      const malResponse = await fetch(nextUrl, { headers });
+
+      if (!malResponse.ok) {
+        if (malResponse.status === 401 && sessionId) {
+          userSessions.delete(sessionId);
+          res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
+        }
+        return res.status(malResponse.status).json({ error: "Failed to fetch seasonal anime list" });
+      }
+
+      const seasonData = await malResponse.json();
+
+      if (Array.isArray(seasonData.data)) {
+        for (const item of seasonData.data) {
+          if (item?.node?.id) {
+            if (!seenIds.has(item.node.id)) {
+              seenIds.add(item.node.id);
+              allItems.push(item);
+            }
+          } else {
+            allItems.push(item);
+          }
+        }
+      }
+
+      if (seasonData.paging && typeof seasonData.paging.next === "string" && seasonData.paging.next.length > 0) {
+        nextUrl = seasonData.paging.next;
+      } else {
+        nextUrl = null;
+      }
+    }
+
+    res.json({ data: allItems });
+  } catch (err) {
+    console.error("Error fetching seasonal anime list:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // ----------------------------------------------------
