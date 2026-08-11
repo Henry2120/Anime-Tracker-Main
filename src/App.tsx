@@ -10,6 +10,9 @@ import {
   ExternalLink,
   Flame,
   Tv,
+  ChevronDown,
+  Filter,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Anime, JikanApiResponse, MalUser, MalListItem } from './types';
 import { AnimeCard } from './components/AnimeCard';
@@ -32,6 +35,7 @@ export default function App() {
   const [malError, setMalError] = useState<string | null>(null);
   const [malConfigured, setMalConfigured] = useState<boolean>(true);
   const [malFilterStatus, setMalFilterStatus] = useState<string>('all');
+  const [malSortOption, setMalSortOption] = useState<string>('title_asc');
 
   // Check MAL Auth Status on Mount
   useEffect(() => {
@@ -173,11 +177,41 @@ export default function App() {
     }
   };
 
-  // Filtered MAL list
-  const filteredMalList = malList.filter((item) => {
-    if (malFilterStatus === 'all') return true;
-    return item.list_status.status === malFilterStatus;
-  });
+  // Filtered and sorted MAL list
+  const filteredMalList = malList
+    .filter((item) => {
+      if (malFilterStatus === 'all') return true;
+      return item.list_status?.status === malFilterStatus;
+    })
+    .sort((a, b) => {
+      if (malSortOption === 'title_asc') {
+        const titleA = (a.node?.title || '').toLowerCase();
+        const titleB = (b.node?.title || '').toLowerCase();
+        return titleA.localeCompare(titleB);
+      }
+      if (malSortOption === 'title_desc') {
+        const titleA = (a.node?.title || '').toLowerCase();
+        const titleB = (b.node?.title || '').toLowerCase();
+        return titleB.localeCompare(titleA);
+      }
+      if (malSortOption === 'score_desc') {
+        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+        return (a.node?.title || '').localeCompare(b.node?.title || '');
+      }
+      if (malSortOption === 'score_asc') {
+        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+        if (scoreA !== scoreB) {
+          return scoreA - scoreB;
+        }
+        return (a.node?.title || '').localeCompare(b.node?.title || '');
+      }
+      return 0;
+    });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 text-slate-800 font-sans antialiased p-4 sm:p-8 flex flex-col justify-between">
@@ -457,28 +491,57 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Status Filter Tabs */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'watching', label: 'Watching' },
-                    { id: 'completed', label: 'Completed' },
-                    { id: 'plan_to_watch', label: 'Plan to Watch' },
-                    { id: 'on_hold', label: 'On Hold' },
-                    { id: 'dropped', label: 'Dropped' },
-                  ].map((filter) => (
-                    <button
-                      key={filter.id}
-                      onClick={() => setMalFilterStatus(filter.id)}
-                      className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
-                        malFilterStatus === filter.id
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
-                      }`}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
+                {/* Status & Sort Filter Controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  {/* Status Filter Dropdown */}
+                  <div className="flex items-center gap-3">
+                    <label htmlFor="mal-status-filter" className="text-xs font-black text-indigo-900 tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+                      <Filter className="h-3.5 w-3.5 text-indigo-600" />
+                      <span>Status:</span>
+                    </label>
+                    <div className="relative inline-block w-48 sm:w-56">
+                      <select
+                        id="mal-status-filter"
+                        value={malFilterStatus}
+                        onChange={(e) => setMalFilterStatus(e.target.value)}
+                        className="w-full appearance-none bg-white border-2 border-indigo-100 text-slate-800 text-xs sm:text-sm font-extrabold rounded-2xl py-2.5 pl-4 pr-10 shadow-xs hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
+                      >
+                        <option value="all">All</option>
+                        <option value="watching">Watching</option>
+                        <option value="completed">Completed</option>
+                        <option value="plan_to_watch">Plan to Watch</option>
+                        <option value="on_hold">On Hold</option>
+                        <option value="dropped">Dropped</option>
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-indigo-600">
+                        <ChevronDown className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sort Dropdown */}
+                  <div className="flex items-center gap-3">
+                    <label htmlFor="mal-sort-option" className="text-xs font-black text-indigo-900 tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+                      <ArrowUpDown className="h-3.5 w-3.5 text-indigo-600" />
+                      <span>Sort:</span>
+                    </label>
+                    <div className="relative inline-block w-52 sm:w-60">
+                      <select
+                        id="mal-sort-option"
+                        value={malSortOption}
+                        onChange={(e) => setMalSortOption(e.target.value)}
+                        className="w-full appearance-none bg-white border-2 border-indigo-100 text-slate-800 text-xs sm:text-sm font-extrabold rounded-2xl py-2.5 pl-4 pr-10 shadow-xs hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
+                      >
+                        <option value="title_asc">A to Z</option>
+                        <option value="title_desc">Z to A</option>
+                        <option value="score_desc">Score (Highest to Lowest)</option>
+                        <option value="score_asc">Score (Lowest to Highest)</option>
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-indigo-600">
+                        <ChevronDown className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Error Banner */}
