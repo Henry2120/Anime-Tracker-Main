@@ -1,0 +1,6 @@
+{
+  "name": "Anime Tracker",
+  "description": "A simple web application to browse top anime using the Jikan API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
