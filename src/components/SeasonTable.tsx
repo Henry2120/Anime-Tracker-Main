@@ -7,12 +7,7 @@ import {
   Edit2,
   Check,
   X,
-  Info,
-  Tv,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
-import { MalListItem, SeasonalAnimeItem } from '../types';
 
 interface SeasonTableItem {
   node: {
@@ -44,7 +39,6 @@ interface SeasonTableItem {
     comments?: string;
     tags?: string[];
   };
-  isSplitCour?: boolean;
 }
 
 interface SeasonTableProps {
@@ -55,7 +49,6 @@ interface SeasonTableProps {
   badgeText: string;
   badgeBg: string;
   badgeTextClass: string;
-  isSplitCourSection?: boolean;
   customUserNotes: Record<number, string>;
   onSaveCustomNote: (animeId: number, note: string) => void;
 }
@@ -68,7 +61,6 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   badgeText,
   badgeBg,
   badgeTextClass,
-  isSplitCourSection = false,
   customUserNotes,
   onSaveCustomNote,
 }) => {
@@ -100,6 +92,12 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
       isEditing: false,
     });
   };
+
+  console.log('[SEASON TABLE]', {
+    title,
+    receivedCount: items.length,
+    renderedIds: items.map((item) => item.node?.id),
+  });
 
   return (
     <div className="bg-white rounded-3xl border-2 border-indigo-100/80 shadow-xl overflow-hidden mb-8">
@@ -162,6 +160,8 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                 return (
                   <tr
                     key={animeId}
+                    id={`season-row-${animeId}`}
+                    data-season-row={animeId}
                     className="hover:bg-indigo-50/40 transition-colors duration-150 group"
                   >
                     {/* Row Number */}
@@ -223,9 +223,36 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
 
                     {/* Status */}
                     <td className="py-3 px-4 text-center">
-                      <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-black tracking-wide ${badgeBg} ${badgeTextClass}`}>
-                        {badgeText}
-                      </span>
+                      {(() => {
+                        const rawStatus = item.list_status?.status;
+                        let badgeClass = `${badgeBg} ${badgeTextClass}`;
+                        let label = badgeText;
+
+                        if (rawStatus === 'watching') {
+                          badgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-200/60';
+                          label = 'Watching';
+                        } else if (rawStatus === 'plan_to_watch') {
+                          badgeClass = 'bg-sky-100 text-sky-800 border border-sky-200/60';
+                          label = 'Plan to Watch';
+                        } else if (rawStatus === 'completed') {
+                          badgeClass = 'bg-indigo-100 text-indigo-800 border border-indigo-200/60';
+                          label = 'Completed';
+                        } else if (rawStatus === 'on_hold') {
+                          badgeClass = 'bg-amber-100 text-amber-800 border border-amber-200/60';
+                          label = 'On Hold';
+                        } else if (rawStatus === 'dropped') {
+                          badgeClass = 'bg-rose-100 text-rose-800 border border-rose-200/60';
+                          label = 'Dropped';
+                        } else if (rawStatus) {
+                          label = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).replace(/_/g, ' ');
+                        }
+
+                        return (
+                          <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-black tracking-wide ${badgeClass}`}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Episodes */}

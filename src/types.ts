@@ -46,10 +46,18 @@ export interface MalAnimeNode {
   mean?: number;
   status?: string;
   media_type?: string;
+  start_date?: string;
+  end_date?: string;
   start_season?: {
     year?: number;
     season?: string;
   };
+  broadcast?: {
+    day_of_the_week?: string;
+    start_time?: string;
+  };
+  source?: string;
+  genres?: Array<{ id: number; name: string }>;
   alternative_titles?: {
     synonyms?: string[];
     en?: string;

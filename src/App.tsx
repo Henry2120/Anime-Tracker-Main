@@ -17,15 +17,18 @@ import {
   Calendar,
   CalendarDays,
   PlayCircle,
-  Layers,
-  Repeat,
-  GitFork,
 } from 'lucide-react';
 import { Anime, JikanApiResponse, MalUser, MalListItem, SeasonalAnimeItem } from './types';
 import { AnimeCard } from './components/AnimeCard';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { SeasonalAnimeCard } from './components/SeasonalAnimeCard';
 import { SeasonTable } from './components/SeasonTable';
+import { SeasonDiagnosticsPanel } from './components/SeasonDiagnosticsPanel';
+import {
+  fetchJikanSeasonCatalogue,
+  fetchJikanAnimeInfo,
+  JikanSeasonalAnime,
+} from './utils/seasonUtils';
 
 export default function App() {
   // Navigation tab state ('top' | 'mal' | 'season')
@@ -46,18 +49,15 @@ export default function App() {
   const [malFilterStatus, setMalFilterStatus] = useState<string>('all');
   const [malSortOption, setMalSortOption] = useState<string>('title_asc');
 
-  // Seasonal State
+  // Seasonal Catalogue State (for general seasonal catalogue browsing)
   const [seasonalList, setSeasonalList] = useState<SeasonalAnimeItem[]>([]);
   const [seasonalLoading, setSeasonalLoading] = useState<boolean>(false);
   const [seasonalError, setSeasonalError] = useState<string | null>(null);
-  const [manualPersonalSummerIds, setManualPersonalSummerIds] = useState<Set<number>>(() => {
-    try {
-      const saved = localStorage.getItem('manual_summer_2026_ids');
-      return saved ? new Set(JSON.parse(saved)) : new Set<number>();
-    } catch {
-      return new Set<number>();
-    }
-  });
+
+  // Jikan Summer 2026 Seasonal State (Authoritative source of truth for MY SEASON)
+  const [jikanSummer2026List, setJikanSummer2026List] = useState<JikanSeasonalAnime[]>([]);
+  const [jikanSeasonLoading, setJikanSeasonLoading] = useState<boolean>(false);
+  const [fallbackSummer2026Ids, setFallbackSummer2026Ids] = useState<Set<number>>(new Set());
 
   // Local user notes stored in localStorage
   const [customUserNotes, setCustomUserNotes] = useState<Record<number, string>>(() => {
@@ -81,38 +81,7 @@ export default function App() {
     });
   };
 
-  // Helper to determine if an anime is split-cour or continuing
-  const isSplitCourOrContinuing = (node: any, listStatus?: any): boolean => {
-    if (!node) return false;
-    const title = node.title || '';
-    const altEn = node.alternative_titles?.en || '';
-    const synonyms = (node.alternative_titles?.synonyms || []).join(' ');
-    const synopsis = node.synopsis || '';
-    const combinedText = `${title} ${altEn} ${synonyms} ${synopsis}`;
-
-    // Regex check for split-cour, 2nd season, part 2, final season, cour 2, etc.
-    const splitCourPattern = /\b(2nd|3rd|4th|5th|final)\s*(cour|season|part|half)\b|\b(cour|season|part)\s*(2|3|4|5)\b|\bpart\s*(2|3)\b|\b2nd\s*season\b|\b3rd\s*season\b|\bsplit[- ]cour\b|\bcontinuing\b/i;
-    if (splitCourPattern.test(combinedText)) {
-      return true;
-    }
-
-    // Check start_season prior to Summer 2026
-    if (node.start_season?.year) {
-      if (node.start_season.year < 2026) return true;
-      if (node.start_season.year === 2026 && node.start_season.season && node.start_season.season !== 'summer') return true;
-    }
-
-    // Check list comments / tags
-    const comments = listStatus?.comments || '';
-    const tags = (listStatus?.tags || []).join(' ');
-    if (/\b(split-cour|part 2|cour 2|continuing|sequel)\b/i.test(`${comments} ${tags}`)) {
-      return true;
-    }
-
-    return false;
-  };
-
-  // User MAL Map for matching seasonal anime
+  // User MAL Map for quick lookup
   const userMalMap = useMemo(() => {
     const map = new Map<number, MalListItem>();
     for (const item of malList) {
@@ -123,82 +92,141 @@ export default function App() {
     return map;
   }, [malList]);
 
-  // Build the two focus categories for MY SEASON
-  const { currentlyWatchingItems, splitCourItems } = useMemo(() => {
-    const watching: any[] = [];
-    const splitCour: any[] = [];
-    const seenSplitCourIds = new Set<number>();
-    const seenWatchingIds = new Set<number>();
+  // Primary Set of MAL IDs from Jikan Summer 2026 seasonal catalogue
+  const jikanSummer2026Ids = useMemo(() => {
+    const ids = new Set<number>();
+    for (const item of jikanSummer2026List) {
+      if (item?.mal_id) {
+        ids.add(item.mal_id);
+      }
+    }
+    return ids;
+  }, [jikanSummer2026List]);
 
-    const processItem = (node: any, list_status?: any) => {
-      if (!node?.id) return;
-      const isSplit = isSplitCourOrContinuing(node, list_status);
+  // Combined Set of Summer 2026 IDs: Jikan seasonal catalogue + individual Jikan fallback
+  const allSummer2026Ids = useMemo(() => {
+    const combined = new Set<number>(jikanSummer2026Ids);
+    for (const id of fallbackSummer2026Ids) {
+      combined.add(id);
+    }
+    return combined;
+  }, [jikanSummer2026Ids, fallbackSummer2026Ids]);
 
-      if (isSplit) {
-        if (!seenSplitCourIds.has(node.id)) {
-          seenSplitCourIds.add(node.id);
-          splitCour.push({ node, list_status, isSplitCour: true });
+  // Build Currently Watching items for MY SEASON:
+  // Strictly: Jikan Summer 2026 anime INTERSECT My MAL anime with status "watching"
+  const currentlyWatchingItems = useMemo(() => {
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
+    const seenIds = new Set<number>();
+
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      // Accept strictly status === 'watching'
+      if (item.list_status?.status !== 'watching') continue;
+
+      // Check if MAL ID belongs to the Summer 2026 Jikan set
+      if (!allSummer2026Ids.has(item.node.id)) continue;
+
+      if (!seenIds.has(item.node.id)) {
+        seenIds.add(item.node.id);
+        items.push({
+          node: item.node,
+          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+        });
+      }
+    }
+
+    return items;
+  }, [malList, allSummer2026Ids]);
+
+  // Fetch Jikan Summer 2026 seasonal catalogue
+  const loadJikanSeasonalCatalogue = async () => {
+    setJikanSeasonLoading(true);
+    try {
+      const data = await fetchJikanSeasonCatalogue(2026, 'summer');
+      setJikanSummer2026List(data);
+    } catch (err) {
+      console.error('Error fetching Jikan Summer 2026 seasonal catalogue:', err);
+    } finally {
+      setJikanSeasonLoading(false);
+    }
+  };
+
+  // Targeted Fallback: For watching anime not found in the primary Jikan seasonal set,
+  // query individual Jikan metadata (/v4/anime/{mal_id})
+  useEffect(() => {
+    if (!malList || malList.length === 0) return;
+    if (jikanSeasonLoading) return;
+
+    const watchingMissing = malList.filter((item) => {
+      if (item.list_status?.status !== 'watching') return false;
+      const animeId = item.node?.id;
+      if (!animeId) return false;
+      if (jikanSummer2026Ids.has(animeId)) return false;
+      if (fallbackSummer2026Ids.has(animeId)) return false;
+      return true;
+    });
+
+    if (watchingMissing.length === 0) return;
+
+    let isMounted = true;
+    const runFallbackLookups = async () => {
+      for (const item of watchingMissing) {
+        if (!isMounted) break;
+        const animeId = item.node.id;
+        const info = await fetchJikanAnimeInfo(animeId);
+        if (info && info.is_summer_2026 && isMounted) {
+          setFallbackSummer2026Ids((prev) => {
+            const next = new Set(prev);
+            next.add(animeId);
+            return next;
+          });
         }
-      } else {
-        const userStatus = list_status?.status;
-        if (userStatus === 'watching' || (!userStatus && manualPersonalSummerIds.has(node.id))) {
-          if (!seenWatchingIds.has(node.id)) {
-            seenWatchingIds.add(node.id);
-            watching.push({ node, list_status, isSplitCour: false });
-          }
-        }
+        await new Promise((r) => setTimeout(r, 300));
       }
     };
 
-    // 1. Process MAL list
-    for (const item of malList) {
-      const status = item.list_status?.status;
-      if (status === 'watching' || isSplitCourOrContinuing(item.node, item.list_status) || manualPersonalSummerIds.has(item.node.id)) {
-        processItem(item.node, item.list_status);
-      }
-    }
+    runFallbackLookups();
+    return () => {
+      isMounted = false;
+    };
+  }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, jikanSeasonLoading]);
 
-    // 2. Process seasonal list if user marked items or if malList is empty
-    for (const sItem of seasonalList) {
-      const userItem = userMalMap.get(sItem.node.id);
-      if (userItem) {
-        processItem(userItem.node, userItem.list_status);
-      } else if (malList.length === 0 || manualPersonalSummerIds.has(sItem.node.id)) {
-        const isSplit = isSplitCourOrContinuing(sItem.node);
-        if (isSplit && !seenSplitCourIds.has(sItem.node.id)) {
-          seenSplitCourIds.add(sItem.node.id);
-          splitCour.push({
-            node: sItem.node,
-            list_status: { status: 'watching', score: 0, num_episodes_watched: 0 },
-            isSplitCour: true,
-          });
-        } else if (!isSplit && manualPersonalSummerIds.has(sItem.node.id) && !seenWatchingIds.has(sItem.node.id)) {
-          seenWatchingIds.add(sItem.node.id);
-          watching.push({
-            node: sItem.node,
-            list_status: { status: 'watching', score: 0, num_episodes_watched: 0 },
-            isSplitCour: false,
-          });
-        }
-      }
-    }
-
-    return { currentlyWatchingItems: watching, splitCourItems: splitCour };
-  }, [malList, seasonalList, userMalMap, manualPersonalSummerIds]);
-
-  // Save manual personal summer IDs to localStorage
+  // Diagnostic logging specifically for MAL ID 61126
   useEffect(() => {
-    try {
-      localStorage.setItem('manual_summer_2026_ids', JSON.stringify(Array.from(manualPersonalSummerIds)));
-    } catch {
-      // Ignore storage errors
+    const item61126 = malList.find((i) => i?.node?.id === 61126);
+    if (item61126) {
+      console.log('[MY SEASON 61126]', {
+        inMalList: true,
+        malStatus: item61126.list_status?.status,
+        inJikanSeason: jikanSummer2026Ids.has(61126),
+        fallbackJikanYear: 2026,
+        fallbackJikanSeason: 'summer',
+        finalIncluded: currentlyWatchingItems.some((i) => i?.node?.id === 61126),
+      });
     }
-  }, [manualPersonalSummerIds]);
+  }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, currentlyWatchingItems]);
 
-  // Check MAL Auth Status on Mount
+  // Log MY SEASON render input
+  useEffect(() => {
+    if (activeTab === 'season') {
+      console.log('[MY SEASON RENDER INPUT]', {
+        count: currentlyWatchingItems.length,
+        uniqueIdCount: new Set(currentlyWatchingItems.map((item) => item.node?.id)).size,
+        ids: currentlyWatchingItems.map((item) => item.node?.id),
+        titles: currentlyWatchingItems.map((item) => item.node?.title),
+      });
+    }
+  }, [activeTab, currentlyWatchingItems]);
+
+  // Check MAL Auth Status and load catalogues on Mount
   useEffect(() => {
     checkMalConfig();
     checkMalAuth();
+    loadJikanSeasonalCatalogue();
+    fetchSeasonalList(2026, 'summer');
 
     // Listen for OAuth success message from popup window
     const handleMessage = (event: MessageEvent) => {
@@ -210,6 +238,13 @@ export default function App() {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  // Fetch seasonal list whenever season tab is selected if not already populated
+  useEffect(() => {
+    if (activeTab === 'season' && seasonalList.length === 0 && !seasonalLoading) {
+      fetchSeasonalList(2026, 'summer');
+    }
+  }, [activeTab, seasonalList.length, seasonalLoading]);
 
   const checkMalConfig = async () => {
     try {
@@ -281,53 +316,6 @@ export default function App() {
     } finally {
       setSeasonalLoading(false);
     }
-  };
-
-  // Check if an item in user's MAL list belongs in "My Summer 2026"
-  const isPersonalSummer2026 = (item?: MalListItem): boolean => {
-    if (!item?.node?.id) return false;
-    if (manualPersonalSummerIds.has(item.node.id)) return true;
-    if (!item.list_status) return false;
-
-    const { start_date, finish_date, updated_at, status } = item.list_status;
-
-    const inSummerRange = (dateStr?: string) => {
-      if (!dateStr) return false;
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return false;
-      const start = new Date('2026-06-01T00:00:00Z');
-      const end = new Date('2026-08-31T23:59:59Z');
-      return d >= start && d <= end;
-    };
-
-    if (inSummerRange(start_date)) return true;
-    if (inSummerRange(finish_date)) return true;
-    if ((status === 'watching' || status === 'completed' || status === 'on_hold') && inSummerRange(updated_at)) return true;
-
-    if (start_date && new Date(start_date) <= new Date('2026-08-31T23:59:59Z')) {
-      if (finish_date && new Date(finish_date) >= new Date('2026-06-01T00:00:00Z')) return true;
-      if (status === 'watching') return true;
-    }
-
-    return false;
-  };
-
-  // Filter personal Summer 2026 anime from user's MAL list
-  const personalSummerList = useMemo(() => {
-    return malList.filter((item) => isPersonalSummer2026(item));
-  }, [malList, manualPersonalSummerIds]);
-
-  // Toggle manual personal Summer 2026 status for an anime
-  const toggleManualPersonalSummer = (animeId: number) => {
-    setManualPersonalSummerIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(animeId)) {
-        next.delete(animeId);
-      } else {
-        next.add(animeId);
-      }
-      return next;
-    });
   };
 
   const handleConnectMal = () => {
@@ -850,8 +838,14 @@ export default function App() {
                   MY SEASON — Summer 2026
                 </h2>
                 <p className="text-white/80 font-medium text-xs sm:text-sm mt-1">
-                  A compact view of anime you are currently watching and key split-cour / continuing series.
+                  A compact dashboard of anime you are currently watching during Summer 2026.
                 </p>
+                {malUser && (
+                  <div className="mt-3 inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold text-white border border-white/20">
+                    <UserCheck className="h-3.5 w-3.5 text-emerald-300" />
+                    <span>Authenticated MAL account: <span className="underline font-black">{malUser.name}</span></span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
@@ -867,12 +861,13 @@ export default function App() {
                 <button
                   onClick={() => {
                     if (malUser) fetchMalList();
+                    loadJikanSeasonalCatalogue();
                     fetchSeasonalList(2026, 'summer');
                   }}
-                  disabled={seasonalLoading || malLoading}
+                  disabled={seasonalLoading || malLoading || jikanSeasonLoading}
                   className="bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 px-4 rounded-2xl backdrop-blur-md transition-all flex items-center gap-2 text-xs cursor-pointer"
                 >
-                  <RefreshCw className={`h-4 w-4 ${seasonalLoading || malLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-4 w-4 ${seasonalLoading || malLoading || jikanSeasonLoading ? 'animate-spin' : ''}`} />
                   <span>Refresh Data</span>
                 </button>
               </div>
@@ -899,10 +894,10 @@ export default function App() {
               </div>
             )}
 
-            {/* CATEGORY 1: CURRENTLY WATCHING TABLE */}
+            {/* CURRENTLY WATCHING */}
             <SeasonTable
               title="Currently Watching"
-              subtitle="Anime you are actively watching according to your MyAnimeList"
+              subtitle="Anime from your MyAnimeList account that are airing in Summer 2026."
               icon={<PlayCircle className="h-6 w-6 text-emerald-400" />}
               items={currentlyWatchingItems}
               badgeText="Watching"
@@ -912,18 +907,12 @@ export default function App() {
               onSaveCustomNote={handleSaveCustomNote}
             />
 
-            {/* CATEGORY 2: SPLIT-COUR / CONTINUING TABLE */}
-            <SeasonTable
-              title="Split-Cour / Continuing"
-              subtitle="Multicour anime and ongoing seasonal continuations you are tracking"
-              icon={<Layers className="h-6 w-6 text-purple-400" />}
-              items={splitCourItems}
-              badgeText="Split-Cour"
-              badgeBg="bg-purple-100"
-              badgeTextClass="text-purple-800"
-              isSplitCourSection={true}
-              customUserNotes={customUserNotes}
-              onSaveCustomNote={handleSaveCustomNote}
+            {/* TEMPORARY MY SEASON DIAGNOSTICS PANEL */}
+            <SeasonDiagnosticsPanel
+              malList={malList}
+              currentlyWatchingItems={currentlyWatchingItems}
+              jikanSummer2026Ids={jikanSummer2026Ids}
+              fallbackSummer2026Ids={fallbackSummer2026Ids}
             />
           </div>
         )}
