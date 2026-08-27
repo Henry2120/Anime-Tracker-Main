@@ -1,6 +1,6 @@
 {
   "name": "Anime Tracker",
-  "description": "Anime tracker with MyAnimeList integration and seasonal watching dashboard.",
+  "description": "Anime tracker with MyAnimeList integration, Summer 2026 seasonal watching dashboard, and weekly Release Calendar powered by AniList.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

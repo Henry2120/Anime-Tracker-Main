@@ -95,3 +95,52 @@ export interface SeasonalAnimeItem {
   node: SeasonalAnimeNode;
 }
 
+export interface ReleaseCalendarItem {
+  id: number;
+  malId: number | null;
+  anilistId: number;
+  title: {
+    romaji: string;
+    english: string;
+    native: string;
+    userPreferred: string;
+  };
+  titleEnglish?: string | null;
+  titleNative?: string | null;
+  titleRomaji?: string | null;
+  hasEnglishTitle?: boolean;
+  totalEpisodes?: number | null;
+  displayTitle?: string;
+  episode: number | null;
+  airingAt: number; // unix timestamp in seconds
+  imageUrl: string | null;
+  studio: string | null;
+  format?: string | null;
+  isWatching?: boolean;
+  isUpcoming?: boolean;
+  countdown?: string | null;
+}
+
+export interface ReleaseCalendarFilterState {
+  searchTerm: string;
+  watchingOnly: boolean;
+  hideWithoutEnglishTitle: boolean;
+  hideLongRunning: boolean;
+  showOnlyToday: boolean;
+}
+
+export interface DaySchedule {
+  dateKey: string; // YYYY-MM-DD
+  weekday: string; // MON, TUE, etc.
+  dayNum: string;  // 10, 11, etc.
+  monthName: string; // Aug
+  year: number;
+  items: (ReleaseCalendarItem & {
+    formattedTime: string;
+    isWatching: boolean;
+    displayTitle: string;
+    isUpcoming?: boolean;
+    countdown?: string | null;
+  })[];
+}
+

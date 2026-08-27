@@ -93,12 +93,6 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
     });
   };
 
-  console.log('[SEASON TABLE]', {
-    title,
-    receivedCount: items.length,
-    renderedIds: items.map((item) => item.node?.id),
-  });
-
   return (
     <div className="bg-white rounded-3xl border-2 border-indigo-100/80 shadow-xl overflow-hidden mb-8">
       {/* Table Header Section */}

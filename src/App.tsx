@@ -1,44 +1,38 @@
 import { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import {
-  Sparkles,
-  Loader2,
   AlertCircle,
   RefreshCw,
   UserCheck,
   LogOut,
   ExternalLink,
-  Flame,
   Tv,
   ChevronDown,
   Filter,
   ArrowUpDown,
   Sun,
-  Calendar,
   CalendarDays,
   PlayCircle,
+  BarChart3,
+  CheckCircle2,
 } from 'lucide-react';
-import { Anime, JikanApiResponse, MalUser, MalListItem, SeasonalAnimeItem } from './types';
-import { AnimeCard } from './components/AnimeCard';
+import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
 import { MalAnimeCard } from './components/MalAnimeCard';
-import { SeasonalAnimeCard } from './components/SeasonalAnimeCard';
 import { SeasonTable } from './components/SeasonTable';
-import { SeasonDiagnosticsPanel } from './components/SeasonDiagnosticsPanel';
+import { ReleaseCalendar } from './components/ReleaseCalendar';
+import { StatusDashboard } from './components/StatusDashboard';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
+  fetchCalendarSeasonReleases,
+  isAnimeSummer2026,
+  isCompletedDuringSummer2026,
+  getEarliestFirstEpisodeAiringDate,
   JikanSeasonalAnime,
 } from './utils/seasonUtils';
 
 export default function App() {
-  // Navigation tab state ('top' | 'mal' | 'season')
-  const [activeTab, setActiveTab] = useState<'top' | 'mal' | 'season'>('top');
-
-  // Jikan State
-  const [animeList, setAnimeList] = useState<Anime[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState<boolean>(false);
+  // Navigation tab state ('season' | 'mal' | 'calendar' | 'status')
+  const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status'>('season');
 
   // MAL Auth & List State
   const [malUser, setMalUser] = useState<MalUser | null>(null);
@@ -58,6 +52,9 @@ export default function App() {
   const [jikanSummer2026List, setJikanSummer2026List] = useState<JikanSeasonalAnime[]>([]);
   const [jikanSeasonLoading, setJikanSeasonLoading] = useState<boolean>(false);
   const [fallbackSummer2026Ids, setFallbackSummer2026Ids] = useState<Set<number>>(new Set());
+
+  // Release Calendar Summer 2026 Fallback State
+  const [calendarSummer2026Ids, setCalendarSummer2026Ids] = useState<Set<number>>(new Set());
 
   // Local user notes stored in localStorage
   const [customUserNotes, setCustomUserNotes] = useState<Record<number, string>>(() => {
@@ -103,7 +100,8 @@ export default function App() {
     return ids;
   }, [jikanSummer2026List]);
 
-  // Combined Set of Summer 2026 IDs: Jikan seasonal catalogue + individual Jikan fallback
+  // Combined Set of verified Summer 2026 IDs: Jikan seasonal catalogue + individual Jikan fallback
+  // NOTE: Ongoing airing calendars are strictly excluded from season debut classification.
   const allSummer2026Ids = useMemo(() => {
     const combined = new Set<number>(jikanSummer2026Ids);
     for (const id of fallbackSummer2026Ids) {
@@ -112,8 +110,11 @@ export default function App() {
     return combined;
   }, [jikanSummer2026Ids, fallbackSummer2026Ids]);
 
-  // Build Currently Watching items for MY SEASON:
-  // Strictly: Jikan Summer 2026 anime INTERSECT My MAL anime with status "watching"
+  // Step 1: Currently Watching items (Independent from Summer 2026 debut classification)
+  // An anime is included in Currently Watching when:
+  // 1. MAL list_status.status === 'watching'
+  // AND
+  // 2. It has an active matching entry on the Release Calendar (calendarSummer2026Ids.has(item.node.id))
   const currentlyWatchingItems = useMemo(() => {
     const items: Array<{
       node: any;
@@ -123,11 +124,12 @@ export default function App() {
 
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      // Accept strictly status === 'watching'
+      // 1. MAL watching status is the first condition
       if (item.list_status?.status !== 'watching') continue;
 
-      // Check if MAL ID belongs to the Summer 2026 Jikan set
-      if (!allSummer2026Ids.has(item.node.id)) continue;
+      // 2. Must be actively represented on the Release Calendar
+      const isOnReleaseCalendar = calendarSummer2026Ids.has(item.node.id);
+      if (!isOnReleaseCalendar) continue;
 
       if (!seenIds.has(item.node.id)) {
         seenIds.add(item.node.id);
@@ -139,7 +141,98 @@ export default function App() {
     }
 
     return items;
+  }, [malList, calendarSummer2026Ids]);
+
+  // Step 2: Seasonal start boundary for Summer 2026:
+  // Earliest first-episode airing date among the user's currently-watching Summer 2026 anime.
+  // Uses actual broadcast/airing start date (node.start_date) of Summer 2026 anime, NOT personal MAL list_status.start_date.
+  // Note: Older-season carryovers (e.g. Winter/Spring 2026) are excluded from setting the Summer boundary.
+  const earliestSummer2026AiringDate = useMemo(() => {
+    const summer2026WatchingItems = malList.filter(
+      (item) => item.list_status?.status === 'watching' && isAnimeSummer2026(item.node, allSummer2026Ids)
+    );
+    return getEarliestFirstEpisodeAiringDate(summer2026WatchingItems);
   }, [malList, allSummer2026Ids]);
+
+  // Step 3: Anime completed during Summer 2026:
+  // 1. MAL status === 'completed'
+  // 2. Has a valid completion/finish date (list_status.finish_date)
+  // 3. finish_date >= earliestSummer2026AiringDate (inclusive boundary comparison)
+  // 4. Excludes anime from the immediately preceding season (Spring 2026)
+  const completedSummer2026Items = useMemo(() => {
+    if (!earliestSummer2026AiringDate) {
+      return [];
+    }
+
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
+    const seenIds = new Set<number>();
+
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      if (isCompletedDuringSummer2026(item, earliestSummer2026AiringDate, allSummer2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'completed', score: 0, num_episodes_watched: 0 },
+          });
+        }
+      }
+    }
+
+    // Sort by finish date descending (most recently completed first)
+    items.sort((a, b) => {
+      const dateA = a.list_status?.finish_date || '';
+      const dateB = b.list_status?.finish_date || '';
+      if (dateB !== dateA) {
+        return dateB.localeCompare(dateA);
+      }
+      return (b.list_status?.score || 0) - (a.list_status?.score || 0);
+    });
+
+    return items;
+  }, [malList, earliestSummer2026AiringDate, allSummer2026Ids]);
+
+  // Complete list of MAL anime classified as Summer 2026 across all statuses (for STATUS seasonal dashboard)
+  // Combines currently watching seasonal anime + anime completed in season + other Summer 2026 titles without duplicates
+  const summer2026MalList = useMemo(() => {
+    const items: MalListItem[] = [];
+    const seenIds = new Set<number>();
+
+    // 1. Add all currently watching items
+    for (const item of currentlyWatchingItems) {
+      if (item?.node?.id && !seenIds.has(item.node.id)) {
+        seenIds.add(item.node.id);
+        const original = userMalMap.get(item.node.id);
+        items.push(original || (item as MalListItem));
+      }
+    }
+
+    // 2. Add all completed items during the season
+    for (const item of completedSummer2026Items) {
+      if (item?.node?.id && !seenIds.has(item.node.id)) {
+        seenIds.add(item.node.id);
+        const original = userMalMap.get(item.node.id);
+        items.push(original || (item as MalListItem));
+      }
+    }
+
+    // 3. Include any other Summer 2026 anime in the user's MAL list (e.g. plan to watch, on hold, dropped)
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      if (seenIds.has(item.node.id)) continue;
+      const isSummer = isAnimeSummer2026(item.node, allSummer2026Ids);
+      if (isSummer) {
+        seenIds.add(item.node.id);
+        items.push(item);
+      }
+    }
+
+    return items;
+  }, [malList, currentlyWatchingItems, completedSummer2026Items, allSummer2026Ids, userMalMap]);
 
   // Fetch Jikan Summer 2026 seasonal catalogue
   const loadJikanSeasonalCatalogue = async () => {
@@ -152,6 +245,38 @@ export default function App() {
     } finally {
       setJikanSeasonLoading(false);
     }
+  };
+
+  // Fetch Release Calendar releases for Summer 2026 season window
+  const loadCalendarSeasonalReleases = async () => {
+    try {
+      const malIds = await fetchCalendarSeasonReleases();
+      if (malIds.length > 0) {
+        setCalendarSummer2026Ids((prev) => {
+          const next = new Set(prev);
+          for (const id of malIds) next.add(id);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching calendar seasonal releases fallback:', err);
+    }
+  };
+
+  // Callback to merge IDs whenever the ReleaseCalendar loads/updates schedule data
+  const handleCalendarItemsLoaded = (malIds: number[]) => {
+    if (!Array.isArray(malIds) || malIds.length === 0) return;
+    setCalendarSummer2026Ids((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of malIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   };
 
   // Targeted Fallback: For watching anime not found in the primary Jikan seasonal set,
@@ -194,39 +319,13 @@ export default function App() {
     };
   }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, jikanSeasonLoading]);
 
-  // Diagnostic logging specifically for MAL ID 61126
-  useEffect(() => {
-    const item61126 = malList.find((i) => i?.node?.id === 61126);
-    if (item61126) {
-      console.log('[MY SEASON 61126]', {
-        inMalList: true,
-        malStatus: item61126.list_status?.status,
-        inJikanSeason: jikanSummer2026Ids.has(61126),
-        fallbackJikanYear: 2026,
-        fallbackJikanSeason: 'summer',
-        finalIncluded: currentlyWatchingItems.some((i) => i?.node?.id === 61126),
-      });
-    }
-  }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, currentlyWatchingItems]);
-
-  // Log MY SEASON render input
-  useEffect(() => {
-    if (activeTab === 'season') {
-      console.log('[MY SEASON RENDER INPUT]', {
-        count: currentlyWatchingItems.length,
-        uniqueIdCount: new Set(currentlyWatchingItems.map((item) => item.node?.id)).size,
-        ids: currentlyWatchingItems.map((item) => item.node?.id),
-        titles: currentlyWatchingItems.map((item) => item.node?.title),
-      });
-    }
-  }, [activeTab, currentlyWatchingItems]);
-
   // Check MAL Auth Status and load catalogues on Mount
   useEffect(() => {
     checkMalConfig();
     checkMalAuth();
     loadJikanSeasonalCatalogue();
     fetchSeasonalList(2026, 'summer');
+    loadCalendarSeasonalReleases();
 
     // Listen for OAuth success message from popup window
     const handleMessage = (event: MessageEvent) => {
@@ -356,39 +455,6 @@ export default function App() {
     }
   };
 
-  // Jikan Fetch Function
-  const fetchTopAnime = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('https://api.jikan.moe/v4/top/anime');
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-        }
-        throw new Error(`Failed to load anime data (${response.status})`);
-      }
-
-      const json: JikanApiResponse = await response.json();
-
-      if (!json.data || !Array.isArray(json.data)) {
-        throw new Error('Invalid response received from the anime service.');
-      }
-
-      // Display the first 10 anime
-      const topTen = json.data.slice(0, 10);
-      setAnimeList(topTen);
-      setHasLoaded(true);
-    } catch (err: any) {
-      console.error('Error fetching top anime:', err);
-      setError(err.message || 'An unexpected error occurred while fetching anime.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Filtered and sorted MAL list
   const filteredMalList = malList
     .filter((item) => {
@@ -440,7 +506,7 @@ export default function App() {
               </h1>
             </div>
             <p className="text-slate-500 font-medium text-sm sm:text-base">
-              Discover top anime and sync your MyAnimeList
+              Seasonal anime completion tracker & MyAnimeList synchronization
             </p>
           </div>
 
@@ -484,46 +550,29 @@ export default function App() {
                 <span>Connect MyAnimeList</span>
               </button>
             )}
-
-            {/* Load Anime Button for Jikan */}
-            <button
-              id="load-anime-btn"
-              onClick={fetchTopAnime}
-              disabled={loading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-7 rounded-2xl shadow-[0_4px_0_0_rgba(49,46,129,1)] active:translate-y-[2px] active:shadow-[0_2px_0_0_rgba(49,46,129,1)] transition-all flex items-center gap-2 disabled:opacity-70 disabled:pointer-events-none cursor-pointer tracking-wide text-xs sm:text-sm shrink-0"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>LOADING</span>
-                </>
-              ) : hasLoaded ? (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  <span>RELOAD ANIME</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 text-yellow-300 fill-yellow-300" />
-                  <span>LOAD ANIME</span>
-                </>
-              )}
-            </button>
           </div>
         </header>
 
         {/* View Switcher Tabs */}
         <div className="flex items-center gap-2 mb-8 border-b-2 border-indigo-100 pb-3 overflow-x-auto">
           <button
-            onClick={() => setActiveTab('top')}
+            onClick={() => {
+              setActiveTab('season');
+              if (seasonalList.length === 0 && !seasonalLoading) {
+                fetchSeasonalList(2026, 'summer');
+              }
+            }}
             className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'top'
+              activeTab === 'season'
                 ? 'bg-indigo-900 text-white shadow-md'
                 : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
             }`}
           >
-            <Flame className="h-4 w-4" />
-            <span>TOP 10 ANIME</span>
+            <Sun className="h-4 w-4 text-amber-500" />
+            <span>MY SEASON</span>
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
+              Summer 2026
+            </span>
           </button>
 
           <button
@@ -549,109 +598,38 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => {
-              setActiveTab('season');
-              if (seasonalList.length === 0 && !seasonalLoading) {
-                fetchSeasonalList(2026, 'summer');
-              }
-            }}
+            id="release-calendar-tab-btn"
+            onClick={() => setActiveTab('calendar')}
             className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'season'
+              activeTab === 'calendar'
                 ? 'bg-indigo-900 text-white shadow-md'
                 : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
             }`}
           >
-            <Sun className="h-4 w-4 text-amber-500" />
-            <span>MY SEASON</span>
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
-              Summer 2026
-            </span>
+            <CalendarDays className="h-4 w-4 text-indigo-500" />
+            <span>RELEASE CALENDAR</span>
+          </button>
+
+          <button
+            id="status-tab-btn"
+            onClick={() => {
+              setActiveTab('status');
+              if (malUser && malList.length === 0 && !malLoading) {
+                fetchMalList();
+              }
+            }}
+            className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+              activeTab === 'status'
+                ? 'bg-indigo-900 text-white shadow-md'
+                : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4 text-emerald-500" />
+            <span>STATUS</span>
           </button>
         </div>
 
-        {/* TAB 1: TOP 10 ANIME (JIKAN) */}
-        {activeTab === 'top' && (
-          <div>
-            {/* Error Alert */}
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="max-w-xl mx-auto mb-10 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-900 flex items-start gap-3 shadow-md"
-              >
-                <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
-                <div className="flex-1 text-sm">
-                  <p className="font-bold mb-1">Failed to fetch anime</p>
-                  <p className="text-rose-600">{error}</p>
-                  <button
-                    onClick={fetchTopAnime}
-                    className="mt-3 text-xs font-bold underline text-rose-800 hover:text-rose-950 cursor-pointer"
-                  >
-                    Try again
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Loading Skeleton Grid */}
-            {loading && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-                {Array.from({ length: 10 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="bg-white rounded-3xl p-3 shadow-xl border-2 border-indigo-100 flex flex-col animate-pulse"
-                  >
-                    <div className="w-full aspect-[3/4] bg-indigo-100 rounded-2xl mb-4" />
-                    <div className="h-4 bg-indigo-100 rounded-md w-5/6 mb-2" />
-                    <div className="h-3 bg-indigo-50 rounded-md w-1/2 mb-4" />
-                    <div className="mt-auto pt-3 border-t border-indigo-50 flex justify-between">
-                      <div className="h-3 bg-indigo-100 rounded-md w-1/3" />
-                      <div className="h-3 bg-indigo-100 rounded-md w-1/4" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Empty / Initial State */}
-            {!loading && !hasLoaded && !error && (
-              <div className="text-center py-20 px-6 max-w-md mx-auto bg-white rounded-3xl border-2 border-indigo-100 shadow-xl my-8">
-                <div className="w-14 h-14 rounded-2xl bg-pink-100 border-2 border-pink-200 flex items-center justify-center mx-auto mb-4 text-pink-600 shadow-xs">
-                  <Sparkles className="h-7 w-7" />
-                </div>
-                <h3 className="text-lg font-black text-indigo-900 mb-2">Ready to Discover Anime</h3>
-                <p className="text-slate-500 text-sm font-medium mb-6 leading-relaxed">
-                  Click the "LOAD ANIME" button above to fetch and view the top 10 ranked anime series.
-                </p>
-              </div>
-            )}
-
-            {/* Anime Cards Grid */}
-            {!loading && hasLoaded && animeList.length > 0 && (
-              <AnimatePresence>
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between border-b-2 border-indigo-100 pb-4">
-                    <h2 className="text-lg font-black text-indigo-900 flex items-center gap-2.5">
-                      TOP 10 RANKED ANIME
-                      <span className="text-xs font-black px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">
-                        {animeList.length} ITEMS
-                      </span>
-                    </h2>
-                    <span className="text-xs font-bold text-slate-400">JIKAN V4 API</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-                    {animeList.map((anime, index) => (
-                      <AnimeCard key={anime.mal_id} anime={anime} rank={index + 1} />
-                    ))}
-                  </div>
-                </div>
-              </AnimatePresence>
-            )}
-          </div>
-        )}
-
-        {/* TAB 2: MY MAL LIST */}
+        {/* TAB 1: MY MAL LIST */}
         {activeTab === 'mal' && (
           <div>
             {!malUser ? (
@@ -863,6 +841,7 @@ export default function App() {
                     if (malUser) fetchMalList();
                     loadJikanSeasonalCatalogue();
                     fetchSeasonalList(2026, 'summer');
+                    loadCalendarSeasonalReleases();
                   }}
                   disabled={seasonalLoading || malLoading || jikanSeasonLoading}
                   className="bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 px-4 rounded-2xl backdrop-blur-md transition-all flex items-center gap-2 text-xs cursor-pointer"
@@ -907,12 +886,50 @@ export default function App() {
               onSaveCustomNote={handleSaveCustomNote}
             />
 
-            {/* TEMPORARY MY SEASON DIAGNOSTICS PANEL */}
-            <SeasonDiagnosticsPanel
+            {/* COMPLETED DURING SUMMER 2026 */}
+            <SeasonTable
+              title="Completed During Summer 2026"
+              subtitle={
+                earliestSummer2026AiringDate
+                  ? `Anime completed on or after the earliest 1st-episode airing date of your watching anime (${earliestSummer2026AiringDate}), excluding Spring 2026 titles.`
+                  : `Anime completed on or after the earliest 1st-episode airing date of your currently-watching Summer 2026 anime.`
+              }
+              icon={<CheckCircle2 className="h-6 w-6 text-blue-400" />}
+              items={completedSummer2026Items}
+              badgeText="Completed in Season"
+              badgeBg="bg-blue-100"
+              badgeTextClass="text-blue-800"
+              customUserNotes={customUserNotes}
+              onSaveCustomNote={handleSaveCustomNote}
+            />
+          </div>
+        )}
+
+        {/* RELEASE CALENDAR */}
+        {activeTab === 'calendar' && (
+          <div>
+            <ReleaseCalendar
               malList={malList}
-              currentlyWatchingItems={currentlyWatchingItems}
-              jikanSummer2026Ids={jikanSummer2026Ids}
-              fallbackSummer2026Ids={fallbackSummer2026Ids}
+              malLoading={malLoading}
+              onCalendarItemsLoaded={handleCalendarItemsLoaded}
+            />
+          </div>
+        )}
+
+        {/* STATUS DASHBOARD */}
+        {activeTab === 'status' && (
+          <div>
+            <StatusDashboard
+              malList={malList}
+              summer2026List={summer2026MalList}
+              watchingSummer2026List={currentlyWatchingItems}
+              currentSeasonName="SUMMER 2026"
+              earliestAiringDate={earliestSummer2026AiringDate}
+              malUser={malUser}
+              malLoading={malLoading}
+              malError={malError}
+              onConnectMal={handleConnectMal}
+              onRefreshMal={fetchMalList}
             />
           </div>
         )}
@@ -921,9 +938,9 @@ export default function App() {
       {/* Footer */}
       <footer className="mt-12 max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between border-t-2 border-indigo-100/80 pt-6 text-xs font-bold text-slate-400 gap-4">
         <div className="flex gap-4 text-indigo-300 font-extrabold tracking-wider">
-          <span>TOP ANIME</span>
-          <span>•</span>
           <span>MYANIMELIST OAUTH</span>
+          <span>•</span>
+          <span>RELEASE CALENDAR</span>
         </div>
         <div className="tracking-wider">DATA PROVIDED BY JIKAN V4 & MYANIMELIST V2 API</div>
       </footer>
