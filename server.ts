@@ -3,6 +3,8 @@ import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import path from "path";
 import dotenv from "dotenv";
+import fs from "fs";
+import { DatabaseSync } from "node:sqlite";
 import { createServer as createViteServer } from "vite";
 
 dotenv.config();
@@ -43,8 +45,36 @@ const PORT = 3000;
 app.use(express.json());
 app.use(cookieParser());
 
-// Server-side in-memory session and OAuth state stores
-// Note: Never exposed to client or browser cookies
+// Stateless secure encryption using Node crypto (AES-256-GCM) shared across all Cloud Run instances
+const ENCRYPTION_KEY = crypto.createHash('sha256')
+  .update(process.env.MAL_CLIENT_SECRET || process.env.SESSION_SECRET || 'anime-tracker-fallback-secret-key-2026')
+  .digest();
+
+function encryptData(data: any): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  const jsonStr = JSON.stringify(data);
+  const encrypted = Buffer.concat([cipher.update(jsonStr, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString('base64');
+}
+
+function decryptData(token: string): any {
+  try {
+    const buf = Buffer.from(token, 'base64');
+    if (buf.length < 28) return null;
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const encrypted = buf.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return JSON.parse(decrypted.toString('utf8'));
+  } catch (err) {
+    return null;
+  }
+}
+
 interface SessionData {
   accessToken: string;
   refreshToken: string;
@@ -52,38 +82,54 @@ interface SessionData {
 }
 
 interface PendingOAuthState {
+  state: string;
   codeVerifier: string;
+  redirectUri: string;
   createdAt: number;
 }
 
-const userSessions = new Map<string, SessionData>();
-const pendingStates = new Map<string, PendingOAuthState>();
+interface PendingHandoffTicket {
+  sessionToken: string;
+  expiresAt: number;
+}
 
-// Clean up expired pending OAuth states periodically (older than 10 mins)
+const pendingHandoffTickets = new Map<string, PendingHandoffTicket>();
+
 setInterval(() => {
   const now = Date.now();
-  for (const [state, data] of pendingStates.entries()) {
-    if (now - data.createdAt > 10 * 60 * 1000) {
-      pendingStates.delete(state);
+  for (const [ticket, data] of pendingHandoffTickets.entries()) {
+    if (now > data.expiresAt) {
+      pendingHandoffTickets.delete(ticket);
     }
   }
 }, 5 * 60 * 1000);
 
-// Helper to determine canonical redirect URI
-function getRedirectUri(req: express.Request): string {
-  if (process.env.APP_URL) {
-    const baseUrl = process.env.APP_URL.replace(/\/$/, "");
-    return `${baseUrl}/api/auth/mal/callback`;
+// Helper to extract session token from Authorization header, x-mal-session header, or Cookie
+function getSessionToken(req: express.Request): string | null {
+  const authHeader = req.get("authorization");
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7).trim();
+    if (token && token !== "undefined" && token !== "null" && token !== "false") {
+      return token;
+    }
   }
-  const host = req.get("host");
-  const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
-  return `${protocol}://${host}/api/auth/mal/callback`;
+
+  const customHeader = req.get("x-mal-session");
+  if (customHeader && customHeader !== "undefined" && customHeader !== "null" && customHeader !== "false") {
+    return customHeader.trim();
+  }
+
+  if (req.cookies && req.cookies.mal_session) {
+    return req.cookies.mal_session;
+  }
+
+  return null;
 }
 
 // Helper to get or refresh valid access token for a session
-async function getValidAccessToken(sessionId: string): Promise<string | null> {
-  const session = userSessions.get(sessionId);
-  if (!session) return null;
+async function getValidAccessToken(sessionId: string, res?: express.Response): Promise<string | null> {
+  const session = decryptData(sessionId) as SessionData | null;
+  if (!session || !session.accessToken || !session.refreshToken) return null;
 
   // Check if token is still valid (with 60-second buffer)
   if (Date.now() < session.expiresAt - 60 * 1000) {
@@ -110,24 +156,56 @@ async function getValidAccessToken(sessionId: string): Promise<string | null> {
     });
 
     if (!response.ok) {
-      userSessions.delete(sessionId);
+      console.error("[MAL AUTH] Token refresh failed with status:", response.status);
       return null;
     }
 
     const tokenData = await response.json();
     const newSession: SessionData = {
       accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
+      refreshToken: tokenData.refresh_token || session.refreshToken,
       expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
     };
 
-    userSessions.set(sessionId, newSession);
+    const newSessionToken = encryptData(newSession);
+    if (res) {
+      res.cookie("mal_session", newSessionToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+      res.setHeader("x-mal-session-token", newSessionToken);
+    }
     return newSession.accessToken;
   } catch (err) {
-    console.error("Failed to refresh MAL access token", err);
-    userSessions.delete(sessionId);
+    console.error("[MAL AUTH] Failed to refresh MAL access token", err);
     return null;
   }
+}
+
+// Helper to determine canonical deterministic redirect URI from request host (no MAL_REDIRECT_URI env dependency)
+function getRedirectUri(req: express.Request): string {
+  const host = req.get("x-forwarded-host") || req.get("host") || "";
+
+  if (host.includes("anime-tracker-henry212.ai.studio")) {
+    const publishedUri = "https://anime-tracker-henry212.ai.studio/api/auth/mal/callback";
+    console.log("[MAL AUTH LOGIN] Request host:", host, "| Selected environment: Published | Selected redirect URI:", publishedUri);
+    return publishedUri;
+  }
+
+  if (host.includes("ais-dev-53kvs4wvnwudsoh3n7pd6n-47012425890.asia-southeast1.run.app") || host.includes("run.app") || host.includes("localhost") || host.includes("127.0.0.1")) {
+    const protoHeader = req.get("x-forwarded-proto");
+    const protocol = protoHeader ? protoHeader.split(",")[0].trim() : (req.secure ? "https" : "http");
+    const previewUri = host.includes("ais-dev-53kvs4wvnwudsoh3n7pd6n-47012425890.asia-southeast1.run.app")
+      ? "https://ais-dev-53kvs4wvnwudsoh3n7pd6n-47012425890.asia-southeast1.run.app/api/auth/mal/callback"
+      : `${protocol}://${host}/api/auth/mal/callback`;
+    console.log("[MAL AUTH LOGIN] Request host:", host, "| Selected environment: Preview | Selected redirect URI:", previewUri);
+    return previewUri;
+  }
+
+  console.error("[MAL AUTH LOGIN ERROR] Unrecognized request host:", host);
+  throw new Error(`Unrecognized request host for OAuth redirect: ${host}`);
 }
 
 // ----------------------------------------------------
@@ -147,9 +225,26 @@ app.get("/api/mal/config", (_req, res) => {
 
 // 1. MAL OAuth Login Endpoint
 app.get("/api/mal/login", (req, res) => {
-  const { clientId } = getMalCredentials();
+  console.log("[MAL DEBUG] /api/mal/login requested");
+  const { clientId, isConfigured } = getMalCredentials();
+  
+  let redirectUri: string;
+  try {
+    redirectUri = getRedirectUri(req);
+  } catch (err: any) {
+    console.error(`[MAL DEBUG] /api/mal/login redirect URI error: ${err.message}`);
+    return res.status(500).send(`
+      <html>
+        <body style="font-family: sans-serif; padding: 40px; text-align: center; color: #9f1239;">
+          <h2>OAuth Configuration Error</h2>
+          <p>${err.message}</p>
+        </body>
+      </html>
+    `);
+  }
 
   if (!clientId) {
+    console.error("[MAL DEBUG] /api/mal/login failed: MAL_CLIENT_ID missing");
     return res.status(500).send(`
       <html>
         <body style="font-family: sans-serif; padding: 40px; text-align: center; color: #1e1b4b;">
@@ -164,13 +259,23 @@ app.get("/api/mal/login", (req, res) => {
   const codeVerifier = crypto.randomBytes(64).toString("hex");
   // Generate CSRF state token
   const state = crypto.randomBytes(16).toString("hex");
+  console.log("[MAL DEBUG] /api/mal/login generated PKCE state and verifier");
 
-  pendingStates.set(state, {
+  const pendingState: PendingOAuthState = {
+    state,
     codeVerifier,
+    redirectUri,
     createdAt: Date.now(),
-  });
+  };
 
-  const redirectUri = getRedirectUri(req);
+  const encryptedState = encryptData(pendingState);
+  res.cookie("mal_oauth_state", encryptedState, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    maxAge: 10 * 60 * 1000, // 10 minutes
+  });
+  console.log(`[MAL DEBUG] /api/mal/login state cookie set | redirect_uri: ${redirectUri}`);
 
   // Build OAuth authorization URL with plain code_challenge equal to code_verifier per MAL spec
   const authUrl = new URL("https://myanimelist.net/v1/oauth2/authorize");
@@ -187,8 +292,14 @@ app.get("/api/mal/login", (req, res) => {
 // 2. MAL OAuth Callback Endpoint
 app.get("/api/auth/mal/callback", async (req, res) => {
   const { code, state, error, error_description } = req.query;
+  const hasCode = Boolean(code);
+  const hasState = Boolean(state);
+
+  // Requirement 1: Log when callback is entered
+  console.log(`[MAL DEBUG] /api/auth/mal/callback reached | code_present: ${hasCode} | state_present: ${hasState}`);
 
   if (error) {
+    console.log(`[MAL DEBUG] /api/auth/mal/callback authorization error: ${error_description || error}`);
     return res.status(400).send(`
       <html>
         <body style="font-family: sans-serif; padding: 40px; text-align: center; color: #9f1239;">
@@ -202,22 +313,43 @@ app.get("/api/auth/mal/callback", async (req, res) => {
     `);
   }
 
-  if (typeof state !== "string" || !pendingStates.has(state)) {
+  if (typeof state !== "string") {
+    console.error("[MAL DEBUG] /api/auth/mal/callback state parameter is not a string");
+    return res.status(400).send("Invalid state parameter.");
+  }
+
+  const cookieStateToken = req.cookies.mal_oauth_state;
+  const hasStateCookie = Boolean(cookieStateToken);
+  console.log(`[MAL DEBUG] /api/auth/mal/callback state cookie lookup | cookie_present: ${hasStateCookie}`);
+
+  if (!cookieStateToken) {
+    console.error("[MAL DEBUG] /api/auth/mal/callback state cookie missing or expired");
     return res.status(400).send("Invalid or expired state parameter.");
   }
 
-  const { codeVerifier } = pendingStates.get(state)!;
-  pendingStates.delete(state);
+  const pending = decryptData(cookieStateToken) as PendingOAuthState | null;
+  // Clear cookie immediately (single-use)
+  res.clearCookie("mal_oauth_state", { httpOnly: true, secure: true, sameSite: "none" });
+
+  if (!pending || pending.state !== state || (Date.now() - pending.createdAt > 10 * 60 * 1000)) {
+    console.error(`[MAL DEBUG] /api/auth/mal/callback state validation failed | pending_exists: ${Boolean(pending)} | state_matches: ${pending?.state === state}`);
+    return res.status(400).send("Invalid or expired state parameter.");
+  }
+
+  console.log("[MAL DEBUG] /api/auth/mal/callback state validation succeeded");
+
+  const { codeVerifier, redirectUri } = pending;
 
   if (typeof code !== "string") {
+    console.error("[MAL DEBUG] /api/auth/mal/callback code parameter missing");
     return res.status(400).send("Missing authorization code.");
   }
 
   const { clientId, clientSecret } = getMalCredentials();
   if (!clientId) {
+    console.error("[MAL DEBUG] /api/auth/mal/callback MAL_CLIENT_ID missing");
     return res.status(500).send("MAL Client ID is not configured.");
   }
-  const redirectUri = getRedirectUri(req);
 
   try {
     const params = new URLSearchParams({
@@ -232,35 +364,52 @@ app.get("/api/auth/mal/callback", async (req, res) => {
       params.set("client_secret", clientSecret);
     }
 
+    console.log("[MAL DEBUG] /api/auth/mal/callback exchanging code with MAL...");
     const tokenResponse = await fetch("https://myanimelist.net/v1/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     });
 
+    // Requirement 2: Log exchange success/failure and HTTP status
+    console.log(`[MAL DEBUG] Token exchange response | success: ${tokenResponse.ok} | http_status: ${tokenResponse.status}`);
+
     if (!tokenResponse.ok) {
       const errText = await tokenResponse.text();
-      console.error("MAL Token exchange failed:", errText);
+      console.error(`[MAL DEBUG] Token exchange failed | http_status: ${tokenResponse.status} | body: ${errText}`);
       return res.status(500).send("Failed to exchange code for access token.");
     }
 
     const tokenData = await tokenResponse.json();
 
-    // Create session server-side
-    const sessionId = crypto.randomUUID();
-    userSessions.set(sessionId, {
+    // Create session server-side in encrypted HttpOnly cookie
+    const sessionData: SessionData = {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
-    });
+    };
+    const sessionToken = encryptData(sessionData);
 
-    // Set secure HttpOnly cookie for iframe compatibility
-    res.cookie("mal_session", sessionId, {
+    // Set secure HttpOnly cookie for iframe/standalone compatibility
+    res.cookie("mal_session", sessionToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
+
+    // Generate short-lived, single-use handoff ticket for cross-context / iframe handoff
+    const handoffTicket = crypto.randomBytes(32).toString("hex");
+    pendingHandoffTickets.set(handoffTicket, {
+      sessionToken,
+      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+    });
+
+    // Requirement 3: Log that session was created & boolean indicating session exists
+    console.log("[MAL DEBUG] Authenticated session created and stored | session_exists: true | ticket_generated: true");
+
+    // Requirement 5: Log postMessage / redirect
+    console.log("[MAL DEBUG] Sending callback success response (postMessage MAL_OAUTH_SUCCESS)");
 
     res.send(`
       <!DOCTYPE html>
@@ -282,7 +431,7 @@ app.get("/api/auth/mal/callback", async (req, res) => {
           <script>
             try {
               if (window.opener) {
-                window.opener.postMessage({ type: 'MAL_OAUTH_SUCCESS' }, '*');
+                window.opener.postMessage({ type: 'MAL_OAUTH_SUCCESS', ticket: '${handoffTicket}' }, '*');
                 setTimeout(() => window.close(), 1000);
               } else {
                 window.location.href = '/';
@@ -295,20 +444,64 @@ app.get("/api/auth/mal/callback", async (req, res) => {
       </html>
     `);
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    console.error("[MAL DEBUG] /api/auth/mal/callback unexpected error:", err);
     res.status(500).send("An unexpected error occurred during authentication.");
   }
 });
 
+// 2b. One-Time Ticket Exchange Endpoint
+app.post("/api/mal/session/exchange", (req, res) => {
+  const { ticket } = req.body || {};
+
+  if (typeof ticket !== "string" || !ticket) {
+    console.warn("[MAL DEBUG] /api/mal/session/exchange ticket missing");
+    return res.status(400).json({ error: "Ticket parameter is required" });
+  }
+
+  const handoff = pendingHandoffTickets.get(ticket);
+  if (!handoff) {
+    console.warn("[MAL DEBUG] /api/mal/session/exchange invalid or already consumed ticket");
+    return res.status(401).json({ error: "Invalid or expired handoff ticket" });
+  }
+
+  // Single-use: consume ticket immediately
+  pendingHandoffTickets.delete(ticket);
+
+  if (Date.now() > handoff.expiresAt) {
+    console.warn("[MAL DEBUG] /api/mal/session/exchange ticket expired");
+    return res.status(401).json({ error: "Handoff ticket has expired" });
+  }
+
+  // Set cookie on response as well (for standalone window compatibility)
+  res.cookie("mal_session", handoff.sessionToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  });
+
+  console.log("[MAL DEBUG] /api/mal/session/exchange ticket successfully consumed & sessionToken returned");
+  return res.json({ success: true, sessionToken: handoff.sessionToken });
+});
+
 // 3. Authenticated MAL User Profile Endpoint
 app.get("/api/mal/me", async (req, res) => {
-  const sessionId = req.cookies.mal_session;
+  const sessionId = getSessionToken(req);
+  const hasToken = Boolean(sessionId);
+
+  console.log(`[MAL DEBUG] /api/mal/me request received | session_present: ${hasToken}`);
+
   if (!sessionId) {
+    console.log("[MAL DEBUG] /api/mal/me outcome | session_resolved: false | authenticated: false");
     return res.json({ authenticated: false });
   }
 
-  const accessToken = await getValidAccessToken(sessionId);
+  const accessToken = await getValidAccessToken(sessionId, res);
+  const sessionResolved = Boolean(accessToken);
+  console.log(`[MAL DEBUG] /api/mal/me session resolved: ${sessionResolved}`);
+
   if (!accessToken) {
+    console.log("[MAL DEBUG] /api/mal/me outcome | session_resolved: false | authenticated: false");
     res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
     return res.json({ authenticated: false });
   }
@@ -318,31 +511,35 @@ app.get("/api/mal/me", async (req, res) => {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
+    console.log(`[MAL DEBUG] /api/mal/me profile fetch HTTP status: ${malResponse.status}`);
+
     if (!malResponse.ok) {
       if (malResponse.status === 401) {
-        userSessions.delete(sessionId);
+        console.log("[MAL DEBUG] /api/mal/me outcome | mal_status: 401 | session_resolved: false | authenticated: false");
         res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
         return res.json({ authenticated: false });
       }
+      console.log(`[MAL DEBUG] /api/mal/me outcome | mal_status: ${malResponse.status} | authenticated: false`);
       return res.status(malResponse.status).json({ error: "Failed to fetch MAL profile" });
     }
 
     const userData = await malResponse.json();
+    console.log("[MAL DEBUG] /api/mal/me outcome | session_resolved: true | authenticated: true");
     res.json({ authenticated: true, user: userData });
   } catch (err) {
-    console.error("Error fetching MAL user profile:", err);
+    console.error("[MAL DEBUG] /api/mal/me unexpected error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // 4. Authenticated MAL User Anime List Endpoint
 app.get("/api/mal/animelist", async (req, res) => {
-  const sessionId = req.cookies.mal_session;
+  const sessionId = getSessionToken(req);
   if (!sessionId) {
     return res.status(401).json({ error: "Not authenticated with MyAnimeList" });
   }
 
-  const accessToken = await getValidAccessToken(sessionId);
+  const accessToken = await getValidAccessToken(sessionId, res);
   if (!accessToken) {
     res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
     return res.status(401).json({ error: "Session expired or invalid" });
@@ -393,7 +590,6 @@ app.get("/api/mal/animelist", async (req, res) => {
 
       if (!malResponse.ok) {
         if (malResponse.status === 401) {
-          userSessions.delete(sessionId);
           res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
           return res.status(401).json({ error: "MyAnimeList session expired. Please connect again." });
         }
@@ -437,10 +633,6 @@ app.get("/api/mal/animelist", async (req, res) => {
 
 // 5. Logout / Disconnect Endpoint
 app.post("/api/mal/logout", (req, res) => {
-  const sessionId = req.cookies.mal_session;
-  if (sessionId) {
-    userSessions.delete(sessionId);
-  }
   res.clearCookie("mal_session", {
     httpOnly: true,
     secure: true,
@@ -452,12 +644,12 @@ app.post("/api/mal/logout", (req, res) => {
 // 6. Seasonal Anime Endpoint (with pagination & client-id fallback)
 app.get("/api/mal/season/:year/:season", async (req, res) => {
   const { year, season } = req.params;
-  const sessionId = req.cookies.mal_session;
+  const sessionId = getSessionToken(req);
 
   let headers: Record<string, string> = {};
 
   if (sessionId) {
-    const accessToken = await getValidAccessToken(sessionId);
+    const accessToken = await getValidAccessToken(sessionId, res);
     if (accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
@@ -485,7 +677,6 @@ app.get("/api/mal/season/:year/:season", async (req, res) => {
 
       if (!malResponse.ok) {
         if (malResponse.status === 401 && sessionId) {
-          userSessions.delete(sessionId);
           res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
         }
         // If we already collected items in earlier pages, return them instead of failing completely
@@ -755,21 +946,21 @@ app.get("/api/jikan/anime/:malId", async (req, res) => {
     }
 
     // Secondary fallback: check MAL if available
-    const sessionId = req.cookies.mal_session;
-    let malHeaders: Record<string, string> = {};
+    const sessionId = getSessionToken(req);
+    let headers: Record<string, string> = {};
     if (sessionId) {
-      const accessToken = await getValidAccessToken(sessionId);
-      if (accessToken) malHeaders["Authorization"] = `Bearer ${accessToken}`;
+      const accessToken = await getValidAccessToken(sessionId, res);
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
     }
-    if (!malHeaders["Authorization"] && process.env.MAL_CLIENT_ID) {
-      malHeaders["X-MAL-CLIENT-ID"] = process.env.MAL_CLIENT_ID.trim();
+    if (!headers["Authorization"] && process.env.MAL_CLIENT_ID) {
+      headers["X-MAL-CLIENT-ID"] = process.env.MAL_CLIENT_ID.trim();
     }
 
-    if (Object.keys(malHeaders).length > 0) {
+    if (Object.keys(headers).length > 0) {
       try {
         const malRes = await fetch(
           `https://api.myanimelist.net/v2/anime/${encodeURIComponent(malId)}?fields=start_season,start_date,title`,
-          { headers: malHeaders }
+          { headers }
         );
         if (malRes.ok) {
           const malData = await malRes.json();
@@ -813,11 +1004,11 @@ app.get("/api/jikan/anime/:malId", async (req, res) => {
 // Single Anime Details Endpoint (with fallback / enrichment)
 app.get("/api/mal/anime/:id", async (req, res) => {
   const { id } = req.params;
-  const sessionId = req.cookies.mal_session;
+  const sessionId = getSessionToken(req);
   let headers: Record<string, string> = {};
 
   if (sessionId) {
-    const accessToken = await getValidAccessToken(sessionId);
+    const accessToken = await getValidAccessToken(sessionId, res);
     if (accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }

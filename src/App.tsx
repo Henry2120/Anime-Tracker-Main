@@ -35,6 +35,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status'>('season');
 
   // MAL Auth & List State
+  const [sessionToken, setSessionToken] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('mal_session_token') || null;
+    } catch {
+      return null;
+    }
+  });
   const [malUser, setMalUser] = useState<MalUser | null>(null);
   const [malList, setMalList] = useState<MalListItem[]>([]);
   const [malLoading, setMalLoading] = useState<boolean>(false);
@@ -42,6 +49,17 @@ export default function App() {
   const [malConfigured, setMalConfigured] = useState<boolean>(true);
   const [malFilterStatus, setMalFilterStatus] = useState<string>('all');
   const [malSortOption, setMalSortOption] = useState<string>('title_asc');
+
+  const getAuthHeaders = (token?: string | null): Record<string, string> => {
+    const t = token !== undefined ? token : sessionToken;
+    if (t) {
+      return {
+        Authorization: `Bearer ${t}`,
+        'x-mal-session': t,
+      };
+    }
+    return {};
+  };
 
   // Seasonal Catalogue State (for general seasonal catalogue browsing)
   const [seasonalList, setSeasonalList] = useState<SeasonalAnimeItem[]>([]);
@@ -327,10 +345,15 @@ export default function App() {
     fetchSeasonalList(2026, 'summer');
     loadCalendarSeasonalReleases();
 
-    // Listen for OAuth success message from popup window
+    // Listen for OAuth success message with one-time ticket from popup window
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'MAL_OAUTH_SUCCESS') {
-        checkMalAuth();
+        console.log('[MAL OAUTH] OAuth success message received | ticket_present:', Boolean(event.data?.ticket));
+        if (event.data?.ticket) {
+          exchangeHandoffTicket(event.data.ticket);
+        } else {
+          checkMalAuth();
+        }
       }
     };
 
@@ -357,17 +380,59 @@ export default function App() {
     }
   };
 
-  const checkMalAuth = async () => {
+  const exchangeHandoffTicket = async (ticket: string) => {
+    console.log('[MAL OAUTH] Exchanging handoff ticket...');
     try {
-      const res = await fetch('/api/mal/me');
+      const res = await fetch('/api/mal/session/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket }),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        console.error('[MAL OAUTH] Ticket exchange failed with status:', res.status);
+        checkMalAuth();
+        return;
+      }
+      const data = await res.json();
+      if (data.success && data.sessionToken) {
+        console.log('[MAL OAUTH] Ticket exchange successful, saving session token');
+        setSessionToken(data.sessionToken);
+        try {
+          sessionStorage.setItem('mal_session_token', data.sessionToken);
+        } catch {}
+        checkMalAuth(data.sessionToken);
+      } else {
+        checkMalAuth();
+      }
+    } catch (err) {
+      console.error('[MAL OAUTH] Error during ticket exchange:', err);
+      checkMalAuth();
+    }
+  };
+
+  const checkMalAuth = async (tokenOverride?: string | null) => {
+    const token = tokenOverride !== undefined ? tokenOverride : sessionToken;
+    console.log('[MAL AUTH] /api/mal/me request made | token_attached:', Boolean(token));
+    try {
+      const res = await fetch('/api/mal/me', {
+        credentials: 'include',
+        headers: getAuthHeaders(token),
+      });
+      console.log('[MAL AUTH] /api/mal/me response status:', res.status);
       if (res.ok) {
         const data = await res.json();
+        console.log('[MAL AUTH] /api/mal/me response authenticated:', data.authenticated);
         if (data.authenticated && data.user) {
           setMalUser(data.user);
-          fetchMalList();
+          fetchMalList(token);
         } else {
           setMalUser(null);
           setMalList([]);
+          if (token) {
+            setSessionToken(null);
+            try { sessionStorage.removeItem('mal_session_token'); } catch {}
+          }
         }
       }
     } catch (err) {
@@ -375,15 +440,22 @@ export default function App() {
     }
   };
 
-  const fetchMalList = async () => {
+  const fetchMalList = async (tokenOverride?: string | null) => {
+    const token = tokenOverride !== undefined ? tokenOverride : sessionToken;
+    console.log('[MAL LIST] MAL list reload triggered | token_attached:', Boolean(token));
     setMalLoading(true);
     setMalError(null);
     try {
-      const res = await fetch('/api/mal/animelist');
+      const res = await fetch('/api/mal/animelist', {
+        credentials: 'include',
+        headers: getAuthHeaders(token),
+      });
       if (!res.ok) {
         if (res.status === 401) {
           setMalUser(null);
           setMalList([]);
+          setSessionToken(null);
+          try { sessionStorage.removeItem('mal_session_token'); } catch {}
           throw new Error('MyAnimeList session expired. Please connect again.');
         }
         throw new Error(`Failed to fetch MyAnimeList (${res.status})`);
@@ -403,7 +475,10 @@ export default function App() {
     setSeasonalLoading(true);
     setSeasonalError(null);
     try {
-      const res = await fetch(`/api/mal/season/${year}/${season}`);
+      const res = await fetch(`/api/mal/season/${year}/${season}`, {
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      });
       if (!res.ok) {
         throw new Error(`Failed to fetch seasonal anime (${res.status})`);
       }
@@ -418,6 +493,7 @@ export default function App() {
   };
 
   const handleConnectMal = () => {
+    console.log('[MAL OAUTH] OAuth popup opened');
     if (!malConfigured) {
       setMalError('MAL_CLIENT_ID is not configured in environment variables.');
       return;
@@ -446,12 +522,20 @@ export default function App() {
 
   const handleDisconnectMal = async () => {
     try {
-      await fetch('/api/mal/logout', { method: 'POST' });
+      await fetch('/api/mal/logout', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      });
     } catch {
       // Ignore
     } finally {
       setMalUser(null);
       setMalList([]);
+      setSessionToken(null);
+      try {
+        sessionStorage.removeItem('mal_session_token');
+      } catch {}
     }
   };
 
