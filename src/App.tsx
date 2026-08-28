@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertCircle,
   RefreshCw,
@@ -49,6 +49,11 @@ export default function App() {
   const [malConfigured, setMalConfigured] = useState<boolean>(true);
   const [malFilterStatus, setMalFilterStatus] = useState<string>('all');
   const [malSortOption, setMalSortOption] = useState<string>('title_asc');
+
+  // Race-condition safety refs for MAL Auth
+  const authRequestGenRef = useRef<number>(0);
+  const oauthSuccessReceivedRef = useRef<boolean>(false);
+  const popupTimerRef = useRef<any>(null);
 
   const getAuthHeaders = (token?: string | null): Record<string, string> => {
     const t = token !== undefined ? token : sessionToken;
@@ -349,6 +354,11 @@ export default function App() {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'MAL_OAUTH_SUCCESS') {
         console.log('[MAL OAUTH] OAuth success message received | ticket_present:', Boolean(event.data?.ticket));
+        oauthSuccessReceivedRef.current = true;
+        if (popupTimerRef.current) {
+          clearInterval(popupTimerRef.current);
+          popupTimerRef.current = null;
+        }
         if (event.data?.ticket) {
           exchangeHandoffTicket(event.data.ticket);
         } else {
@@ -358,7 +368,13 @@ export default function App() {
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (popupTimerRef.current) {
+        clearInterval(popupTimerRef.current);
+        popupTimerRef.current = null;
+      }
+    };
   }, []);
 
   // Fetch seasonal list whenever season tab is selected if not already populated
@@ -381,7 +397,13 @@ export default function App() {
   };
 
   const exchangeHandoffTicket = async (ticket: string) => {
-    console.log('[MAL OAUTH] Exchanging handoff ticket...');
+    oauthSuccessReceivedRef.current = true;
+    if (popupTimerRef.current) {
+      clearInterval(popupTimerRef.current);
+      popupTimerRef.current = null;
+    }
+    const handoffGen = ++authRequestGenRef.current;
+    console.log('[MAL OAUTH] Exchanging handoff ticket... | gen:', handoffGen);
     try {
       const res = await fetch('/api/mal/session/exchange', {
         method: 'POST',
@@ -389,12 +411,17 @@ export default function App() {
         body: JSON.stringify({ ticket }),
         credentials: 'include',
       });
+      if (handoffGen !== authRequestGenRef.current) {
+        console.log('[MAL OAUTH] Stale handoff ticket exchange ignored | gen:', handoffGen, '| currentGen:', authRequestGenRef.current);
+        return;
+      }
       if (!res.ok) {
         console.error('[MAL OAUTH] Ticket exchange failed with status:', res.status);
         checkMalAuth();
         return;
       }
       const data = await res.json();
+      if (handoffGen !== authRequestGenRef.current) return;
       if (data.success && data.sessionToken) {
         console.log('[MAL OAUTH] Ticket exchange successful, saving session token');
         setSessionToken(data.sessionToken);
@@ -406,23 +433,30 @@ export default function App() {
         checkMalAuth();
       }
     } catch (err) {
+      if (handoffGen !== authRequestGenRef.current) return;
       console.error('[MAL OAUTH] Error during ticket exchange:', err);
       checkMalAuth();
     }
   };
 
   const checkMalAuth = async (tokenOverride?: string | null) => {
+    const currentGen = ++authRequestGenRef.current;
     const token = tokenOverride !== undefined ? tokenOverride : sessionToken;
-    console.log('[MAL AUTH] /api/mal/me request made | token_attached:', Boolean(token));
+    console.log('[MAL AUTH] /api/mal/me request made | gen:', currentGen, '| token_attached:', Boolean(token));
     try {
       const res = await fetch('/api/mal/me', {
         credentials: 'include',
         headers: getAuthHeaders(token),
       });
-      console.log('[MAL AUTH] /api/mal/me response status:', res.status);
+      console.log('[MAL AUTH] /api/mal/me response status:', res.status, '| gen:', currentGen);
+      if (currentGen !== authRequestGenRef.current) {
+        console.log('[MAL AUTH] Stale checkMalAuth response ignored | gen:', currentGen, '| currentGen:', authRequestGenRef.current);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
-        console.log('[MAL AUTH] /api/mal/me response authenticated:', data.authenticated);
+        console.log('[MAL AUTH] /api/mal/me response authenticated:', data.authenticated, '| gen:', currentGen);
+        if (currentGen !== authRequestGenRef.current) return;
         if (data.authenticated && data.user) {
           setMalUser(data.user);
           fetchMalList(token);
@@ -436,11 +470,13 @@ export default function App() {
         }
       }
     } catch (err) {
+      if (currentGen !== authRequestGenRef.current) return;
       console.error('Error checking MAL authentication:', err);
     }
   };
 
   const fetchMalList = async (tokenOverride?: string | null) => {
+    const currentGen = authRequestGenRef.current;
     const token = tokenOverride !== undefined ? tokenOverride : sessionToken;
     console.log('[MAL LIST] MAL list reload triggered | token_attached:', Boolean(token));
     setMalLoading(true);
@@ -450,6 +486,10 @@ export default function App() {
         credentials: 'include',
         headers: getAuthHeaders(token),
       });
+      if (currentGen !== authRequestGenRef.current) {
+        console.log('[MAL LIST] Stale fetchMalList response ignored | gen:', currentGen);
+        return;
+      }
       if (!res.ok) {
         if (res.status === 401) {
           setMalUser(null);
@@ -461,12 +501,16 @@ export default function App() {
         throw new Error(`Failed to fetch MyAnimeList (${res.status})`);
       }
       const data = await res.json();
+      if (currentGen !== authRequestGenRef.current) return;
       setMalList(data.data || []);
     } catch (err: any) {
+      if (currentGen !== authRequestGenRef.current) return;
       console.error('Error fetching MAL anime list:', err);
       setMalError(err.message || 'Failed to load MyAnimeList');
     } finally {
-      setMalLoading(false);
+      if (currentGen === authRequestGenRef.current) {
+        setMalLoading(false);
+      }
     }
   };
 
@@ -498,6 +542,15 @@ export default function App() {
       setMalError('MAL_CLIENT_ID is not configured in environment variables.');
       return;
     }
+
+    oauthSuccessReceivedRef.current = false;
+    authRequestGenRef.current++; // Invalidate any pre-login auth checks
+
+    if (popupTimerRef.current) {
+      clearInterval(popupTimerRef.current);
+      popupTimerRef.current = null;
+    }
+
     const width = 600;
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
@@ -509,18 +562,32 @@ export default function App() {
       `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,status=yes`
     );
 
-    // Fallback polling if popup closed
+    // Fallback polling if popup closed manually without OAuth postMessage
     if (popup) {
-      const timer = setInterval(() => {
+      popupTimerRef.current = setInterval(() => {
         if (popup.closed) {
-          clearInterval(timer);
-          checkMalAuth();
+          if (popupTimerRef.current) {
+            clearInterval(popupTimerRef.current);
+            popupTimerRef.current = null;
+          }
+          if (!oauthSuccessReceivedRef.current) {
+            console.log('[MAL OAUTH] Popup closed without OAuth success postMessage, checking auth fallback');
+            checkMalAuth();
+          } else {
+            console.log('[MAL OAUTH] Popup closed after OAuth success already handled');
+          }
         }
       }, 1000);
     }
   };
 
   const handleDisconnectMal = async () => {
+    oauthSuccessReceivedRef.current = false;
+    authRequestGenRef.current++;
+    if (popupTimerRef.current) {
+      clearInterval(popupTimerRef.current);
+      popupTimerRef.current = null;
+    }
     try {
       await fetch('/api/mal/logout', {
         method: 'POST',
