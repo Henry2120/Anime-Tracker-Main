@@ -14,12 +14,14 @@ import {
   PlayCircle,
   BarChart3,
   CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { SeasonTable } from './components/SeasonTable';
 import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
+import { GeminiInsightsView } from './components/GeminiInsightsView';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -31,8 +33,8 @@ import {
 } from './utils/seasonUtils';
 
 export default function App() {
-  // Navigation tab state ('season' | 'mal' | 'calendar' | 'status')
-  const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status'>('season');
+  // Navigation tab state ('season' | 'mal' | 'calendar' | 'status' | 'gemini')
+  const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status' | 'gemini'>('season');
 
   // MAL Auth & List State
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
@@ -384,6 +386,13 @@ export default function App() {
     }
   }, [activeTab, seasonalList.length, seasonalLoading]);
 
+  // Ensure Gemini tab is not active if user is logged out
+  useEffect(() => {
+    if (!malUser && activeTab === 'gemini') {
+      setActiveTab('season');
+    }
+  }, [malUser, activeTab]);
+
   const checkMalConfig = async () => {
     try {
       const res = await fetch('/api/mal/config');
@@ -653,11 +662,11 @@ export default function App() {
                 A
               </div>
               <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-indigo-900">
-                ANITRACK
+                ANIVERSE
               </h1>
             </div>
             <p className="text-slate-500 font-medium text-sm sm:text-base">
-              Seasonal anime completion tracker & MyAnimeList synchronization
+              Your Anime. Your Journey. Your Insights.
             </p>
           </div>
 
@@ -778,6 +787,26 @@ export default function App() {
             <BarChart3 className="h-4 w-4 text-emerald-500" />
             <span>STATUS</span>
           </button>
+
+          {malUser && (
+            <button
+              id="gemini-tab-btn"
+              onClick={() => {
+                setActiveTab('gemini');
+                if (malUser && malList.length === 0 && !malLoading) {
+                  fetchMalList();
+                }
+              }}
+              className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+                activeTab === 'gemini'
+                  ? 'bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-950 text-white shadow-md border-2 border-amber-400/50'
+                  : 'bg-white text-slate-700 border border-indigo-100 hover:bg-indigo-50'
+              }`}
+            >
+              <Sparkles className="h-4 w-4 text-amber-400 animate-pulse" />
+              <span>✨ GEMINI</span>
+            </button>
+          )}
         </div>
 
         {/* TAB 1: MY MAL LIST */}
@@ -1081,6 +1110,21 @@ export default function App() {
               malError={malError}
               onConnectMal={handleConnectMal}
               onRefreshMal={fetchMalList}
+            />
+          </div>
+        )}
+
+        {/* GEMINI INSIGHTS TAB */}
+        {activeTab === 'gemini' && malUser && (
+          <div>
+            <GeminiInsightsView
+              malList={malList}
+              summer2026List={summer2026MalList}
+              watchingSummer2026List={currentlyWatchingItems}
+              currentSeasonName="SUMMER 2026"
+              malUser={malUser}
+              malLoading={malLoading}
+              onConnectMal={handleConnectMal}
             />
           </div>
         )}

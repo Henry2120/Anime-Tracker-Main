@@ -86,7 +86,7 @@ const GENRE_PALETTE = [
 ];
 
 // Reusable calculation helper for statistics
-function computeAnimeStats(
+export function computeAnimeStats(
   items: MalListItem[],
   options?: {
     customGenreItems?: Array<{ node?: any; list_status?: any }>;
@@ -322,6 +322,14 @@ export function StatusDashboard({
   const [showAllOverallWatching, setShowAllOverallWatching] = useState<boolean>(false);
   const [selectedAnimeForModal, setSelectedAnimeForModal] = useState<AnimeDetailData | null>(null);
 
+  // Gemini Insights state
+  const [geminiLoading, setGeminiLoading] = useState<boolean>(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const [geminiData, setGeminiData] = useState<{
+    summaryHeadline: string;
+    insights: (string | { category: string; insight: string })[];
+  } | null>(null);
+
   const effectiveAiringDate = earliestAiringDate || earliestStartDate;
 
   const handleOpenAnimeModal = useCallback((item: MalListItem) => {
@@ -387,6 +395,73 @@ export function StatusDashboard({
   const overallStats = useMemo(() => {
     return computeAnimeStats(malList);
   }, [malList]);
+
+  // Gemini Insights Analysis Handler
+  const handleAnalyzeWatching = useCallback(async () => {
+    setGeminiLoading(true);
+    setGeminiError(null);
+
+    try {
+      const statsPayload = {
+        overall: {
+          totalAnime: overallStats.totalAnime,
+          completedCount: overallStats.completedCount,
+          watchingCount: overallStats.watchingCount,
+          planToWatchCount: overallStats.ptwCount,
+          onHoldCount: overallStats.onHoldCount,
+          droppedCount: overallStats.droppedCount,
+          totalEpisodesWatched: overallStats.totalEpisodesWatched,
+          averageScore: overallStats.avgScore,
+          mostCommonScore: overallStats.mostCommonScore,
+          topGenres: overallStats.topGenres.map((g) => ({ genre: g.name, count: g.count })),
+          currentlyWatchingTitles: overallStats.watchingList.slice(0, 10).map((w) => w.item.node?.title).filter(Boolean),
+          topRatedTitles: overallStats.topRated.slice(0, 5).map((t) => ({ title: t.node?.title, score: t.list_status?.score })).filter((t) => t.title),
+        },
+        currentSeason: {
+          seasonName: currentSeasonName,
+          totalAnimeTracked: seasonalStats.totalAnime,
+          watchingCount: seasonalStats.watchingCount,
+          completedCount: seasonalStats.completedCount,
+          totalEpisodesWatched: seasonalStats.totalEpisodesWatched,
+          averageScore: seasonalStats.avgScore,
+        },
+      };
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = sessionStorage.getItem('mal_session_token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['x-mal-session'] = token;
+      }
+
+      const res = await fetch('/api/gemini/insights', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ statsData: statsPayload }),
+      });
+
+      if (!res.ok) {
+        setGeminiError('Gemini Insights is currently unavailable.');
+        return;
+      }
+
+      const data = await res.json();
+      if (data && data.available) {
+        setGeminiData({
+          summaryHeadline: data.summaryHeadline || 'Your Anime Journey',
+          insights: Array.isArray(data.insights) ? data.insights : [data.insights],
+        });
+      } else {
+        setGeminiError(data?.message || 'Gemini Insights is currently unavailable.');
+      }
+    } catch (err) {
+      console.error('[GEMINI INSIGHTS] Request error:', err);
+      setGeminiError('Gemini Insights is currently unavailable.');
+    } finally {
+      setGeminiLoading(false);
+    }
+  }, [overallStats, seasonalStats, currentSeasonName]);
 
   // Not connected state
   if (!malUser && !malLoading) {
@@ -508,6 +583,108 @@ export function StatusDashboard({
 
       {!malLoading && malList.length > 0 && (
         <>
+          {/* GEMINI INSIGHTS CARD */}
+          {malUser && (
+            <div className="bg-gradient-to-br from-indigo-900 via-purple-950 to-slate-950 text-white rounded-3xl p-6 sm:p-8 border-2 border-indigo-500/40 shadow-2xl space-y-5 relative overflow-hidden">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-700/50 pb-5 relative z-10">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
+                    <span className="text-[11px] font-black tracking-widest uppercase bg-amber-400/20 text-amber-300 border border-amber-400/30 px-3 py-0.5 rounded-full backdrop-blur-md">
+                      GEMINI INSIGHT
+                    </span>
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                    Your Anime Journey
+                  </h3>
+                </div>
+
+                <button
+                  onClick={handleAnalyzeWatching}
+                  disabled={geminiLoading}
+                  className="bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-500 hover:opacity-95 text-slate-950 font-black px-6 py-3 rounded-2xl shadow-lg transition-all flex items-center gap-2 text-sm cursor-pointer self-start sm:self-auto shrink-0 active:scale-95 disabled:opacity-60"
+                >
+                  <Sparkles className={`h-4 w-4 ${geminiLoading ? 'animate-spin' : ''}`} />
+                  <span>{geminiLoading ? 'Analyzing...' : geminiData ? 'Re-analyze Watching' : '✨ Analyze My Watching'}</span>
+                </button>
+              </div>
+
+              <div className="relative z-10">
+                {geminiLoading && (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/10 text-amber-300 backdrop-blur-md animate-bounce">
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <p className="text-sm font-bold text-indigo-200">
+                      Analyzing your anime watching patterns with Gemini...
+                    </p>
+                  </div>
+                )}
+
+                {!geminiLoading && geminiError && (
+                  <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-sm font-bold flex items-center gap-2">
+                    <span>{geminiError}</span>
+                  </div>
+                )}
+
+                {!geminiLoading && !geminiError && geminiData && (
+                  <div className="space-y-4">
+                    <p className="text-base sm:text-lg font-bold text-amber-200 italic border-l-4 border-amber-400 pl-4 py-1">
+                      "{geminiData.summaryHeadline}"
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                      {geminiData.insights.map((item, idx) => {
+                        const category = typeof item === 'object' && item !== null ? item.category : null;
+                        const text = typeof item === 'object' && item !== null ? item.insight : item;
+                        return (
+                          <div
+                            key={idx}
+                            className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 text-xs sm:text-sm font-medium text-slate-100 leading-relaxed flex items-start gap-3 shadow-xs hover:bg-white/15 transition-colors"
+                          >
+                            <div className="p-1.5 rounded-xl bg-amber-400/20 text-amber-300 shrink-0 mt-0.5">
+                              <Sparkles className="h-4 w-4" />
+                            </div>
+                            <div>
+                              {category && (
+                                <div className="text-[10px] font-black uppercase tracking-wider text-amber-300 mb-0.5">
+                                  ✦ {category}
+                                </div>
+                              )}
+                              <div>{text}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {!geminiLoading && !geminiError && !geminiData && (
+                  <div className="py-4">
+                    <p className="text-slate-200 text-sm sm:text-base font-medium italic border-l-4 border-indigo-400 pl-4 py-1 leading-relaxed">
+                      "{seasonalStats.totalAnime > 0
+                        ? `You watched ${seasonalStats.totalAnime} anime this season, with an average score of ${seasonalStats.avgScore || 'N/A'}/10. ${overallStats.topGenres[0] ? `${overallStats.topGenres[0].name} and ${overallStats.topGenres[1]?.name || 'Action'} are among your most watched genres.` : ''}`
+                        : overallStats.totalAnime > 0
+                        ? `You have ${overallStats.totalAnime} total anime in your list with an average score of ${overallStats.avgScore || 'N/A'}/10.`
+                        : 'Click Analyze My Watching to generate personalized insights about your viewing habits!'}"
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-indigo-800/40 flex items-center justify-between text-[11px] font-extrabold text-indigo-300/80 relative z-10">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Powered by Gemini</span>
+                </div>
+                <span>AI Analytics Engine</span>
+              </div>
+            </div>
+          )}
+
           {/* ========================================================================= */}
           {/* SECTION 1: SUMMER 2026 SEASONAL DASHBOARD (FIRST / VISUALLY PROMINENT)     */}
           {/* ========================================================================= */}

@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import { DatabaseSync } from "node:sqlite";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
@@ -1242,6 +1243,137 @@ app.get("/api/release-calendar", async (req, res) => {
     return res.status(502).json({
       error: "Unable to load the release schedule. Please try again.",
       details: err.message || String(err),
+    });
+  }
+});
+
+// ----------------------------------------------------
+// GEMINI INSIGHTS ENDPOINT
+// ----------------------------------------------------
+function getGeminiClient() {
+  dotenv.config({ override: true });
+  dotenv.config({ path: ".env.local", override: true });
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || typeof key !== "string" || key.trim() === "" || key.trim() === "MY_GEMINI_API_KEY") {
+    return null;
+  }
+  return new GoogleGenAI({
+    apiKey: key.trim(),
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+app.post("/api/gemini/insights", async (req, res) => {
+  try {
+    const sessionId = getSessionToken(req);
+    if (!sessionId) {
+      return res.status(401).json({ error: "Unauthorized: MyAnimeList authentication required" });
+    }
+    const accessToken = await getValidAccessToken(sessionId, res);
+    if (!accessToken) {
+      return res.status(401).json({ error: "Unauthorized: Session expired or invalid" });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      console.warn("[GEMINI INSIGHTS] Gemini API key not configured or unavailable");
+      return res.status(503).json({
+        available: false,
+        message: "Gemini Insights is currently unavailable."
+      });
+    }
+
+    const { statsData } = req.body || {};
+    if (!statsData) {
+      return res.status(400).json({ error: "Missing anime stats data for analysis" });
+    }
+
+    const prompt = `Here is the user's structured anime watching data:\n${JSON.stringify(statsData, null, 2)}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are an anime-watching analytics assistant. Analyze the structured anime-watching data provided by the user. Identify meaningful patterns involving genres, scores, completion behavior, seasonal watching, episode counts, and currently watching titles. Return 2–4 concise and interesting personalized insights. Every claim must be supported by the supplied data. Never invent information. Do not simply repeat raw statistics; explain what they suggest about the user's viewing habits.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summaryHeadline: {
+              type: Type.STRING,
+              description: "A short natural 1-sentence headline summary of the user's viewing profile."
+            },
+            insights: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  category: {
+                    type: Type.STRING,
+                    description: "A short 2-3 word category title in UPPERCASE (e.g., 'YOUR TOP GENRE', 'YOUR SCORING STYLE', 'WATCHING HABITS', 'SEASONAL FOCUS')"
+                  },
+                  insight: {
+                    type: Type.STRING,
+                    description: "The concise personalized insight text."
+                  }
+                },
+                required: ["category", "insight"]
+              },
+              description: "2 to 4 structured personalized insights explaining viewing habits, genre preferences, scoring patterns, or completion behavior."
+            }
+          },
+          required: ["summaryHeadline", "insights"]
+        }
+      }
+    });
+
+    const outputText = response.text;
+    if (!outputText) {
+      return res.status(502).json({
+        available: false,
+        message: "Gemini Insights is currently unavailable."
+      });
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(outputText);
+    } catch {
+      parsed = {
+        summaryHeadline: "Your Anime Journey",
+        insights: [{ category: "ANIME JOURNEY", insight: outputText }]
+      };
+    }
+
+    const structuredInsights = Array.isArray(parsed.insights)
+      ? parsed.insights.map((item: any, idx: number) => {
+          if (typeof item === 'object' && item !== null && item.insight) {
+            return {
+              category: item.category || `INSIGHT ${idx + 1}`,
+              insight: item.insight,
+            };
+          }
+          return {
+            category: `INSIGHT ${idx + 1}`,
+            insight: typeof item === 'string' ? item : String(item),
+          };
+        })
+      : [{ category: "ANIME JOURNEY", insight: outputText }];
+
+    return res.json({
+      available: true,
+      summaryHeadline: parsed.summaryHeadline || "Your Anime Journey",
+      insights: structuredInsights,
+    });
+  } catch (err: any) {
+    console.error("[GEMINI INSIGHTS] Failed to generate insights:", err);
+    return res.status(500).json({
+      available: false,
+      message: "Gemini Insights is currently unavailable."
     });
   }
 });
