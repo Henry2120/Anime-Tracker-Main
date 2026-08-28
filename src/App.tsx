@@ -319,6 +319,18 @@ export default function App() {
     };
   }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, jikanSeasonLoading]);
 
+  // Helper to construct MAL auth headers from stored token
+  const getMalAuthHeaders = (explicitToken?: string | null): HeadersInit => {
+    const token = explicitToken || localStorage.getItem('mal_session_token');
+    if (token && token !== 'null' && token !== 'undefined') {
+      return {
+        Authorization: `Bearer ${token}`,
+        'x-mal-session': token,
+      };
+    }
+    return {};
+  };
+
   // Check MAL Auth Status and load catalogues on Mount
   useEffect(() => {
     checkMalConfig();
@@ -327,10 +339,50 @@ export default function App() {
     fetchSeasonalList(2026, 'summer');
     loadCalendarSeasonalReleases();
 
-    // Listen for OAuth success message from popup window
-    const handleMessage = (event: MessageEvent) => {
+    // Listen for OAuth success message from popup window with strict origin validation and secure handoff
+    const handleMessage = async (event: MessageEvent) => {
+      // Validate origin: accept messages from production domain, current window origin, or Google AI Studio domains
+      const origin = event.origin;
+      const isOriginAllowed =
+        origin === window.location.origin ||
+        origin === "https://anime-tracker-henry212.ai.studio" ||
+        origin.endsWith(".run.app") ||
+        origin.endsWith(".aistudio.google.com") ||
+        origin.endsWith(".ai.studio");
+
+      if (!isOriginAllowed) {
+        return;
+      }
+
       if (event.data?.type === 'MAL_OAUTH_SUCCESS') {
-        checkMalAuth();
+        const handoffTicket = event.data.handoffTicket;
+        if (handoffTicket && typeof handoffTicket === 'string') {
+          try {
+            // Exchange single-use handoff ticket with the local environment backend
+            const res = await fetch('/api/mal/handoff', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ handoffTicket }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.sessionToken) {
+                localStorage.setItem('mal_session_token', data.sessionToken);
+              }
+              checkMalAuth(data.sessionToken);
+              return;
+            }
+          } catch (err) {
+            console.error('Handoff exchange error:', err);
+          }
+        }
+
+        // Fallback for direct production session token
+        const token = event.data.sessionToken;
+        if (token && typeof token === 'string') {
+          localStorage.setItem('mal_session_token', token);
+          checkMalAuth(token);
+        }
       }
     };
 
@@ -357,15 +409,22 @@ export default function App() {
     }
   };
 
-  const checkMalAuth = async () => {
+  const checkMalAuth = async (providedToken?: string | null) => {
     try {
-      const res = await fetch('/api/mal/me');
+      const headers = getMalAuthHeaders(providedToken);
+      const res = await fetch('/api/mal/me', { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated && data.user) {
+          if (data.sessionToken && typeof data.sessionToken === 'string') {
+            localStorage.setItem('mal_session_token', data.sessionToken);
+          } else if (providedToken) {
+            localStorage.setItem('mal_session_token', providedToken);
+          }
           setMalUser(data.user);
-          fetchMalList();
+          fetchMalList(data.sessionToken || providedToken);
         } else {
+          localStorage.removeItem('mal_session_token');
           setMalUser(null);
           setMalList([]);
         }
@@ -375,13 +434,15 @@ export default function App() {
     }
   };
 
-  const fetchMalList = async () => {
+  const fetchMalList = async (explicitToken?: string | null) => {
     setMalLoading(true);
     setMalError(null);
     try {
-      const res = await fetch('/api/mal/animelist');
+      const headers = getMalAuthHeaders(explicitToken);
+      const res = await fetch('/api/mal/animelist', { headers });
       if (!res.ok) {
         if (res.status === 401) {
+          localStorage.removeItem('mal_session_token');
           setMalUser(null);
           setMalList([]);
           throw new Error('MyAnimeList session expired. Please connect again.');
@@ -399,11 +460,12 @@ export default function App() {
   };
 
   // Fetch Seasonal Anime List from MAL (Summer 2026)
-  const fetchSeasonalList = async (year = 2026, season = 'summer') => {
+  const fetchSeasonalList = async (year = 2026, season = 'summer', explicitToken?: string | null) => {
     setSeasonalLoading(true);
     setSeasonalError(null);
     try {
-      const res = await fetch(`/api/mal/season/${year}/${season}`);
+      const headers = getMalAuthHeaders(explicitToken);
+      const res = await fetch(`/api/mal/season/${year}/${season}`, { headers });
       if (!res.ok) {
         throw new Error(`Failed to fetch seasonal anime (${res.status})`);
       }
@@ -446,10 +508,12 @@ export default function App() {
 
   const handleDisconnectMal = async () => {
     try {
-      await fetch('/api/mal/logout', { method: 'POST' });
+      const headers = getMalAuthHeaders();
+      await fetch('/api/mal/logout', { method: 'POST', headers });
     } catch {
       // Ignore
     } finally {
+      localStorage.removeItem('mal_session_token');
       setMalUser(null);
       setMalList([]);
     }
