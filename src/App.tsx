@@ -22,6 +22,7 @@ import { SeasonTable } from './components/SeasonTable';
 import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
 import { GeminiInsightsView } from './components/GeminiInsightsView';
+import { WelcomePage } from './components/WelcomePage';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -652,370 +653,346 @@ export default function App() {
     });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 text-slate-800 font-sans antialiased p-4 sm:p-8 flex flex-col justify-between">
-      <div className="max-w-7xl w-full mx-auto">
-        {/* Header Section */}
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-6 border-b border-indigo-100/60 pb-8">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 bg-pink-500 rounded-lg flex items-center justify-center text-white font-black italic shadow-xs">
-                A
-              </div>
-              <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-indigo-900">
-                ANIVERSE
-              </h1>
-            </div>
-            <p className="text-slate-500 font-medium text-sm sm:text-base">
-              Your Anime. Your Journey. Your Insights.
-            </p>
+    <div className="min-h-screen bg-[#F7F5F2] text-[#25242A] font-sans antialiased flex flex-col justify-between">
+      {/* MINIMAL TOP NAVIGATION BAR */}
+      <header className="sticky top-0 z-40 bg-white border-b border-[#E7E3DF] shadow-2xs px-4 sm:px-8 py-3">
+        <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
+          {/* BRAND */}
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('season')}>
+            <span className="text-[#7567C7] text-lg font-bold">✦</span>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] flex items-center gap-2">
+              <span>ANIME TRACKER</span>
+              <span className="text-[11px] font-medium text-[#77747D] tracking-wider hidden md:inline-block">
+                アニメトラッカー
+              </span>
+            </h1>
           </div>
 
-          {/* Top Right Action & Auth Indicator */}
+          {/* DESKTOP TOP NAV TABS */}
+          {malUser && (
+            <nav className="hidden md:flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setActiveTab('season');
+                  if (seasonalList.length === 0 && !seasonalLoading) {
+                    fetchSeasonalList(2026, 'summer');
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'season'
+                    ? 'bg-[#F0EDFA] text-[#7567C7]'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                }`}
+              >
+                <Sun className="h-4 w-4 text-[#C69A55]" />
+                <span>MY SEASON</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('mal');
+                  if (malUser && malList.length === 0 && !malLoading) {
+                    fetchMalList();
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'mal'
+                    ? 'bg-[#F0EDFA] text-[#7567C7]'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                }`}
+              >
+                <Tv className="h-4 w-4" />
+                <span>MY LIST</span>
+                {malList.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-[#7567C7]/10 text-[#7567C7] text-[10px] font-bold">
+                    {malList.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                id="release-calendar-tab-btn"
+                onClick={() => setActiveTab('calendar')}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'calendar'
+                    ? 'bg-[#F0EDFA] text-[#7567C7]'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                }`}
+              >
+                <CalendarDays className="h-4 w-4 text-[#7567C7]" />
+                <span>CALENDAR</span>
+              </button>
+
+              <button
+                id="status-tab-btn"
+                onClick={() => {
+                  setActiveTab('status');
+                  if (malUser && malList.length === 0 && !malLoading) {
+                    fetchMalList();
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'status'
+                    ? 'bg-[#F0EDFA] text-[#7567C7]'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                }`}
+              >
+                <BarChart3 className="h-4 w-4 text-[#6D9B7C]" />
+                <span>STATISTICS</span>
+              </button>
+
+              <button
+                id="gemini-tab-btn"
+                onClick={() => {
+                  setActiveTab('gemini');
+                  if (malUser && malList.length === 0 && !malLoading) {
+                    fetchMalList();
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'gemini'
+                    ? 'bg-[#F0EDFA] text-[#7567C7] border border-[#7567C7]/30'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                }`}
+              >
+                <Sparkles className="h-4 w-4 text-[#C69A55]" />
+                <span>✨ AI</span>
+              </button>
+            </nav>
+          )}
+
+          {/* RIGHT ACTION / USER PROFILE */}
           <div className="flex items-center gap-3">
             {malUser ? (
-              <div className="flex items-center gap-3 bg-white border-2 border-indigo-100 rounded-2xl p-1.5 pr-4 shadow-sm">
+              <div className="flex items-center gap-3 bg-white border border-[#E7E3DF] rounded-xl px-3 py-1.5 shadow-2xs">
                 {malUser.picture ? (
                   <img
                     src={malUser.picture}
                     alt={malUser.name}
-                    className="w-8 h-8 rounded-xl object-cover"
+                    className="w-7 h-7 rounded-lg object-cover"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-xs">
+                  <div className="w-7 h-7 rounded-lg bg-[#F0EDFA] flex items-center justify-center text-[#7567C7] font-bold text-xs">
                     {malUser.name.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div className="text-left">
-                  <div className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-500 flex items-center gap-1">
-                    <UserCheck className="h-3 w-3" /> Connected
-                  </div>
-                  <div className="text-xs font-black text-slate-900 leading-none">
+                  <div className="text-xs font-semibold text-[#25242A] leading-none flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#6D9B7C]" />
                     {malUser.name}
                   </div>
                 </div>
                 <button
                   onClick={handleDisconnectMal}
                   title="Disconnect MyAnimeList"
-                  className="ml-2 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                  className="ml-1 text-[#77747D] hover:text-[#C77B82] transition-colors cursor-pointer"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
               <button
                 onClick={handleConnectMal}
-                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-3 px-5 rounded-2xl border-2 border-indigo-200/80 transition-all flex items-center gap-2 text-xs sm:text-sm cursor-pointer"
+                className="bg-[#7567C7] hover:bg-[#6455b8] text-white font-medium py-2 px-4 rounded-xl transition-all flex items-center gap-2 text-xs sm:text-sm cursor-pointer shadow-2xs"
               >
-                <ExternalLink className="h-4 w-4 text-indigo-600" />
+                <ExternalLink className="h-4 w-4" />
                 <span>Connect MyAnimeList</span>
               </button>
             )}
           </div>
-        </header>
-
-        {/* View Switcher Tabs */}
-        <div className="flex items-center gap-2 mb-8 border-b-2 border-indigo-100 pb-3 overflow-x-auto">
-          <button
-            onClick={() => {
-              setActiveTab('season');
-              if (seasonalList.length === 0 && !seasonalLoading) {
-                fetchSeasonalList(2026, 'summer');
-              }
-            }}
-            className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'season'
-                ? 'bg-indigo-900 text-white shadow-md'
-                : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
-            }`}
-          >
-            <Sun className="h-4 w-4 text-amber-500" />
-            <span>MY SEASON</span>
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
-              Summer 2026
-            </span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveTab('mal');
-              if (malUser && malList.length === 0 && !malLoading) {
-                fetchMalList();
-              }
-            }}
-            className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'mal'
-                ? 'bg-indigo-900 text-white shadow-md'
-                : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
-            }`}
-          >
-            <Tv className="h-4 w-4" />
-            <span>MY MAL LIST</span>
-            {malUser && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-pink-500 text-white text-[10px] font-black">
-                {malList.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            id="release-calendar-tab-btn"
-            onClick={() => setActiveTab('calendar')}
-            className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'calendar'
-                ? 'bg-indigo-900 text-white shadow-md'
-                : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
-            }`}
-          >
-            <CalendarDays className="h-4 w-4 text-indigo-500" />
-            <span>RELEASE CALENDAR</span>
-          </button>
-
-          <button
-            id="status-tab-btn"
-            onClick={() => {
-              setActiveTab('status');
-              if (malUser && malList.length === 0 && !malLoading) {
-                fetchMalList();
-              }
-            }}
-            className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-              activeTab === 'status'
-                ? 'bg-indigo-900 text-white shadow-md'
-                : 'bg-white text-slate-600 border border-indigo-100 hover:bg-indigo-50'
-            }`}
-          >
-            <BarChart3 className="h-4 w-4 text-emerald-500" />
-            <span>STATUS</span>
-          </button>
-
-          {malUser && (
-            <button
-              id="gemini-tab-btn"
-              onClick={() => {
-                setActiveTab('gemini');
-                if (malUser && malList.length === 0 && !malLoading) {
-                  fetchMalList();
-                }
-              }}
-              className={`px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-                activeTab === 'gemini'
-                  ? 'bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-950 text-white shadow-md border-2 border-amber-400/50'
-                  : 'bg-white text-slate-700 border border-indigo-100 hover:bg-indigo-50'
-              }`}
-            >
-              <Sparkles className="h-4 w-4 text-amber-400 animate-pulse" />
-              <span>✨ GEMINI</span>
-            </button>
-          )}
         </div>
 
-        {/* TAB 1: MY MAL LIST */}
-        {activeTab === 'mal' && (
-          <div>
-            {!malUser ? (
-              <div className="text-center py-16 px-6 max-w-lg mx-auto bg-white rounded-3xl border-2 border-indigo-100 shadow-xl my-6">
-                <div className="w-16 h-16 rounded-3xl bg-indigo-50 border-2 border-indigo-100 flex items-center justify-center mx-auto mb-5 text-indigo-600 shadow-xs">
-                  <Tv className="h-8 w-8" />
-                </div>
-                <h3 className="text-xl font-black text-indigo-900 mb-2">Connect Your MyAnimeList</h3>
-                <p className="text-slate-500 text-sm font-medium mb-8 leading-relaxed">
-                  Authenticate with MyAnimeList to view your watched anime list, episode progress, scores, and watch status.
-                </p>
+        {/* MOBILE SECONDARY NAV ROW WHEN LOGGED IN */}
+        {malUser && (
+          <div className="flex md:hidden items-center gap-1 mt-3 pt-2 border-t border-[#E7E3DF] overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('season')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+                activeTab === 'season' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              MY SEASON
+            </button>
+            <button
+              onClick={() => setActiveTab('mal')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+                activeTab === 'mal' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              MY LIST
+            </button>
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+                activeTab === 'calendar' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              CALENDAR
+            </button>
+            <button
+              onClick={() => setActiveTab('status')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+                activeTab === 'status' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              STATISTICS
+            </button>
+            <button
+              onClick={() => setActiveTab('gemini')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+                activeTab === 'gemini' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              ✨ AI
+            </button>
+          </div>
+        )}
+      </header>
 
-                <button
-                  onClick={handleConnectMal}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-4 px-8 rounded-2xl shadow-[0_4px_0_0_rgba(49,46,129,1)] active:translate-y-[2px] active:shadow-[0_2px_0_0_rgba(49,46,129,1)] transition-all inline-flex items-center gap-2.5 cursor-pointer text-base"
-                >
-                  <ExternalLink className="h-5 w-5" />
-                  <span>Connect MyAnimeList Account</span>
-                </button>
+      {/* MAIN CONTENT CONTAINER */}
+      <main className="max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 flex-1">
+        {/* LOGGED OUT EXPERIENCE: WELCOME PAGE */}
+        {!malUser && (
+          <WelcomePage
+            onConnectMal={handleConnectMal}
+            seasonalSampleList={jikanSummer2026List}
+          />
+        )}
 
-                {!malConfigured && (
-                  <p className="mt-4 text-xs font-bold text-rose-500">
-                    Note: <code>MAL_CLIENT_ID</code> is required in environment variables/secrets.
+        {/* LOGGED IN EXPERIENCE: TRACKER DASHBOARD */}
+        {malUser && activeTab === 'mal' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white border border-[#E7E3DF] rounded-2xl p-6 shadow-2xs gap-4">
+              <div className="flex items-center gap-4">
+                {malUser.picture ? (
+                  <img
+                    src={malUser.picture}
+                    alt={malUser.name}
+                    className="w-12 h-12 rounded-xl object-cover border border-[#E7E3DF]"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-[#F0EDFA] flex items-center justify-center text-[#7567C7] font-bold text-lg">
+                    {malUser.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-xl font-bold text-[#25242A]">
+                    {malUser.name}'s Anime List
+                  </h3>
+                  <p className="text-xs text-[#77747D] mt-0.5">
+                    {malList.length} anime series retrieved from MyAnimeList
                   </p>
-                )}
+                </div>
               </div>
-            ) : (
-              <div className="space-y-6">
-                {/* User Info Bar & Filters */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white border-2 border-indigo-100 rounded-3xl p-5 shadow-lg gap-4">
-                  <div className="flex items-center gap-4">
-                    {malUser.picture ? (
-                      <img
-                        src={malUser.picture}
-                        alt={malUser.name}
-                        className="w-12 h-12 rounded-2xl object-cover border-2 border-indigo-200"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white font-black text-lg">
-                        {malUser.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                        {malUser.name}'s Anime List
-                      </h3>
-                      <p className="text-xs font-semibold text-slate-400">
-                        {malList.length} anime series retrieved from MyAnimeList
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
-                    <button
-                      onClick={fetchMalList}
-                      disabled={malLoading}
-                      className="p-2.5 rounded-xl border border-indigo-100 hover:bg-indigo-50 text-indigo-700 transition-colors cursor-pointer"
-                      title="Refresh List"
-                    >
-                      <RefreshCw className={`h-4 w-4 ${malLoading ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                      onClick={handleDisconnectMal}
-                      className="px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <LogOut className="h-3.5 w-3.5" />
-                      <span>Disconnect</span>
-                    </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchMalList}
+                  disabled={malLoading}
+                  className="p-2.5 rounded-xl border border-[#E7E3DF] hover:bg-slate-50 text-[#25242A] transition-colors cursor-pointer"
+                  title="Refresh List"
+                >
+                  <RefreshCw className={`h-4 w-4 ${malLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  onClick={handleDisconnectMal}
+                  className="px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-[#C77B82] font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Disconnect</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <label htmlFor="mal-status-filter" className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+                  <Filter className="h-3.5 w-3.5 text-[#7567C7]" />
+                  <span>Status:</span>
+                </label>
+                <div className="relative inline-block w-48 sm:w-56">
+                  <select
+                    id="mal-status-filter"
+                    value={malFilterStatus}
+                    onChange={(e) => setMalFilterStatus(e.target.value)}
+                    className="w-full appearance-none bg-white border border-[#E7E3DF] text-[#25242A] text-xs sm:text-sm font-medium rounded-xl py-2 pl-4 pr-10 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
+                  >
+                    <option value="all">All</option>
+                    <option value="watching">Watching</option>
+                    <option value="completed">Completed</option>
+                    <option value="plan_to_watch">Plan to Watch</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="dropped">Dropped</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#77747D]">
+                    <ChevronDown className="h-4 w-4" />
                   </div>
                 </div>
+              </div>
 
-                {/* Status & Sort Filter Controls */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  {/* Status Filter Dropdown */}
-                  <div className="flex items-center gap-3">
-                    <label htmlFor="mal-status-filter" className="text-xs font-black text-indigo-900 tracking-wider uppercase flex items-center gap-1.5 shrink-0">
-                      <Filter className="h-3.5 w-3.5 text-indigo-600" />
-                      <span>Status:</span>
-                    </label>
-                    <div className="relative inline-block w-48 sm:w-56">
-                      <select
-                        id="mal-status-filter"
-                        value={malFilterStatus}
-                        onChange={(e) => setMalFilterStatus(e.target.value)}
-                        className="w-full appearance-none bg-white border-2 border-indigo-100 text-slate-800 text-xs sm:text-sm font-extrabold rounded-2xl py-2.5 pl-4 pr-10 shadow-xs hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
-                      >
-                        <option value="all">All</option>
-                        <option value="watching">Watching</option>
-                        <option value="completed">Completed</option>
-                        <option value="plan_to_watch">Plan to Watch</option>
-                        <option value="on_hold">On Hold</option>
-                        <option value="dropped">Dropped</option>
-                      </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-indigo-600">
-                        <ChevronDown className="h-4 w-4" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sort Dropdown */}
-                  <div className="flex items-center gap-3">
-                    <label htmlFor="mal-sort-option" className="text-xs font-black text-indigo-900 tracking-wider uppercase flex items-center gap-1.5 shrink-0">
-                      <ArrowUpDown className="h-3.5 w-3.5 text-indigo-600" />
-                      <span>Sort:</span>
-                    </label>
-                    <div className="relative inline-block w-52 sm:w-60">
-                      <select
-                        id="mal-sort-option"
-                        value={malSortOption}
-                        onChange={(e) => setMalSortOption(e.target.value)}
-                        className="w-full appearance-none bg-white border-2 border-indigo-100 text-slate-800 text-xs sm:text-sm font-extrabold rounded-2xl py-2.5 pl-4 pr-10 shadow-xs hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
-                      >
-                        <option value="title_asc">A to Z</option>
-                        <option value="title_desc">Z to A</option>
-                        <option value="score_desc">Score (Highest to Lowest)</option>
-                        <option value="score_asc">Score (Lowest to Highest)</option>
-                      </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-indigo-600">
-                        <ChevronDown className="h-4 w-4" />
-                      </div>
-                    </div>
+              <div className="flex items-center gap-3">
+                <label htmlFor="mal-sort-option" className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-[#7567C7]" />
+                  <span>Sort:</span>
+                </label>
+                <div className="relative inline-block w-52 sm:w-60">
+                  <select
+                    id="mal-sort-option"
+                    value={malSortOption}
+                    onChange={(e) => setMalSortOption(e.target.value)}
+                    className="w-full appearance-none bg-white border border-[#E7E3DF] text-[#25242A] text-xs sm:text-sm font-medium rounded-xl py-2 pl-4 pr-10 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
+                  >
+                    <option value="title_asc">A to Z</option>
+                    <option value="title_desc">Z to A</option>
+                    <option value="score_desc">Score (Highest to Lowest)</option>
+                    <option value="score_asc">Score (Lowest to Highest)</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#77747D]">
+                    <ChevronDown className="h-4 w-4" />
                   </div>
                 </div>
+              </div>
+            </div>
 
-                {/* Error Banner */}
-                {malError && (
-                  <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-900 text-sm font-bold flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-rose-500 shrink-0" />
-                    <span>{malError}</span>
-                  </div>
-                )}
+            {/* Anime Cards Grid */}
+            {!malLoading && filteredMalList.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+                {filteredMalList.map((item, index) => (
+                  <MalAnimeCard key={item.node.id} item={item} index={index} />
+                ))}
+              </div>
+            )}
 
-                {/* Loading State */}
-                {malLoading && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <div
-                        key={index}
-                        className="bg-white rounded-3xl p-3 shadow-xl border-2 border-indigo-100 flex flex-col animate-pulse"
-                      >
-                        <div className="w-full aspect-[3/4] bg-indigo-100 rounded-2xl mb-4" />
-                        <div className="h-4 bg-indigo-100 rounded-md w-5/6 mb-2" />
-                        <div className="h-3 bg-indigo-50 rounded-md w-1/2 mb-4" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Anime Cards Grid */}
-                {!malLoading && filteredMalList.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-                    {filteredMalList.map((item, index) => (
-                      <MalAnimeCard key={item.node.id} item={item} index={index} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Empty Filter State */}
-                {!malLoading && filteredMalList.length === 0 && (
-                  <div className="text-center py-16 bg-white rounded-3xl border-2 border-indigo-100 shadow-md">
-                    <p className="text-slate-500 font-bold text-sm">
-                      No anime found in status "{malFilterStatus.replace(/_/g, ' ')}".
-                    </p>
-                  </div>
-                )}
+            {!malLoading && filteredMalList.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-2xl border border-[#E7E3DF]">
+                <p className="text-[#77747D] font-medium text-sm">
+                  No anime found in status "{malFilterStatus.replace(/_/g, ' ')}".
+                </p>
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 3: MY SEASON (SUMMER 2026) */}
-        {activeTab === 'season' && (
+        {/* LOGGED IN TAB 2: MY SEASON */}
+        {malUser && activeTab === 'season' && (
           <div className="space-y-8">
             {/* Header Banner */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-amber-500 via-indigo-600 to-pink-600 text-white p-6 sm:p-8 rounded-3xl shadow-xl">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Sun className="h-6 w-6 text-yellow-300 fill-yellow-300 animate-pulse" />
-                  <span className="text-xs font-black tracking-widest uppercase bg-white/20 px-3 py-1 rounded-full backdrop-blur-md">
-                    Focused Seasonal Dashboard
-                  </span>
-                </div>
-                <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-                  MY SEASON — Summer 2026
-                </h2>
-                <p className="text-white/80 font-medium text-xs sm:text-sm mt-1">
-                  A compact dashboard of anime you are currently watching during Summer 2026.
-                </p>
-                {malUser && (
-                  <div className="mt-3 inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold text-white border border-white/20">
-                    <UserCheck className="h-3.5 w-3.5 text-emerald-300" />
-                    <span>Authenticated MAL account: <span className="underline font-black">{malUser.name}</span></span>
+            <div className="bg-white border border-[#E7E3DF] rounded-2xl p-6 sm:p-8 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase mb-2">
+                    <Sun className="h-3.5 w-3.5 text-[#C69A55]" />
+                    <span>SUMMER 2026</span>
                   </div>
-                )}
-              </div>
+                  <h2 className="text-3xl font-bold text-[#25242A]">
+                    Your season, at a glance.
+                  </h2>
+                  <p className="text-sm text-[#77747D] mt-1">
+                    Everything you're watching and completing this season.
+                  </p>
+                </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {!malUser && (
-                  <button
-                    onClick={handleConnectMal}
-                    className="bg-white text-indigo-900 hover:bg-slate-100 font-extrabold py-2.5 px-4 rounded-2xl shadow-md transition-all flex items-center gap-2 text-xs cursor-pointer"
-                  >
-                    <UserCheck className="h-4 w-4 text-indigo-600" />
-                    <span>Connect MAL</span>
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     if (malUser) fetchMalList();
@@ -1024,44 +1001,47 @@ export default function App() {
                     loadCalendarSeasonalReleases();
                   }}
                   disabled={seasonalLoading || malLoading || jikanSeasonLoading}
-                  className="bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 px-4 rounded-2xl backdrop-blur-md transition-all flex items-center gap-2 text-xs cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-white border border-[#E7E3DF] hover:bg-slate-50 text-[#25242A] font-medium text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
                 >
-                  <RefreshCw className={`h-4 w-4 ${seasonalLoading || malLoading || jikanSeasonLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3.5 w-3.5 ${seasonalLoading || malLoading || jikanSeasonLoading ? 'animate-spin' : ''}`} />
                   <span>Refresh Data</span>
                 </button>
               </div>
-            </div>
 
-            {/* Notice if MAL is not connected */}
-            {!malUser && (
-              <div className="bg-amber-50 border-2 border-amber-200 rounded-3xl p-5 text-amber-900 text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="h-6 w-6 text-amber-600 shrink-0" />
-                  <div>
-                    <p className="font-extrabold text-sm text-amber-900">Connect MyAnimeList to view your live watching progress</p>
-                    <p className="text-amber-700 font-medium mt-0.5">
-                      Log in to sync your MAL scores, episode progress, and personal notes directly into these seasonal tables.
-                    </p>
-                  </div>
+              {/* Quick Metrics Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#E7E3DF]">
+                <div>
+                  <div className="text-2xl font-bold text-[#25242A]">{currentlyWatchingItems.length}</div>
+                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">WATCHING</div>
                 </div>
-                <button
-                  onClick={handleConnectMal}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shrink-0"
-                >
-                  Connect MAL Now
-                </button>
+                <div>
+                  <div className="text-2xl font-bold text-[#25242A]">{completedSummer2026Items.length}</div>
+                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">COMPLETED</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-[#25242A]">
+                    {malList.length > 0
+                      ? (malList.reduce((acc, curr) => acc + (curr.list_status?.score || 0), 0) / (malList.filter(i => i.list_status?.score > 0).length || 1)).toFixed(1)
+                      : '—'}
+                  </div>
+                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">AVG SCORE</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-[#25242A]">{allSummer2026Ids.size}</div>
+                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">SEASON RELEASES</div>
+                </div>
               </div>
-            )}
+            </div>
 
             {/* CURRENTLY WATCHING */}
             <SeasonTable
               title="Currently Watching"
               subtitle="Anime from your MyAnimeList account that are airing in Summer 2026."
-              icon={<PlayCircle className="h-6 w-6 text-emerald-400" />}
+              icon={<PlayCircle className="h-5 w-5 text-[#6D9B7C]" />}
               items={currentlyWatchingItems}
               badgeText="Watching"
-              badgeBg="bg-emerald-100"
-              badgeTextClass="text-emerald-800"
+              badgeBg="bg-[#F0EDFA]"
+              badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
             />
@@ -1069,24 +1049,20 @@ export default function App() {
             {/* COMPLETED DURING SUMMER 2026 */}
             <SeasonTable
               title="Completed During Summer 2026"
-              subtitle={
-                earliestSummer2026AiringDate
-                  ? `Anime completed on or after the earliest 1st-episode airing date of your watching anime (${earliestSummer2026AiringDate}), excluding Spring 2026 titles.`
-                  : `Anime completed on or after the earliest 1st-episode airing date of your currently-watching Summer 2026 anime.`
-              }
-              icon={<CheckCircle2 className="h-6 w-6 text-blue-400" />}
+              subtitle="Anime completed during the Summer 2026 season."
+              icon={<CheckCircle2 className="h-5 w-5 text-[#7567C7]" />}
               items={completedSummer2026Items}
               badgeText="Completed in Season"
-              badgeBg="bg-blue-100"
-              badgeTextClass="text-blue-800"
+              badgeBg="bg-[#F0EDFA]"
+              badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
             />
           </div>
         )}
 
-        {/* RELEASE CALENDAR */}
-        {activeTab === 'calendar' && (
+        {/* LOGGED IN TAB 3: RELEASE CALENDAR */}
+        {malUser && activeTab === 'calendar' && (
           <div>
             <ReleaseCalendar
               malList={malList}
@@ -1096,8 +1072,8 @@ export default function App() {
           </div>
         )}
 
-        {/* STATUS DASHBOARD */}
-        {activeTab === 'status' && (
+        {/* LOGGED IN TAB 4: STATISTICS */}
+        {malUser && activeTab === 'status' && (
           <div>
             <StatusDashboard
               malList={malList}
@@ -1114,8 +1090,8 @@ export default function App() {
           </div>
         )}
 
-        {/* GEMINI INSIGHTS TAB */}
-        {activeTab === 'gemini' && malUser && (
+        {/* LOGGED IN TAB 5: AI INSIGHTS */}
+        {malUser && activeTab === 'gemini' && (
           <div>
             <GeminiInsightsView
               malList={malList}
@@ -1128,16 +1104,18 @@ export default function App() {
             />
           </div>
         )}
-      </div>
+      </main>
 
-      {/* Footer */}
-      <footer className="mt-12 max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between border-t-2 border-indigo-100/80 pt-6 text-xs font-bold text-slate-400 gap-4">
-        <div className="flex gap-4 text-indigo-300 font-extrabold tracking-wider">
-          <span>MYANIMELIST OAUTH</span>
-          <span>•</span>
-          <span>RELEASE CALENDAR</span>
+      {/* FOOTER */}
+      <footer className="w-full bg-white border-t border-[#E7E3DF] py-6 px-4 sm:px-8 mt-12">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-[#77747D] gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-[#7567C7] font-bold">✦ ANIME TRACKER</span>
+            <span>•</span>
+            <span>Personal Japanese Editorial Tracker</span>
+          </div>
+          <div>DATA SYNCED WITH MYANIMELIST & JIKAN API</div>
         </div>
-        <div className="tracking-wider">DATA PROVIDED BY JIKAN V4 & MYANIMELIST V2 API</div>
       </footer>
     </div>
   );

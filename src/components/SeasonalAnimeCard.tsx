@@ -41,31 +41,31 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.3) }}
-      whileHover={{ y: -5 }}
-      className={`group flex flex-col overflow-hidden rounded-3xl bg-white p-3 shadow-xl border-2 transition-all duration-300 ${
+      whileHover={{ y: -4 }}
+      className={`group flex flex-col overflow-hidden rounded-2xl bg-white p-3 shadow-2xs border transition-all duration-200 hover:shadow-md ${
         userListItem
-          ? 'border-indigo-100 hover:border-indigo-300'
-          : 'border-slate-100 hover:border-slate-300'
+          ? 'border-[#7567C7]/30 hover:border-[#7567C7]'
+          : 'border-[#E7E3DF] hover:border-[#77747D]/50'
       }`}
     >
       {/* Thumbnail Container */}
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-indigo-100 mb-3">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-[#F7F5F2] mb-3">
         {/* User MAL Status Badge */}
         <div
-          className={`absolute top-3 left-3 z-10 flex items-center justify-center rounded-full px-2.5 py-1 text-[11px] font-black tracking-wide shadow-xs ${statusInfo.bg} ${statusInfo.text}`}
+          className={`absolute top-2.5 left-2.5 z-10 flex items-center justify-center rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide shadow-2xs ${statusInfo.bg} ${statusInfo.text}`}
         >
           {statusInfo.label}
         </div>
 
         {/* MAL Mean Rating or User Score */}
         {userListItem && userListItem.list_status?.score > 0 ? (
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-full bg-yellow-400 px-2.5 py-1 text-xs font-black text-slate-900 shadow-sm" title="Your Score">
-            <Star className="h-3.5 w-3.5 fill-current text-slate-900" />
+          <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1 rounded-full bg-[#25242A]/80 px-2 py-0.5 text-xs font-bold text-[#C69A55] shadow-2xs backdrop-blur-md" title="Your Score">
+            <Star className="h-3 w-3 fill-current text-[#C69A55]" />
             <span>{userListItem.list_status.score}/10</span>
           </div>
         ) : item.node.mean ? (
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-xs font-black text-yellow-300 shadow-sm backdrop-blur-md" title="MAL Mean Score">
-            <Star className="h-3.5 w-3.5 fill-current text-yellow-300" />
+          <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1 rounded-full bg-[#25242A]/80 px-2 py-0.5 text-xs font-bold text-[#C69A55] shadow-2xs backdrop-blur-md" title="MAL Mean Score">
+            <Star className="h-3 w-3 fill-current text-[#C69A55]" />
             <span>{item.node.mean.toFixed(1)}</span>
           </div>
         ) : null}
@@ -80,9 +80,9 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center bg-indigo-50 text-indigo-300 p-4 text-center">
+          <div className="flex h-full w-full flex-col items-center justify-center bg-[#F0EDFA] text-[#7567C7] p-4 text-center">
             <ImageOff className="h-8 w-8 mb-2 stroke-1" />
-            <span className="text-xs font-bold">Image unavailable</span>
+            <span className="text-xs font-medium">Image unavailable</span>
           </div>
         )}
       </div>
@@ -91,21 +91,21 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
       <div className="flex flex-1 flex-col justify-between px-1 pb-1">
         <div>
           <h3
-            className="font-bold text-slate-900 text-sm leading-snug line-clamp-2 group-hover:text-indigo-600 transition-colors"
+            className="font-bold text-[#25242A] text-sm leading-snug line-clamp-2 group-hover:text-[#7567C7] transition-colors"
             title={item.node.title}
           >
             {item.node.title}
           </h3>
         </div>
 
-        <div className="mt-3 space-y-2 border-t border-indigo-50 pt-2.5 text-xs">
+        <div className="mt-3 space-y-2 border-t border-[#E7E3DF] pt-2 text-xs">
           {/* Episodes Info / User Progress */}
-          <div className="flex items-center justify-between text-slate-600">
-            <div className="flex items-center gap-1.5 font-bold text-[11px] text-slate-700">
-              <Tv className="h-3.5 w-3.5 text-indigo-500" />
+          <div className="flex items-center justify-between text-[#77747D]">
+            <div className="flex items-center gap-1.5 font-medium text-[11px]">
+              <Tv className="h-3.5 w-3.5 text-[#7567C7]" />
               <span>{userListItem ? 'Progress:' : 'Episodes:'}</span>
             </div>
-            <span className="font-extrabold text-indigo-700">
+            <span className="font-semibold text-[#25242A]">
               {userListItem
                 ? `${userListItem.list_status.num_episodes_watched} / ${totalEps} eps`
                 : `${totalEps} eps`}
@@ -116,20 +116,20 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
           {onTogglePersonal && (
             <button
               onClick={() => onTogglePersonal(item.node.id)}
-              className={`w-full mt-2 py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              className={`w-full mt-2 py-1.5 px-3 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 isPersonal
-                  ? 'bg-pink-100 text-pink-800 hover:bg-pink-200'
-                  : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                  ? 'bg-[#D6A0AF]/20 text-[#25242A] border border-[#D6A0AF]/40 hover:bg-[#D6A0AF]/30'
+                  : 'bg-[#F0EDFA] text-[#7567C7] hover:bg-[#7567C7]/20'
               }`}
             >
               {isPersonal ? (
                 <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-pink-600" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>In My Summer 2026</span>
                 </>
               ) : (
                 <>
-                  <PlusCircle className="h-3.5 w-3.5 text-indigo-500" />
+                  <PlusCircle className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>Add to My Summer 2026</span>
                 </>
               )}
