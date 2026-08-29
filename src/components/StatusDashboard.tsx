@@ -583,19 +583,16 @@ export function StatusDashboard({
         <>
           {/* GEMINI INSIGHTS CARD */}
           {malUser && (
-            <div className="bg-gradient-to-br from-indigo-900 via-purple-950 to-slate-950 text-white rounded-3xl p-6 sm:p-8 border-2 border-indigo-500/40 shadow-2xl space-y-5 relative overflow-hidden">
-              <div className="absolute -top-24 -right-24 w-64 h-64 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-700/50 pb-5 relative z-10">
+            <div className="bg-[#F0EDFA] text-[#25242A] rounded-2xl p-6 sm:p-8 border border-[#7567C7]/30 shadow-2xs space-y-5 relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#7567C7]/20 pb-5 relative z-10">
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
-                    <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
-                    <span className="text-[11px] font-black tracking-widest uppercase bg-amber-400/20 text-amber-300 border border-amber-400/30 px-3 py-0.5 rounded-full backdrop-blur-md">
+                    <Sparkles className="h-5 w-5 text-[#7567C7] animate-pulse" />
+                    <span className="text-[11px] font-bold tracking-widest uppercase bg-[#7567C7]/15 text-[#7567C7] border border-[#7567C7]/30 px-3 py-0.5 rounded-full">
                       GEMINI INSIGHT
                     </span>
                   </div>
-                  <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                  <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#25242A]">
                     Your Anime Journey
                   </h3>
                 </div>
@@ -603,7 +600,7 @@ export function StatusDashboard({
                 <button
                   onClick={handleAnalyzeWatching}
                   disabled={geminiLoading}
-                  className="bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-500 hover:opacity-95 text-slate-950 font-black px-6 py-3 rounded-2xl shadow-lg transition-all flex items-center gap-2 text-sm cursor-pointer self-start sm:self-auto shrink-0 active:scale-95 disabled:opacity-60"
+                  className="bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold px-6 py-3 rounded-xl shadow-2xs transition-all flex items-center gap-2 text-sm cursor-pointer self-start sm:self-auto shrink-0 active:scale-95 disabled:opacity-60"
                 >
                   <Sparkles className={`h-4 w-4 ${geminiLoading ? 'animate-spin' : ''}`} />
                   <span>{geminiLoading ? 'Analyzing...' : geminiData ? 'Re-analyze Watching' : '✨ Analyze My Watching'}</span>
@@ -613,24 +610,24 @@ export function StatusDashboard({
               <div className="relative z-10">
                 {geminiLoading && (
                   <div className="py-8 text-center space-y-3">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/10 text-amber-300 backdrop-blur-md animate-bounce">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-[#7567C7]/10 text-[#7567C7] animate-bounce">
                       <Sparkles className="h-6 w-6" />
                     </div>
-                    <p className="text-sm font-bold text-indigo-200">
+                    <p className="text-sm font-semibold text-[#7567C7]">
                       Analyzing your anime watching patterns with Gemini...
                     </p>
                   </div>
                 )}
 
                 {!geminiLoading && geminiError && (
-                  <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-sm font-bold flex items-center gap-2">
+                  <div className="p-4 rounded-xl bg-[#D6A0AF]/15 border border-[#D6A0AF]/40 text-[#C77B82] text-sm font-bold flex items-center gap-2">
                     <span>{geminiError}</span>
                   </div>
                 )}
 
                 {!geminiLoading && !geminiError && geminiData && (
                   <div className="space-y-4">
-                    <p className="text-base sm:text-lg font-bold text-amber-200 italic border-l-4 border-amber-400 pl-4 py-1">
+                    <p className="text-base sm:text-lg font-bold text-[#7567C7] italic border-l-4 border-[#7567C7] pl-4 py-1">
                       "{geminiData.summaryHeadline}"
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
@@ -640,14 +637,14 @@ export function StatusDashboard({
                         return (
                           <div
                             key={idx}
-                            className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 text-xs sm:text-sm font-medium text-slate-100 leading-relaxed flex items-start gap-3 shadow-xs hover:bg-white/15 transition-colors"
+                            className="p-4 rounded-xl bg-white border border-[#E7E3DF] text-xs sm:text-sm font-normal text-[#25242A] leading-relaxed flex items-start gap-3 shadow-2xs hover:border-[#7567C7]/40 transition-colors"
                           >
-                            <div className="p-1.5 rounded-xl bg-amber-400/20 text-amber-300 shrink-0 mt-0.5">
+                            <div className="p-1.5 rounded-lg bg-[#7567C7]/10 text-[#7567C7] shrink-0 mt-0.5">
                               <Sparkles className="h-4 w-4" />
                             </div>
                             <div>
                               {category && (
-                                <div className="text-[10px] font-black uppercase tracking-wider text-amber-300 mb-0.5">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-[#7567C7] mb-0.5">
                                   ✦ {category}
                                 </div>
                               )}
@@ -662,7 +659,7 @@ export function StatusDashboard({
 
                 {!geminiLoading && !geminiError && !geminiData && (
                   <div className="py-4">
-                    <p className="text-slate-200 text-sm sm:text-base font-medium italic border-l-4 border-indigo-400 pl-4 py-1 leading-relaxed">
+                    <p className="text-[#25242A] text-sm sm:text-base font-normal italic border-l-4 border-[#7567C7] pl-4 py-1 leading-relaxed">
                       "{seasonalStats.totalAnime > 0
                         ? `You watched ${seasonalStats.totalAnime} anime this season, with an average score of ${seasonalStats.avgScore || 'N/A'}/10. ${overallStats.topGenres[0] ? `${overallStats.topGenres[0].name} and ${overallStats.topGenres[1]?.name || 'Action'} are among your most watched genres.` : ''}`
                         : overallStats.totalAnime > 0
@@ -673,9 +670,9 @@ export function StatusDashboard({
                 )}
               </div>
 
-              <div className="pt-2 border-t border-indigo-800/40 flex items-center justify-between text-[11px] font-extrabold text-indigo-300/80 relative z-10">
+              <div className="pt-2 border-t border-[#7567C7]/20 flex items-center justify-between text-[11px] font-semibold text-[#77747D] relative z-10">
                 <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <Sparkles className="h-3.5 w-3.5 text-[#C69A55]" />
                   <span>Powered by Gemini</span>
                 </div>
                 <span>AI Analytics Engine</span>
@@ -688,36 +685,36 @@ export function StatusDashboard({
           {/* ========================================================================= */}
           <section id="status-summer-2026-section" className="space-y-6">
             {/* Seasonal Section Header Banner */}
-            <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 text-white p-5 sm:p-6 rounded-3xl border-2 border-emerald-500/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-white text-[#25242A] p-5 sm:p-6 rounded-2xl border border-[#E7E3DF] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="p-3 bg-emerald-500/20 text-emerald-300 rounded-2xl border border-emerald-400/30 shadow-xs shrink-0">
+                <div className="p-3 bg-[#6D9B7C]/15 text-[#6D9B7C] rounded-xl border border-[#6D9B7C]/30 shrink-0">
                   <Sun className="h-6 w-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-black uppercase tracking-widest bg-emerald-400 text-slate-950 px-2.5 py-0.5 rounded-md font-mono shadow-xs">
+                    <span className="text-[11px] font-bold uppercase tracking-widest bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30 px-2.5 py-0.5 rounded-md">
                       ✦ CURRENT SEASON
                     </span>
-                    <span className="text-xs font-bold text-emerald-300">
+                    <span className="text-xs font-semibold text-[#77747D]">
                       Active Broadcast Window
                     </span>
                   </div>
-                  <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white mt-1">
+                  <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#25242A] mt-1">
                     {currentSeasonName}
                   </h3>
-                  <p className="text-emerald-100/80 font-medium text-xs mt-0.5">
+                  <p className="text-[#77747D] font-normal text-xs mt-0.5">
                     Your personal anime tracker and completion analytics for this season.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/15 shrink-0">
-                <Flame className="h-4 w-4 text-amber-400" />
+              <div className="flex items-center gap-3 bg-[#F7F5F2] px-4 py-2 rounded-xl border border-[#E7E3DF] shrink-0">
+                <Flame className="h-4 w-4 text-[#C69A55]" />
                 <div className="text-right sm:text-left">
-                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-300 block">
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-[#77747D] block">
                     Seasonal Library
                   </span>
-                  <span className="text-sm font-black text-white">
+                  <span className="text-sm font-bold text-[#25242A]">
                     {seasonalStats.totalAnime} Anime Tracked
                   </span>
                 </div>
@@ -725,29 +722,29 @@ export function StatusDashboard({
             </div>
 
             {/* Seasonal Dataset Composition & Scope Info Card */}
-            <div className="bg-gradient-to-r from-emerald-950/60 via-slate-900/70 to-indigo-950/60 rounded-2xl p-4 sm:p-5 border border-emerald-500/30 text-xs text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+            <div className="bg-[#F7F5F2] rounded-xl p-4 sm:p-5 border border-[#E7E3DF] text-xs text-[#77747D] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
               <div className="flex items-start sm:items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-400/30 shrink-0">
+                <div className="p-2 rounded-xl bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30 shrink-0">
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
-                  <h5 className="font-black text-white text-xs sm:text-sm">Summer 2026 Dataset Scope</h5>
-                  <p className="text-[11px] text-emerald-200/80 mt-0.5">
+                  <h5 className="font-bold text-[#25242A] text-xs sm:text-sm">Summer 2026 Dataset Scope</h5>
+                  <p className="text-[11px] text-[#77747D] mt-0.5">
                     {effectiveAiringDate
                       ? `Includes currently watching Summer 2026 anime + anime completed on or after the earliest 1st-episode airing date (${effectiveAiringDate}), excluding Spring 2026 titles.`
                       : 'Includes currently watching Summer 2026 anime + anime completed on or after your earliest Summer 2026 anime broadcast date.'}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] font-black shrink-0">
-                <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+                <span className="px-2.5 py-1 rounded-lg bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30">
                   {seasonalAudit.watchingCount} Watching
                 </span>
-                <span className="px-2.5 py-1 rounded-xl bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                <span className="px-2.5 py-1 rounded-lg bg-[#7567C7]/15 text-[#7567C7] border border-[#7567C7]/30">
                   {seasonalAudit.completedCount} Completed in Season
                 </span>
                 {seasonalAudit.otherCount > 0 && (
-                  <span className="px-2.5 py-1 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  <span className="px-2.5 py-1 rounded-lg bg-[#C69A55]/15 text-[#C69A55] border border-[#C69A55]/30">
                     {seasonalAudit.otherCount} Other
                   </span>
                 )}
@@ -1214,12 +1211,13 @@ export function StatusDashboard({
                                   name,
                                 ]}
                                 contentStyle={{
-                                  backgroundColor: '#0f172a',
-                                  border: '1px solid #334155',
+                                  backgroundColor: '#ffffff',
+                                  border: '1px solid #E7E3DF',
                                   borderRadius: '12px',
-                                  color: '#fff',
-                                  fontWeight: 700,
+                                  color: '#25242A',
+                                  fontWeight: 600,
                                   fontSize: '12px',
+                                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
                                 }}
                               />
                             </PieChart>
@@ -1540,12 +1538,13 @@ export function StatusDashboard({
                             name,
                           ]}
                           contentStyle={{
-                            backgroundColor: '#0f172a',
-                            border: '1px solid #334155',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #E7E3DF',
                             borderRadius: '12px',
-                            color: '#fff',
-                            fontWeight: 700,
+                            color: '#25242A',
+                            fontWeight: 600,
                             fontSize: '12px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
                           }}
                         />
                       </PieChart>
@@ -1641,12 +1640,13 @@ export function StatusDashboard({
                             'Count',
                           ]}
                           contentStyle={{
-                            backgroundColor: '#0f172a',
-                            border: '1px solid #334155',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #E7E3DF',
                             borderRadius: '12px',
-                            color: '#fff',
-                            fontWeight: 700,
+                            color: '#25242A',
+                            fontWeight: 600,
                             fontSize: '12px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
                           }}
                         />
                         <Bar dataKey="count" radius={[6, 6, 0, 0]}>
@@ -1827,12 +1827,13 @@ export function StatusDashboard({
                               name,
                             ]}
                             contentStyle={{
-                              backgroundColor: '#0f172a',
-                              border: '1px solid #334155',
+                              backgroundColor: '#ffffff',
+                              border: '1px solid #E7E3DF',
                               borderRadius: '12px',
-                              color: '#fff',
-                              fontWeight: 700,
+                              color: '#25242A',
+                              fontWeight: 600,
                               fontSize: '12px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
                             }}
                           />
                         </PieChart>

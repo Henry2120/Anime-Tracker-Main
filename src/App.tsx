@@ -661,9 +661,9 @@ export default function App() {
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('season')}>
             <span className="text-[#7567C7] text-lg font-bold">✦</span>
             <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] flex items-center gap-2">
-              <span>ANIME TRACKER</span>
+              <span>AniVerse</span>
               <span className="text-[11px] font-medium text-[#77747D] tracking-wider hidden md:inline-block">
-                アニメトラッカー
+                アニバース
               </span>
             </h1>
           </div>

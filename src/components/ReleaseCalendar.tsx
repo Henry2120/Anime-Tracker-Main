@@ -491,20 +491,20 @@ export function ReleaseCalendar({
                 ? 'Click to show all releases'
                 : 'Click to filter calendar to only your watched anime'
             }
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all select-none ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all select-none ${
               watchingOnly
-                ? 'bg-emerald-600 border-2 border-emerald-300 text-white shadow-[0_0_14px_rgba(16,185,129,0.5)] ring-2 ring-emerald-400/40 cursor-pointer'
+                ? 'bg-[#6D9B7C] border border-[#6D9B7C] text-white shadow-2xs ring-1 ring-[#6D9B7C]/40 cursor-pointer'
                 : activeWatchingCount > 0
-                ? 'bg-emerald-950/80 border border-emerald-700 text-emerald-300 hover:bg-emerald-900/90 hover:text-white hover:border-emerald-500 cursor-pointer'
-                : 'bg-slate-800/40 border border-slate-700/50 text-slate-500 cursor-not-allowed opacity-60'
+                ? 'bg-[#6D9B7C]/15 border border-[#6D9B7C]/30 text-[#6D9B7C] hover:bg-[#6D9B7C]/25 cursor-pointer'
+                : 'bg-[#F7F5F2] border border-[#E7E3DF] text-[#77747D]/50 cursor-not-allowed opacity-60'
             }`}
           >
-            <Star className={`h-3.5 w-3.5 ${watchingOnly ? 'text-amber-300 fill-amber-300' : 'text-amber-400 fill-amber-400'}`} />
+            <Star className={`h-3.5 w-3.5 ${watchingOnly ? 'text-[#C69A55] fill-current' : 'text-[#C69A55] fill-current'}`} />
             <span>
-              <strong className={watchingOnly ? 'text-white' : 'text-emerald-100'}>{activeWatchingCount}</strong> Watching
+              <strong className={watchingOnly ? 'text-white' : 'text-[#25242A]'}>{activeWatchingCount}</strong> Watching
             </span>
             {watchingOnly && (
-              <span className="ml-1 px-1.5 py-0.2 rounded bg-emerald-800 text-[10px] uppercase tracking-wider font-black text-emerald-100">
+              <span className="ml-1 px-1.5 py-0.2 rounded-md bg-white/20 text-[10px] uppercase tracking-wider font-bold text-white">
                 ONLY
               </span>
             )}
@@ -515,7 +515,7 @@ export function ReleaseCalendar({
             onClick={fetchSchedule}
             disabled={loading}
             title="Refresh Schedule"
-            className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+            className="p-2 rounded-xl bg-[#F7F5F2] border border-[#E7E3DF] text-[#77747D] hover:text-[#25242A] hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -525,69 +525,69 @@ export function ReleaseCalendar({
       {/* COMPACT ANALYTICS SECTION */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {/* Releases Today */}
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between shadow-md">
+        <div className="p-3.5 rounded-2xl bg-white border border-[#E7E3DF] flex items-center justify-between shadow-2xs">
           <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#77747D] block mb-0.5">
               Releases Today
             </span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-xl font-black text-white">{totalTodayReleases}</span>
+              <span className="text-xl font-bold text-[#25242A]">{totalTodayReleases}</span>
               {totalTodayWatchingReleases > 0 && (
-                <span className="text-[10px] font-bold text-emerald-400">
+                <span className="text-[10px] font-semibold text-[#6D9B7C]">
                   ({totalTodayWatchingReleases} watching)
                 </span>
               )}
             </div>
           </div>
-          <div className="h-9 w-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+          <div className="h-9 w-9 rounded-xl bg-[#F0EDFA] border border-[#7567C7]/20 flex items-center justify-center text-[#7567C7]">
             <Sparkles className="h-4 w-4" />
           </div>
         </div>
 
         {/* Releases This Week */}
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between shadow-md">
+        <div className="p-3.5 rounded-2xl bg-white border border-[#E7E3DF] flex items-center justify-between shadow-2xs">
           <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#77747D] block mb-0.5">
               Releases This Week
             </span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-xl font-black text-white">{totalWeeklyReleases}</span>
+              <span className="text-xl font-bold text-[#25242A]">{totalWeeklyReleases}</span>
               {searchTerm.trim() || watchingOnly || hideWithoutEnglishTitle || hideLongRunning ? (
-                <span className="text-[10px] font-bold text-indigo-400">
+                <span className="text-[10px] font-semibold text-[#7567C7]">
                   ({totalWeeklyFilteredReleases} shown)
                 </span>
               ) : null}
             </div>
           </div>
-          <div className="h-9 w-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400">
+          <div className="h-9 w-9 rounded-xl bg-[#F0EDFA] border border-[#7567C7]/20 flex items-center justify-center text-[#7567C7]">
             <Calendar className="h-4 w-4" />
           </div>
         </div>
 
         {/* Watching This Week */}
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between shadow-md">
+        <div className="p-3.5 rounded-2xl bg-white border border-[#E7E3DF] flex items-center justify-between shadow-2xs">
           <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#77747D] block mb-0.5">
               Watching This Week
             </span>
-            <span className="text-xl font-black text-emerald-400">{totalWeeklyWatchingReleases}</span>
+            <span className="text-xl font-bold text-[#6D9B7C]">{totalWeeklyWatchingReleases}</span>
           </div>
-          <div className="h-9 w-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-            <Star className="h-4 w-4 fill-emerald-400/30" />
+          <div className="h-9 w-9 rounded-xl bg-[#6D9B7C]/15 border border-[#6D9B7C]/30 flex items-center justify-center text-[#6D9B7C]">
+            <Star className="h-4 w-4 fill-current" />
           </div>
         </div>
 
         {/* Busiest Day */}
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between shadow-md">
+        <div className="p-3.5 rounded-2xl bg-white border border-[#E7E3DF] flex items-center justify-between shadow-2xs">
           <div className="min-w-0">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#77747D] block mb-0.5">
               Busiest Day
             </span>
-            <span className="text-xs sm:text-sm font-black text-amber-300 truncate block">
+            <span className="text-xs sm:text-sm font-bold text-[#C69A55] truncate block">
               {busiestDayInfo ? `${busiestDayInfo.weekday} (${busiestDayInfo.count} eps)` : 'None'}
             </span>
           </div>
-          <div className="h-9 w-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+          <div className="h-9 w-9 rounded-xl bg-[#C69A55]/15 border border-[#C69A55]/30 flex items-center justify-center text-[#C69A55] shrink-0">
             <Clock className="h-4 w-4" />
           </div>
         </div>
@@ -613,12 +613,12 @@ export function ReleaseCalendar({
 
       {/* Loading Overlay */}
       {loading && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-16 text-center shadow-xl">
-          <Loader2 className="h-10 w-10 text-indigo-500 animate-spin mx-auto mb-3" />
-          <h3 className="text-base font-black text-white mb-1">
+        <div className="bg-white border border-[#E7E3DF] rounded-2xl p-16 text-center shadow-2xs">
+          <Loader2 className="h-10 w-10 text-[#7567C7] animate-spin mx-auto mb-3" />
+          <h3 className="text-base font-bold text-[#25242A] mb-1">
             Loading Airing Schedule...
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[#77747D]">
             Aligning broadcasts in {getResolvedTimezone(selectedTimezone)}
           </p>
         </div>
@@ -626,14 +626,14 @@ export function ReleaseCalendar({
 
       {/* Error Overlay */}
       {error && !loading && (
-        <div className="bg-rose-950/80 border border-rose-800 rounded-xl p-5 text-white shadow-xl flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+        <div className="bg-[#D6A0AF]/15 border border-[#D6A0AF]/40 rounded-2xl p-5 text-[#25242A] shadow-2xs flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-[#C77B82] shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h4 className="font-black text-sm mb-0.5">Schedule Error</h4>
-            <p className="text-xs text-rose-200 mb-3">{error}</p>
+            <h4 className="font-bold text-sm mb-0.5">Schedule Error</h4>
+            <p className="text-xs text-[#77747D] mb-3">{error}</p>
             <button
               onClick={fetchSchedule}
-              className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer shadow-sm"
+              className="bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-xs px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer shadow-2xs"
             >
               Try Again
             </button>
@@ -657,9 +657,9 @@ export function ReleaseCalendar({
           />
         ) : (
           <div className="w-full overflow-x-auto pb-4">
-            <div className="min-w-[1050px] rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-2xl">
+            <div className="min-w-[1050px] rounded-2xl border border-[#E7E3DF] bg-white overflow-hidden shadow-2xs">
               {/* 1. Day Column Headers: Seamless horizontal row */}
-              <div className="grid grid-cols-7 divide-x divide-slate-800 bg-slate-900 border-b border-slate-800">
+              <div className="grid grid-cols-7 divide-x divide-[#E7E3DF] bg-[#F7F5F2] border-b border-[#E7E3DF]">
                 {displayedDaysWithUpcoming.map((day) => {
                   const isToday = day.dateKey === todayDateKey;
                   return (
@@ -667,30 +667,30 @@ export function ReleaseCalendar({
                       key={day.dateKey}
                       className={`px-2.5 py-2.5 text-center flex flex-col justify-center transition-colors ${
                         isToday
-                          ? 'bg-indigo-900/90 text-white'
-                          : 'bg-slate-900/95 text-slate-200'
+                          ? 'bg-[#F0EDFA] text-[#25242A]'
+                          : 'bg-[#F7F5F2] text-[#25242A]'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 mb-0.5">
                         <span
-                          className={`text-[11px] font-black tracking-wider uppercase ${
-                            isToday ? 'text-amber-300' : 'text-indigo-400'
+                          className={`text-[11px] font-bold tracking-wider uppercase ${
+                            isToday ? 'text-[#C69A55]' : 'text-[#7567C7]'
                           }`}
                         >
                           {day.weekday}
                         </span>
 
                         {isToday && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-400 text-indigo-950 text-[9px] font-black tracking-wider uppercase shadow-xs">
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#C69A55]/20 text-[#C69A55] border border-[#C69A55]/30 text-[9px] font-bold tracking-wider uppercase">
                             TODAY
                           </span>
                         )}
 
                         <span
-                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
                             isToday
-                              ? 'bg-indigo-800 text-indigo-100'
-                              : 'bg-slate-800 text-slate-400'
+                              ? 'bg-[#7567C7] text-white'
+                              : 'bg-white text-[#77747D] border border-[#E7E3DF]'
                           }`}
                         >
                           {day.items.length}
@@ -698,10 +698,10 @@ export function ReleaseCalendar({
                       </div>
 
                       <div className="flex items-baseline justify-center gap-1.5">
-                        <span className="text-base font-black leading-none text-white tracking-tight">
+                        <span className="text-base font-bold leading-none text-[#25242A] tracking-tight">
                           {day.dayNum}
                         </span>
-                        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#77747D]">
                           {day.monthName}
                         </span>
                       </div>
@@ -712,9 +712,9 @@ export function ReleaseCalendar({
 
               {/* 2. Aligned Anime Releases Grid (Row-by-Row Layout) */}
               {maxRows === 0 ? (
-                <div className="p-12 text-center text-slate-500 bg-slate-950">
-                  <CalendarDays className="h-8 w-8 mx-auto mb-2 text-slate-600" />
-                  <p className="text-sm font-bold text-white mb-1">
+                <div className="p-12 text-center text-[#77747D] bg-white">
+                  <CalendarDays className="h-8 w-8 mx-auto mb-2 text-[#77747D]/50" />
+                  <p className="text-sm font-bold text-[#25242A] mb-1">
                     {searchTerm.trim()
                       ? `No anime releases found for "${searchTerm.trim()}".`
                       : watchingOnly
@@ -726,18 +726,18 @@ export function ReleaseCalendar({
                   {(watchingOnly || searchTerm.trim() || hideWithoutEnglishTitle || hideLongRunning) && (
                     <button
                       onClick={handleClearAllFilters}
-                      className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                      className="mt-3 bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-xs px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer shadow-2xs"
                     >
                       Clear Filters
                     </button>
                   )}
                 </div>
               ) : (
-                <div className="divide-y divide-slate-800">
+                <div className="divide-y divide-[#E7E3DF]">
                   {rowIndices.map((rowIndex) => (
                     <div
                       key={`row-${rowIndex}`}
-                      className="grid grid-cols-7 divide-x divide-slate-800"
+                      className="grid grid-cols-7 divide-x divide-[#E7E3DF]"
                     >
                       {displayedDaysWithUpcoming.map((day) => {
                         const item = day.items[rowIndex];
@@ -752,7 +752,7 @@ export function ReleaseCalendar({
                             <div
                               key={`empty-${day.dateKey}-${rowIndex}`}
                               className={`w-full aspect-[3/4.2] ${
-                                isToday ? 'bg-indigo-950/20' : 'bg-slate-950/40'
+                                isToday ? 'bg-[#F0EDFA]/40' : 'bg-[#F7F5F2]/20'
                               }`}
                             />
                           );

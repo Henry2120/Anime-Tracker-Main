@@ -46,31 +46,31 @@ export function TodayReleaseView({
   return (
     <div id="today-release-view-container" className="w-full space-y-4">
       {/* 1. Dedicated Single-Day Header Banner */}
-      <div className="bg-gradient-to-r from-indigo-950/80 via-slate-900 to-slate-900 border border-indigo-500/30 rounded-xl p-4 sm:p-5 shadow-xl">
+      <div className="bg-white border border-[#E7E3DF] rounded-2xl p-5 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {/* Day & Date Info */}
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-xl bg-indigo-600/30 border border-indigo-400/40 flex flex-col items-center justify-center text-center shadow-inner shrink-0">
-              <span className="text-[10px] font-black uppercase text-indigo-300 leading-none">
+            <div className="h-12 w-12 rounded-xl bg-[#F0EDFA] border border-[#7567C7]/20 flex flex-col items-center justify-center text-center shrink-0">
+              <span className="text-[10px] font-bold uppercase text-[#7567C7] leading-none">
                 {todaySchedule.weekday}
               </span>
-              <span className="text-base font-black text-white leading-tight">
+              <span className="text-base font-bold text-[#25242A] leading-tight">
                 {todaySchedule.dayNum}
               </span>
             </div>
 
             <div>
               <div className="flex items-center gap-2 mb-0.5">
-                <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+                <h3 className="text-base sm:text-lg font-bold text-[#25242A] tracking-tight">
                   {todaySchedule.weekday}, {todaySchedule.dayNum} {todaySchedule.monthName} {todaySchedule.year}
                 </h3>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-400 text-indigo-950 text-[10px] font-black tracking-wider uppercase shadow-xs">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#C69A55]/15 text-[#C69A55] text-[10px] font-bold tracking-wider uppercase border border-[#C69A55]/30">
                   <Sparkles className="h-3 w-3" />
                   TODAY
                 </span>
               </div>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                <Clock className="h-3 w-3 text-indigo-400" />
+              <p className="text-xs text-[#77747D] flex items-center gap-1.5">
+                <Clock className="h-3 w-3 text-[#7567C7]" />
                 <span>Times shown in <strong>{timezoneLabel}</strong></span>
               </p>
             </div>
@@ -78,22 +78,22 @@ export function TodayReleaseView({
 
           {/* Today Count & Filter Status Badges */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-bold text-slate-200">
-              <Film className="h-3.5 w-3.5 text-indigo-400" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7F5F2] border border-[#E7E3DF] text-xs font-semibold text-[#77747D]">
+              <Film className="h-3.5 w-3.5 text-[#7567C7]" />
               <span>
-                <strong className="text-white">{items.length}</strong> {items.length === 1 ? 'Release' : 'Releases'} Today
+                <strong className="text-[#25242A]">{items.length}</strong> {items.length === 1 ? 'Release' : 'Releases'} Today
               </span>
             </div>
 
             {hideWithoutEnglishTitle && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-950/70 border border-sky-800 text-[11px] font-bold text-sky-300">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#F0EDFA] border border-[#7567C7]/20 text-[11px] font-semibold text-[#7567C7]">
                 <Languages className="h-3 w-3" />
                 English Titles
               </span>
             )}
 
             {hideLongRunning && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-800 text-[11px] font-bold text-amber-300">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#C69A55]/15 border border-[#C69A55]/30 text-[11px] font-semibold text-[#C69A55]">
                 <Clock9 className="h-3 w-3" />
                 &lt; 27 Eps
               </span>
@@ -104,16 +104,16 @@ export function TodayReleaseView({
 
       {/* 2. Detailed Single-Day Releases Grid / List */}
       {items.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-950 p-12 text-center text-slate-400 shadow-xl">
-          <Calendar className="h-10 w-10 mx-auto mb-3 text-slate-600" />
-          <h4 className="text-sm sm:text-base font-bold text-white mb-1">
+        <div className="rounded-2xl border border-[#E7E3DF] bg-white p-12 text-center text-[#77747D] shadow-2xs">
+          <Calendar className="h-10 w-10 mx-auto mb-3 text-[#77747D]/60" />
+          <h4 className="text-sm sm:text-base font-bold text-[#25242A] mb-1">
             {searchTerm.trim()
               ? `No anime releases matching "${searchTerm.trim()}" for today.`
               : watchingOnly
               ? 'No watched anime scheduled to air today.'
               : `No anime releases scheduled for today (${todaySchedule.weekday}, ${todaySchedule.dayNum} ${todaySchedule.monthName} ${todaySchedule.year}).`}
           </h4>
-          <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
+          <p className="text-xs text-[#77747D] max-w-md mx-auto mb-4">
             {hasActiveFilter
               ? 'Try adjusting your content filters or keyword search to see more releases for today.'
               : `Check other days in the weekly calendar or switch timezones (${timezoneLabel}).`}
@@ -123,7 +123,7 @@ export function TodayReleaseView({
             <button
               type="button"
               onClick={onClearFilters}
-              className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors cursor-pointer shadow-md"
+              className="inline-flex items-center gap-1.5 bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-xs px-4 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
             >
               Clear Filters
             </button>
@@ -144,14 +144,14 @@ export function TodayReleaseView({
               <div
                 key={`today-item-${item.id}-${item.airingAt}`}
                 onClick={() => onSelectAnime?.(item)}
-                className={`relative rounded-xl overflow-hidden border p-3.5 sm:p-4 flex gap-3.5 transition-all duration-200 cursor-pointer ${
+                className={`relative rounded-2xl overflow-hidden border p-3.5 sm:p-4 flex gap-3.5 transition-all duration-200 cursor-pointer ${
                   item.isWatching
-                    ? 'bg-slate-900/95 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.18)] ring-1 ring-emerald-500/40 hover:ring-2'
-                    : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 hover:bg-slate-900 shadow-md hover:ring-1 hover:ring-indigo-400/50'
+                    ? 'bg-white border-[#6D9B7C] shadow-2xs ring-1 ring-[#6D9B7C]/40 hover:ring-2'
+                    : 'bg-white border-[#E7E3DF] hover:border-[#7567C7]/40 hover:bg-[#F7F5F2]/40 shadow-2xs'
                 }`}
               >
                 {/* Prominent Large Poster */}
-                <div className="w-24 sm:w-28 md:w-32 aspect-[3/4] rounded-lg overflow-hidden bg-slate-950 border border-slate-800 shrink-0 shadow-md relative group">
+                <div className="w-24 sm:w-28 md:w-32 aspect-[3/4] rounded-xl overflow-hidden bg-[#F7F5F2] border border-[#E7E3DF] shrink-0 relative group">
                   {item.imageUrl ? (
                     <img
                       src={item.imageUrl}
@@ -160,7 +160,7 @@ export function TodayReleaseView({
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-600">
+                    <div className="w-full h-full flex items-center justify-center text-[#77747D]">
                       <Film className="h-6 w-6" />
                     </div>
                   )}
@@ -168,8 +168,8 @@ export function TodayReleaseView({
                   {/* Watching Badge Overlay on Poster */}
                   {item.isWatching && (
                     <div className="absolute top-1 left-1">
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-600/95 text-white text-[9px] font-black uppercase tracking-wider shadow-md">
-                        <Star className="h-2.5 w-2.5 fill-amber-300 text-amber-300" />
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-[#6D9B7C] text-white text-[9px] font-bold uppercase tracking-wider shadow-2xs">
+                        <Star className="h-2.5 w-2.5 fill-current text-[#C69A55]" />
                         Watching
                       </span>
                     </div>
@@ -181,24 +181,24 @@ export function TodayReleaseView({
                   <div>
                     {/* Top Row: Time Pill & Episode Badges */}
                     <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-950 border border-indigo-800/80 text-indigo-200 text-[11px] font-black tracking-tight shadow-xs">
-                        <Clock className="h-3 w-3 text-indigo-400" />
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#F0EDFA] border border-[#7567C7]/20 text-[#7567C7] text-[11px] font-bold tracking-tight">
+                        <Clock className="h-3 w-3 text-[#7567C7]" />
                         {item.formattedTime}
                       </span>
 
                       {/* UPCOMING Badge */}
                       {item.isUpcoming && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-400 text-indigo-950 text-[10px] font-black uppercase tracking-wider shadow-xs border border-amber-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-[#C69A55]/15 text-[#C69A55] text-[10px] font-bold uppercase tracking-wider border border-[#C69A55]/30">
                           UPCOMING
                         </span>
                       )}
 
                       {/* Episode Badge */}
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-extrabold ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold ${
                           item.isWatching
-                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
-                            : 'bg-slate-800 text-slate-200 border border-slate-700'
+                            ? 'bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30'
+                            : 'bg-[#F7F5F2] text-[#25242A] border border-[#E7E3DF]'
                         }`}
                       >
                         {item.episode !== null ? `Episode ${item.episode}` : 'New Episode'}
@@ -206,31 +206,31 @@ export function TodayReleaseView({
 
                       {/* Countdown Badge if Upcoming */}
                       {item.isUpcoming && item.countdown && (
-                        <span className="text-[10px] font-extrabold text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/80">
+                        <span className="text-[10px] font-bold text-[#C69A55] bg-[#C69A55]/10 px-1.5 py-0.5 rounded-lg border border-[#C69A55]/30">
                           {item.countdown}
                         </span>
                       )}
 
                       {/* Total Episodes (if known) */}
                       {item.totalEpisodes && (
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                        <span className="text-[10px] font-medium text-[#77747D] bg-[#F7F5F2] px-1.5 py-0.5 rounded-lg border border-[#E7E3DF]">
                           {item.totalEpisodes} eps
                         </span>
                       )}
 
                       {/* Format Badge (TV, Movie, ONA, etc.) */}
                       {item.format && (
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                        <span className="text-[10px] font-medium text-[#77747D] bg-[#F7F5F2] px-1.5 py-0.5 rounded-lg border border-[#E7E3DF]">
                           {item.format}
                         </span>
                       )}
                     </div>
 
-                    {/* Anime Title: English when available, Japanese/Native fallback */}
+                    {/* Anime Title */}
                     <h4
                       title={titleToDisplay}
-                      className={`text-sm sm:text-base font-black leading-snug line-clamp-2 transition-colors ${
-                        item.isWatching ? 'text-white hover:text-emerald-300' : 'text-white hover:text-indigo-300'
+                      className={`text-sm sm:text-base font-bold leading-snug line-clamp-2 transition-colors ${
+                        item.isWatching ? 'text-[#25242A] hover:text-[#6D9B7C]' : 'text-[#25242A] hover:text-[#7567C7]'
                       }`}
                     >
                       {titleToDisplay}
@@ -238,16 +238,16 @@ export function TodayReleaseView({
 
                     {/* Secondary Native / Romaji title */}
                     {secondaryTitle && (
-                      <p className="text-xs text-slate-400 truncate mt-0.5" title={secondaryTitle}>
+                      <p className="text-xs text-[#77747D] truncate mt-0.5" title={secondaryTitle}>
                         {secondaryTitle}
                       </p>
                     )}
                   </div>
 
                   {/* Bottom Row: Studio & External Link */}
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-800/80">
-                    <div className="text-xs text-slate-400 truncate flex items-center gap-1">
-                      <Film className="h-3 w-3 text-slate-500 shrink-0" />
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-[#E7E3DF]">
+                    <div className="text-xs text-[#77747D] truncate flex items-center gap-1">
+                      <Film className="h-3 w-3 text-[#77747D] shrink-0" />
                       <span className="truncate">{item.studio || 'Studio TBA'}</span>
                     </div>
 
@@ -256,7 +256,7 @@ export function TodayReleaseView({
                         href={`https://myanimelist.net/anime/${item.malId}`}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 hover:underline shrink-0"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#7567C7] hover:underline shrink-0"
                       >
                         <span>MAL #{item.malId}</span>
                         <ExternalLink className="h-3 w-3" />

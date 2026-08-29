@@ -74,9 +74,9 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({
         >
           {/* Eyebrow */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#F0EDFA] border border-[#7567C7]/20 text-[#7567C7] text-xs font-bold tracking-widest uppercase">
-            <span>✦ ANIME TRACKER</span>
+            <span>✦ ANIVERSE</span>
             <span className="text-[#77747D]/60">•</span>
-            <span className="text-[11px] font-medium tracking-normal text-[#77747D]">アニメトラッカー</span>
+            <span className="text-[11px] font-medium tracking-normal text-[#77747D]">アニバース</span>
           </div>
 
           {/* Headline */}

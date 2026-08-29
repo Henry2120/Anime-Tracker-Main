@@ -94,22 +94,22 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-3xl border-2 border-indigo-100/80 shadow-xl overflow-hidden mb-8">
+    <div className="bg-white rounded-2xl border border-[#E7E3DF] shadow-2xs overflow-hidden mb-8">
       {/* Table Header Section */}
-      <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-5 sm:p-6 bg-white border-b border-[#E7E3DF] text-[#25242A] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-white/10 text-yellow-400 backdrop-blur-md">
+          <div className="p-2.5 rounded-xl bg-[#F0EDFA] text-[#7567C7]">
             {icon}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-lg sm:text-xl font-black tracking-tight">{title}</h3>
-              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${badgeBg} ${badgeTextClass}`}>
+              <h3 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A]">{title}</h3>
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${badgeBg} ${badgeTextClass}`}>
                 {items.length} Anime
               </span>
             </div>
             {subtitle && (
-              <p className="text-slate-300 text-xs font-medium mt-0.5">{subtitle}</p>
+              <p className="text-[#77747D] text-xs mt-0.5">{subtitle}</p>
             )}
           </div>
         </div>
@@ -119,7 +119,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
-            <tr className="bg-slate-50/80 border-b border-indigo-100 text-slate-500 font-extrabold text-[11px] uppercase tracking-wider">
+            <tr className="bg-[#F7F5F2] border-b border-[#E7E3DF] text-[#77747D] font-bold text-[11px] uppercase tracking-wider">
               <th className="py-3.5 px-4 text-center w-12">#</th>
               <th className="py-3.5 px-3 w-16">Image</th>
               <th className="py-3.5 px-4 min-w-[200px]">Anime Title</th>
@@ -129,10 +129,10 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
               <th className="py-3.5 px-4 min-w-[220px]">Notes</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-indigo-50/70 text-slate-700 text-xs font-semibold">
+          <tbody className="divide-y divide-[#E7E3DF] text-[#25242A] text-xs font-semibold">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-slate-400 font-bold text-sm bg-slate-50/30">
+                <td colSpan={7} className="py-12 text-center text-[#77747D] font-medium text-sm bg-[#F7F5F2]/40">
                   No anime found in this category.
                 </td>
               </tr>
@@ -156,16 +156,16 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                     key={animeId}
                     id={`season-row-${animeId}`}
                     data-season-row={animeId}
-                    className="hover:bg-indigo-50/40 transition-colors duration-150 group"
+                    className="hover:bg-[#F0EDFA]/50 transition-colors duration-150 group"
                   >
                     {/* Row Number */}
-                    <td className="py-3 px-4 text-center font-extrabold text-slate-400 group-hover:text-indigo-600">
+                    <td className="py-3 px-4 text-center font-bold text-[#77747D] group-hover:text-[#7567C7]">
                       {idx + 1}
                     </td>
 
                     {/* Image Thumbnail */}
                     <td className="py-2.5 px-3">
-                      <div className="h-14 w-10 overflow-hidden rounded-xl bg-indigo-100 shadow-xs border border-indigo-100/60 shrink-0">
+                      <div className="h-14 w-10 overflow-hidden rounded-lg bg-[#F7F5F2] border border-[#E7E3DF] shrink-0">
                         {imgUrl ? (
                           <img
                             src={imgUrl}
@@ -175,7 +175,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                             loading="lazy"
                           />
                         ) : (
-                          <div className="h-full w-full flex items-center justify-center bg-indigo-50 text-indigo-300 font-bold text-[10px]">
+                          <div className="h-full w-full flex items-center justify-center bg-[#F0EDFA] text-[#7567C7] font-bold text-[10px]">
                             N/A
                           </div>
                         )}
@@ -183,7 +183,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                     </td>
 
                     {/* Anime Title */}
-                    <td className="py-3 px-4 font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                    <td className="py-3 px-4 font-bold text-[#25242A] group-hover:text-[#7567C7] transition-colors">
                       <div className="flex items-center gap-1.5">
                         <a
                           href={`https://myanimelist.net/anime/${animeId}`}
@@ -193,11 +193,11 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                           title={`View ${titleStr} on MyAnimeList`}
                         >
                           <span>{titleStr}</span>
-                          <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-400 shrink-0" />
+                          <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-[#7567C7] shrink-0" />
                         </a>
                       </div>
                       {item.node.alternative_titles?.en && item.node.alternative_titles.en !== titleStr && (
-                        <span className="text-[10px] text-slate-400 font-medium block mt-0.5 line-clamp-1">
+                        <span className="text-[10px] text-[#77747D] font-normal block mt-0.5 line-clamp-1">
                           {item.node.alternative_titles.en}
                         </span>
                       )}
@@ -206,12 +206,12 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                     {/* Score */}
                     <td className="py-3 px-4 text-center">
                       {score !== null ? (
-                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-100/80 text-yellow-900 font-black text-xs">
-                          <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#25242A]/80 text-[#C69A55] font-bold text-xs backdrop-blur-md">
+                          <Star className="h-3 w-3 fill-current text-[#C69A55]" />
                           <span>{score}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-300 font-extrabold text-sm">-</span>
+                        <span className="text-[#77747D] font-bold text-sm">-</span>
                       )}
                     </td>
 
@@ -223,26 +223,26 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                         let label = badgeText;
 
                         if (rawStatus === 'watching') {
-                          badgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-200/60';
+                          badgeClass = 'bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30';
                           label = 'Watching';
                         } else if (rawStatus === 'plan_to_watch') {
-                          badgeClass = 'bg-sky-100 text-sky-800 border border-sky-200/60';
+                          badgeClass = 'bg-[#7567C7]/15 text-[#7567C7] border border-[#7567C7]/30';
                           label = 'Plan to Watch';
                         } else if (rawStatus === 'completed') {
-                          badgeClass = 'bg-indigo-100 text-indigo-800 border border-indigo-200/60';
+                          badgeClass = 'bg-[#7567C7]/20 text-[#7567C7] border border-[#7567C7]/40';
                           label = 'Completed';
                         } else if (rawStatus === 'on_hold') {
-                          badgeClass = 'bg-amber-100 text-amber-800 border border-amber-200/60';
+                          badgeClass = 'bg-[#C69A55]/15 text-[#C69A55] border border-[#C69A55]/30';
                           label = 'On Hold';
                         } else if (rawStatus === 'dropped') {
-                          badgeClass = 'bg-rose-100 text-rose-800 border border-rose-200/60';
+                          badgeClass = 'bg-[#D6A0AF]/20 text-[#C77B82] border border-[#D6A0AF]/40';
                           label = 'Dropped';
                         } else if (rawStatus) {
                           label = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).replace(/_/g, ' ');
                         }
 
                         return (
-                          <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-black tracking-wide ${badgeClass}`}>
+                          <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${badgeClass}`}>
                             {label}
                           </span>
                         );
@@ -250,8 +250,8 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                     </td>
 
                     {/* Episodes */}
-                    <td className="py-3 px-4 text-center font-extrabold text-indigo-900">
-                      <span className="bg-indigo-50 px-2.5 py-1 rounded-xl border border-indigo-100">
+                    <td className="py-3 px-4 text-center font-bold text-[#25242A]">
+                      <span className="bg-[#F7F5F2] px-2.5 py-1 rounded-xl border border-[#E7E3DF]">
                         {watchedEps} / {totalEps}
                       </span>
                     </td>
@@ -261,20 +261,20 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                       {displayNote ? (
                         <div
                           onClick={() => handleOpenNoteModal(animeId, titleStr, displayNote)}
-                          className="group/note cursor-pointer relative bg-slate-50 hover:bg-indigo-100/60 p-2 rounded-xl border border-indigo-100/80 transition-all flex items-start gap-1.5"
+                          className="group/note cursor-pointer relative bg-[#F7F5F2] hover:bg-[#F0EDFA] p-2 rounded-xl border border-[#E7E3DF] transition-all flex items-start gap-1.5"
                           title="Click to view or edit full note"
                         >
-                          <MessageSquare className="h-3.5 w-3.5 text-indigo-400 mt-0.5 shrink-0" />
-                          <span className="text-[11px] text-slate-600 group-hover/note:text-slate-900 font-medium leading-tight line-clamp-2">
+                          <MessageSquare className="h-3.5 w-3.5 text-[#7567C7] mt-0.5 shrink-0" />
+                          <span className="text-[11px] text-[#25242A] group-hover/note:text-[#7567C7] font-medium leading-tight line-clamp-2">
                             {truncatedNote}
                           </span>
                         </div>
                       ) : (
                         <button
                           onClick={() => handleOpenNoteModal(animeId, titleStr, '')}
-                          className="text-[11px] text-slate-400 hover:text-indigo-600 font-semibold flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-indigo-50 transition-colors cursor-pointer"
+                          className="text-[11px] text-[#77747D] hover:text-[#7567C7] font-medium flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-[#F0EDFA] transition-colors cursor-pointer"
                         >
-                          <Edit2 className="h-3 w-3 text-slate-300" />
+                          <Edit2 className="h-3 w-3 text-[#77747D]" />
                           <span>Add note</span>
                         </button>
                       )}
