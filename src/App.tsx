@@ -670,7 +670,7 @@ export default function App() {
 
           {/* DESKTOP TOP NAV TABS */}
           {malUser && (
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden md:flex items-center gap-1.5 bg-[#F7F5F2] p-1 rounded-2xl border border-[#E7E3DF]">
               <button
                 onClick={() => {
                   setActiveTab('season');
@@ -678,14 +678,14 @@ export default function App() {
                     fetchSeasonalList(2026, 'summer');
                   }
                 }}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
                   activeTab === 'season'
-                    ? 'bg-[#F0EDFA] text-[#7567C7]'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                    ? 'bg-white text-[#7567C7] shadow-2xs'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
                 }`}
               >
                 <Sun className="h-4 w-4 text-[#C69A55]" />
-                <span>MY SEASON</span>
+                <span>SEASON</span>
               </button>
 
               <button
@@ -695,16 +695,16 @@ export default function App() {
                     fetchMalList();
                   }
                 }}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
                   activeTab === 'mal'
-                    ? 'bg-[#F0EDFA] text-[#7567C7]'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                    ? 'bg-white text-[#7567C7] shadow-2xs'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
                 }`}
               >
                 <Tv className="h-4 w-4" />
                 <span>MY LIST</span>
                 {malList.length > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-[#7567C7]/10 text-[#7567C7] text-[10px] font-bold">
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[#7567C7]/10 text-[#7567C7] text-[10px] font-bold">
                     {malList.length}
                   </span>
                 )}
@@ -713,14 +713,14 @@ export default function App() {
               <button
                 id="release-calendar-tab-btn"
                 onClick={() => setActiveTab('calendar')}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
                   activeTab === 'calendar'
-                    ? 'bg-[#F0EDFA] text-[#7567C7]'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                    ? 'bg-white text-[#7567C7] shadow-2xs'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
                 }`}
               >
                 <CalendarDays className="h-4 w-4 text-[#7567C7]" />
-                <span>CALENDAR</span>
+                <span>RELEASES</span>
               </button>
 
               <button
@@ -731,14 +731,14 @@ export default function App() {
                     fetchMalList();
                   }
                 }}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
                   activeTab === 'status'
-                    ? 'bg-[#F0EDFA] text-[#7567C7]'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                    ? 'bg-white text-[#7567C7] shadow-2xs'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
                 }`}
               >
                 <BarChart3 className="h-4 w-4 text-[#6D9B7C]" />
-                <span>STATISTICS</span>
+                <span>STATS</span>
               </button>
 
               <button
@@ -749,14 +749,14 @@ export default function App() {
                     fetchMalList();
                   }
                 }}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'gemini'
-                    ? 'bg-[#F0EDFA] text-[#7567C7] border border-[#7567C7]/30'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-slate-50'
+                    ? 'bg-white text-[#7567C7] shadow-2xs border border-[#7567C7]/30'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
                 }`}
               >
                 <Sparkles className="h-4 w-4 text-[#C69A55]" />
-                <span>✨ AI</span>
+                <span>✨ GEMINI</span>
               </button>
             </nav>
           )}
@@ -804,46 +804,51 @@ export default function App() {
 
         {/* MOBILE SECONDARY NAV ROW WHEN LOGGED IN */}
         {malUser && (
-          <div className="flex md:hidden items-center gap-1 mt-3 pt-2 border-t border-[#E7E3DF] overflow-x-auto">
+          <div className="flex md:hidden items-center gap-1.5 mt-3 pt-2 border-t border-[#E7E3DF] overflow-x-auto">
             <button
               onClick={() => setActiveTab('season')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 ${
                 activeTab === 'season' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              MY SEASON
+              SEASON
             </button>
             <button
               onClick={() => setActiveTab('mal')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 flex items-center gap-1.5 ${
                 activeTab === 'mal' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              MY LIST
+              <span>MY LIST</span>
+              {malList.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-[#7567C7]/10 text-[#7567C7] text-[10px] font-bold">
+                  {malList.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 ${
                 activeTab === 'calendar' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              CALENDAR
+              RELEASES
             </button>
             <button
               onClick={() => setActiveTab('status')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 ${
                 activeTab === 'status' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              STATISTICS
+              STATS
             </button>
             <button
               onClick={() => setActiveTab('gemini')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 ${
                 activeTab === 'gemini' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              ✨ AI
+              ✨ GEMINI
             </button>
           </div>
         )}
@@ -877,7 +882,7 @@ export default function App() {
                 )}
                 <div>
                   <h3 className="text-xl font-bold text-[#25242A]">
-                    {malUser.name}'s Anime List
+                    MY LIST
                   </h3>
                   <p className="text-xs text-[#77747D] mt-0.5">
                     {malList.length} anime series retrieved from MyAnimeList
@@ -889,14 +894,14 @@ export default function App() {
                 <button
                   onClick={fetchMalList}
                   disabled={malLoading}
-                  className="p-2.5 rounded-xl border border-[#E7E3DF] hover:bg-slate-50 text-[#25242A] transition-colors cursor-pointer"
+                  className="p-2.5 rounded-xl border border-[#E7E3DF] hover:bg-[#F7F5F2] text-[#25242A] transition-colors cursor-pointer shadow-2xs"
                   title="Refresh List"
                 >
                   <RefreshCw className={`h-4 w-4 ${malLoading ? 'animate-spin' : ''}`} />
                 </button>
                 <button
                   onClick={handleDisconnectMal}
-                  className="px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-[#C77B82] font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#D6A0AF]/15 hover:bg-[#D6A0AF]/25 text-[#C77B82] font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   <span>Disconnect</span>
@@ -904,52 +909,56 @@ export default function App() {
               </div>
             </div>
 
-            {/* Filter Controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <label htmlFor="mal-status-filter" className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+            {/* Filter Controls with Secondary Segmented Control System */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white border border-[#E7E3DF] rounded-2xl p-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0 px-1">
                   <Filter className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>Status:</span>
-                </label>
-                <div className="relative inline-block w-48 sm:w-56">
-                  <select
-                    id="mal-status-filter"
-                    value={malFilterStatus}
-                    onChange={(e) => setMalFilterStatus(e.target.value)}
-                    className="w-full appearance-none bg-white border border-[#E7E3DF] text-[#25242A] text-xs sm:text-sm font-medium rounded-xl py-2 pl-4 pr-10 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
-                  >
-                    <option value="all">All</option>
-                    <option value="watching">Watching</option>
-                    <option value="completed">Completed</option>
-                    <option value="plan_to_watch">Plan to Watch</option>
-                    <option value="on_hold">On Hold</option>
-                    <option value="dropped">Dropped</option>
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#77747D]">
-                    <ChevronDown className="h-4 w-4" />
-                  </div>
+                </span>
+                <div className="flex flex-wrap items-center gap-1 bg-[#F7F5F2] p-1 rounded-xl border border-[#E7E3DF]">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'watching', label: 'Watching' },
+                    { id: 'completed', label: 'Completed' },
+                    { id: 'plan_to_watch', label: 'Plan to Watch' },
+                    { id: 'on_hold', label: 'On Hold' },
+                    { id: 'dropped', label: 'Dropped' },
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setMalFilterStatus(st.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer ${
+                        malFilterStatus === st.id
+                          ? 'bg-white text-[#7567C7] font-semibold shadow-2xs'
+                          : 'text-[#77747D] hover:text-[#25242A]'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 self-end lg:self-auto">
                 <label htmlFor="mal-sort-option" className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
                   <ArrowUpDown className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>Sort:</span>
                 </label>
-                <div className="relative inline-block w-52 sm:w-60">
+                <div className="relative inline-block w-48">
                   <select
                     id="mal-sort-option"
                     value={malSortOption}
                     onChange={(e) => setMalSortOption(e.target.value)}
-                    className="w-full appearance-none bg-white border border-[#E7E3DF] text-[#25242A] text-xs sm:text-sm font-medium rounded-xl py-2 pl-4 pr-10 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
+                    className="w-full appearance-none bg-[#F7F5F2] hover:bg-white border border-[#E7E3DF] text-[#25242A] text-xs font-medium rounded-xl py-2 pl-3 pr-8 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
                   >
                     <option value="title_asc">A to Z</option>
                     <option value="title_desc">Z to A</option>
                     <option value="score_desc">Score (Highest to Lowest)</option>
                     <option value="score_asc">Score (Lowest to Highest)</option>
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#77747D]">
-                    <ChevronDown className="h-4 w-4" />
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[#77747D]">
+                    <ChevronDown className="h-3.5 w-3.5" />
                   </div>
                 </div>
               </div>

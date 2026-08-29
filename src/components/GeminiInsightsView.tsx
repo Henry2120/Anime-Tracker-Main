@@ -146,22 +146,19 @@ export const GeminiInsightsView: React.FC<GeminiInsightsViewProps> = ({
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* PAGE HEADER */}
-      <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 text-white rounded-3xl p-6 sm:p-10 border-2 border-indigo-500/40 shadow-2xl relative overflow-hidden">
-        <div className="absolute -top-32 -right-32 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-indigo-500/25 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-3 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-400/20 border border-amber-400/30 text-amber-300 text-xs font-black uppercase tracking-widest backdrop-blur-md">
-              <Sparkles className="h-4 w-4 animate-pulse" />
-              <span>GEMINI INSIGHTS</span>
+      <div className="bg-white border border-[#E7E3DF] rounded-2xl p-6 sm:p-8 shadow-2xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase">
+              <Sparkles className="h-3.5 w-3.5 text-[#C69A55]" />
+              <span>AI INSIGHTS</span>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
-              Understand Your Anime Journey
+            <h1 className="text-3xl font-bold tracking-tight text-[#25242A]">
+              ✨ GEMINI
             </h1>
 
-            <p className="text-indigo-200 text-sm sm:text-base font-medium leading-relaxed">
+            <p className="text-[#77747D] text-sm leading-relaxed">
               Let Gemini analyze your watching patterns and turn your anime data into personalized insights.
             </p>
           </div>
@@ -170,9 +167,9 @@ export const GeminiInsightsView: React.FC<GeminiInsightsViewProps> = ({
             <button
               onClick={handleAnalyzeWatching}
               disabled={loading}
-              className="w-full sm:w-auto bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-500 hover:opacity-95 text-slate-950 font-black px-8 py-4 rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 text-base cursor-pointer active:scale-95 disabled:opacity-60"
+              className="w-full sm:w-auto bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold px-6 py-3.5 rounded-xl shadow-2xs transition-all flex items-center justify-center gap-2.5 text-sm cursor-pointer active:scale-95 disabled:opacity-60"
             >
-              <Sparkles className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+              <Sparkles className={`h-4 w-4 text-[#C69A55] ${loading ? 'animate-spin' : ''}`} />
               <span>{loading ? 'Analyzing...' : geminiData ? 'Re-analyze Watching' : '✨ Analyze My Watching'}</span>
             </button>
           </div>

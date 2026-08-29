@@ -372,26 +372,42 @@ export function ReleaseCalendar({
   };
 
   return (
-    <div className="w-full space-y-4">
+    <div className="w-full space-y-6">
+      {/* PAGE HEADER */}
+      <div className="bg-white border border-[#E7E3DF] rounded-2xl p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase mb-2">
+            <CalendarDays className="h-3.5 w-3.5 text-[#7567C7]" />
+            <span>AIRING SCHEDULE</span>
+          </div>
+          <h2 className="text-3xl font-bold text-[#25242A]">
+            RELEASES
+          </h2>
+          <p className="text-sm text-[#77747D] mt-1">
+            Weekly broadcast schedule and episode release times.
+          </p>
+        </div>
+      </div>
+
       {/* Calendar Controls & Navigation Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-white">
+      <div className="bg-white border border-[#E7E3DF] rounded-2xl p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4 text-[#25242A]">
         {/* Week Navigation Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="inline-flex items-center rounded-lg bg-slate-800 p-1 border border-slate-700 shadow-inner">
+          <div className="inline-flex items-center rounded-xl bg-[#F7F5F2] p-1 border border-[#E7E3DF]">
             <button
               id="cal-prev-week-btn"
               onClick={() => setWeekOffset((prev) => prev - 1)}
               title="Previous Week"
-              className="p-1.5 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-white text-[#77747D] hover:text-[#25242A] transition-colors cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
 
             <div className="px-3 py-1 text-center min-w-[150px]">
-              <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 block leading-tight">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#7567C7] block leading-tight">
                 {showOnlyToday ? 'Target Week' : 'Week'}
               </span>
-              <span className="text-xs sm:text-sm font-black text-white">
+              <span className="text-xs sm:text-sm font-bold text-[#25242A]">
                 {weekInfo.weekLabel}
               </span>
             </div>
@@ -400,7 +416,7 @@ export function ReleaseCalendar({
               id="cal-next-week-btn"
               onClick={() => setWeekOffset((prev) => prev + 1)}
               title="Next Week"
-              className="p-1.5 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-white text-[#77747D] hover:text-[#25242A] transition-colors cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -410,7 +426,7 @@ export function ReleaseCalendar({
             <button
               id="cal-current-week-btn"
               onClick={() => setWeekOffset(0)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              className="bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-xs px-3 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
             >
               <RefreshCw className="h-3 w-3" />
               <span>Current Week</span>
@@ -418,8 +434,8 @@ export function ReleaseCalendar({
           )}
 
           {showOnlyToday && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-800 text-cyan-300 text-xs font-bold">
-              <Calendar className="h-3 w-3" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F0EDFA] border border-[#7567C7]/20 text-[#7567C7] text-xs font-semibold">
+              <Calendar className="h-3.5 w-3.5" />
               <span>Showing Today</span>
             </div>
           )}
@@ -428,11 +444,11 @@ export function ReleaseCalendar({
         {/* Timezone Selector & Quick Stats */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Timezone Dropdown */}
-          <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5">
-            <Globe className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+          <div className="flex items-center gap-1.5 bg-[#F7F5F2] border border-[#E7E3DF] rounded-xl px-3 py-1.5">
+            <Globe className="h-3.5 w-3.5 text-[#7567C7] shrink-0" />
             <label
               htmlFor="timezone-select"
-              className="text-[10px] font-black uppercase text-slate-400 hidden sm:inline"
+              className="text-[10px] font-bold uppercase text-[#77747D] hidden sm:inline"
             >
               TZ:
             </label>
@@ -440,10 +456,10 @@ export function ReleaseCalendar({
               id="timezone-select"
               value={selectedTimezone}
               onChange={(e) => setSelectedTimezone(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-100 focus:outline-hidden cursor-pointer pr-1"
+              className="bg-transparent text-xs font-semibold text-[#25242A] focus:outline-none cursor-pointer pr-1"
             >
               {TIMEZONE_OPTIONS.map((tz) => (
-                <option key={tz.id} value={tz.id} className="bg-slate-900 text-white">
+                <option key={tz.id} value={tz.id} className="bg-white text-[#25242A]">
                   {tz.label}
                 </option>
               ))}
@@ -451,10 +467,10 @@ export function ReleaseCalendar({
           </div>
 
           {/* Total Releases Count Badge */}
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-300">
-            <Film className="h-3.5 w-3.5 text-indigo-400" />
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7F5F2] border border-[#E7E3DF] text-xs font-semibold text-[#77747D]">
+            <Film className="h-3.5 w-3.5 text-[#7567C7]" />
             <span>
-              <strong className="text-white">{activeReleasesCount}</strong> {showOnlyToday ? 'today' : 'releases'}
+              <strong className="text-[#25242A]">{activeReleasesCount}</strong> {showOnlyToday ? 'today' : 'releases'}
             </span>
           </div>
 

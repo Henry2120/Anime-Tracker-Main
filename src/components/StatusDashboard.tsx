@@ -509,23 +509,21 @@ export function StatusDashboard({
   return (
     <div className="space-y-12">
       {/* 1. Main Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-indigo-900/50">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-[#E7E3DF] p-6 sm:p-8 rounded-2xl shadow-2xs">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <BarChart3 className="h-6 w-6 text-emerald-400" />
-            <span className="text-xs font-black tracking-widest uppercase bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 px-3 py-1 rounded-full backdrop-blur-md">
-              Watching Overview
-            </span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase mb-2">
+            <BarChart3 className="h-3.5 w-3.5 text-[#6D9B7C]" />
+            <span>STATS & ANALYTICS</span>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-white">STATUS DASHBOARD</h2>
-          <p className="text-slate-300 font-medium text-xs sm:text-sm mt-1">
+          <h2 className="text-3xl font-bold text-[#25242A]">STATS</h2>
+          <p className="text-[#77747D] text-xs sm:text-sm mt-1">
             Visual summary of your seasonal progress and complete anime history.
           </p>
           {malUser && (
-            <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold text-white border border-white/10">
-              <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
+            <div className="mt-3 inline-flex items-center gap-2 bg-[#F7F5F2] border border-[#E7E3DF] px-3 py-1.5 rounded-xl text-xs font-semibold text-[#25242A]">
+              <UserCheck className="h-3.5 w-3.5 text-[#6D9B7C]" />
               <span>
-                MAL Account: <span className="underline font-black text-indigo-300">{malUser.name}</span>
+                MAL Account: <span className="font-bold text-[#7567C7]">{malUser.name}</span>
               </span>
             </div>
           )}
@@ -536,9 +534,9 @@ export function StatusDashboard({
             id="status-refresh-btn"
             onClick={onRefreshMal}
             disabled={malLoading}
-            className="bg-white/15 hover:bg-white/25 text-white font-bold py-2.5 px-4 rounded-2xl backdrop-blur-md transition-all flex items-center gap-2 text-xs cursor-pointer border border-white/15 shadow-sm"
+            className="bg-[#F7F5F2] hover:bg-white text-[#25242A] border border-[#E7E3DF] font-semibold py-2.5 px-4 rounded-xl transition-all flex items-center gap-2 text-xs cursor-pointer shadow-2xs"
           >
-            <RefreshCw className={`h-4 w-4 ${malLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 text-[#7567C7] ${malLoading ? 'animate-spin' : ''}`} />
             <span>Refresh Stats</span>
           </button>
         </div>
