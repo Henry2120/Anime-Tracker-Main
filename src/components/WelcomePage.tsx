@@ -150,6 +150,53 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({
         </motion.div>
       </section>
 
+      {/* PRODUCT DEMO VIDEO SECTION */}
+      <motion.section
+        initial={{ opacity: 0, y: 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.7 }}
+        className="max-w-[1080px] mx-auto px-4 text-center space-y-8 relative"
+      >
+        {/* Header Text */}
+        <div className="max-w-xl mx-auto space-y-3">
+          <span className="text-xs font-bold tracking-widest text-[#7567C7] uppercase">
+            SEE ANIVERSE IN ACTION
+          </span>
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#25242A] tracking-tight">
+            Your anime. Your season. Your story.
+          </h2>
+          <p className="text-base sm:text-lg text-[#77747D] font-normal leading-relaxed">
+            See how AniVerse turns your MyAnimeList library into a personalized anime experience.
+          </p>
+        </div>
+
+        {/* Video Wrapper & Decorative Elements */}
+        <div className="relative max-w-[1050px] mx-auto pt-2">
+          {/* Subtle Decorative Background Glows */}
+          <div className="absolute -top-10 left-1/4 -translate-x-1/2 w-80 h-80 bg-[#F0EDFA] rounded-full blur-3xl -z-10 opacity-70 pointer-events-none" />
+          <div className="absolute -bottom-10 right-1/4 translate-x-1/2 w-72 h-72 bg-[#F7F5F2] rounded-full blur-2xl -z-10 opacity-80 pointer-events-none" />
+
+          {/* Decorative Label Badge */}
+          <div className="flex justify-center mb-4">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#7567C7] text-white text-[11px] font-bold tracking-widest uppercase shadow-xs">
+              ▶ ANIVERSE DEMO
+            </span>
+          </div>
+
+          {/* Video Iframe Container */}
+          <div className="relative w-full aspect-video rounded-2xl sm:rounded-3xl border border-[#E7E3DF] overflow-hidden shadow-lg bg-[#25242A]">
+            <iframe
+              src="https://www.youtube.com/embed/dUXIymB78YQ"
+              title="AniVerse Product Demo Video"
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      </motion.section>
+
       {/* FEATURES SECTION */}
       <section id="features" className="max-w-6xl mx-auto px-4 py-12 border-t border-[#E7E3DF]">
         <div className="text-center max-w-xl mx-auto mb-16 space-y-3">

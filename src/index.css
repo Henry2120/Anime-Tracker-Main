@@ -1,1 +1,176 @@
 @import "tailwindcss";
+
+/* Smooth theme transitions */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+/* Exclude animations from general transition */
+.animate-spin,
+.animate-pulse,
+.animate-ping,
+canvas {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* =========================================================================
+   DARK THEME (墨 - Sumi Mode)
+   Deep charcoal aesthetic with refined Japanese editorial contrast
+   ========================================================================= */
+
+.dark {
+  color-scheme: dark;
+}
+
+/* Dark mode canvas backgrounds */
+.dark body,
+.dark .bg-\[\#F7F5F2\],
+.dark .bg-slate-50,
+.dark .bg-gray-50 {
+  background-color: #141318 !important;
+}
+
+/* Dark mode card and container surfaces */
+.dark .bg-white {
+  background-color: #1E1D24 !important;
+}
+
+/* Dark mode secondary containers / subtle background insets */
+.dark header .bg-\[\#F7F5F2\],
+.dark nav.bg-\[\#F7F5F2\],
+.dark .bg-\[\#F7F5F2\].rounded-xl,
+.dark .bg-\[\#F7F5F2\].rounded-2xl {
+  background-color: #26252F !important;
+}
+
+/* Dark mode pale purple containers */
+.dark .bg-\[\#F0EDFA\] {
+  background-color: #2A2542 !important;
+  color: #B9B0F2 !important;
+}
+
+/* Dark mode primary text */
+.dark .text-\[\#25242A\],
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark .text-slate-900,
+.dark .text-gray-900 {
+  color: #F4F2F7 !important;
+}
+
+/* Dark mode secondary muted text */
+.dark .text-\[\#77747D\],
+.dark .text-slate-500,
+.dark .text-gray-500 {
+  color: #9E9AA6 !important;
+}
+
+/* Dark mode borders & dividers */
+.dark .border-\[\#E7E3DF\],
+.dark .divide-\[\#E7E3DF\] > :not([hidden]) ~ :not([hidden]),
+.dark .border-slate-200,
+.dark .border-gray-200 {
+  border-color: #2E2C37 !important;
+}
+
+/* Dark mode subtle purple borders */
+.dark .border-\[\#7567C7\]\/20,
+.dark .border-\[\#7567C7\]\/30 {
+  border-color: rgba(154, 140, 238, 0.3) !important;
+}
+
+/* Dark mode accent text */
+.dark .text-\[\#7567C7\] {
+  color: #A294EE !important;
+}
+
+/* Dark mode hover states */
+.dark .hover\:bg-white:hover {
+  background-color: #2B2A36 !important;
+}
+
+.dark .hover\:bg-\[\#F7F5F2\]:hover {
+  background-color: #272632 !important;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #272632 !important;
+}
+
+.dark .hover\:bg-\[\#F0EDFA\]\/60:hover {
+  background-color: rgba(42, 37, 66, 0.7) !important;
+}
+
+/* Dark mode shadow tuning */
+.dark .shadow-2xs {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 2px 6px -1px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Dark mode inputs, textareas, selects */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #26252F !important;
+  color: #F4F2F7 !important;
+  border-color: #363442 !important;
+}
+
+.dark select option {
+  background-color: #1E1D24 !important;
+  color: #F4F2F7 !important;
+}
+
+/* Recharts and table dark adjustments */
+.dark .recharts-cartesian-grid-horizontal line,
+.dark .recharts-cartesian-grid-vertical line {
+  stroke: #2E2C37 !important;
+}
+
+.dark .recharts-default-tooltip {
+  background-color: #1E1D24 !important;
+  border: 1px solid #2E2C37 !important;
+  color: #F4F2F7 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Dark mode scrollbars */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #141318;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #2E2C37;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #403E4C;
+}

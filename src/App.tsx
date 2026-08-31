@@ -15,14 +15,20 @@ import {
   BarChart3,
   CheckCircle2,
   Sparkles,
+  Info,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
+import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { SeasonTable } from './components/SeasonTable';
 import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
 import { GeminiInsightsView } from './components/GeminiInsightsView';
 import { WelcomePage } from './components/WelcomePage';
+import { AboutModal } from './components/AboutModal';
+import { AppearanceSelector } from './components/AppearanceSelector';
+import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
+import { APP_VERSION_INFO } from './config/version';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -36,6 +42,30 @@ import {
 export default function App() {
   // Navigation tab state ('season' | 'mal' | 'calendar' | 'status' | 'gemini')
   const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status' | 'gemini'>('season');
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+
+  // Appearance / Theme State ('light' | 'dark' | 'sakura')
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    try {
+      const saved = localStorage.getItem('aniverse_appearance') || localStorage.getItem('aniverse_theme');
+      if (saved === 'dark' || saved === 'sakura' || saved === 'light') {
+        return saved as AppTheme;
+      }
+    } catch {
+      // Storage access blocked or unavailable
+    }
+    return 'light';
+  });
+
+  const handleThemeChange = (newTheme: AppTheme) => {
+    setTheme(newTheme);
+    try {
+      localStorage.setItem('aniverse_appearance', newTheme);
+      localStorage.setItem('aniverse_theme', newTheme);
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   // MAL Auth & List State
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
@@ -652,8 +682,22 @@ export default function App() {
       return 0;
     });
 
+  const isEffectiveDark = malUser !== null && theme === 'dark';
+  const isEffectiveSakura = malUser !== null && theme === 'sakura';
+
+  useEffect(() => {
+    if (isEffectiveDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isEffectiveDark]);
+
   return (
-    <div className="min-h-screen bg-[#F7F5F2] text-[#25242A] font-sans antialiased flex flex-col justify-between">
+    <div className={`min-h-screen ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
+      {/* SAKURA PETALS CANVAS (SHOWN ONLY IN SAKURA MODE WHEN LOGGED IN) */}
+      {isEffectiveSakura && <SakuraPetalsCanvas />}
+
       {/* MINIMAL TOP NAVIGATION BAR */}
       <header className="sticky top-0 z-40 bg-white border-b border-[#E7E3DF] shadow-2xs px-4 sm:px-8 py-3">
         <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
@@ -762,7 +806,24 @@ export default function App() {
           )}
 
           {/* RIGHT ACTION / USER PROFILE */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* THEME / APPEARANCE SELECTOR (AUTHENTICATED ONLY) */}
+            {malUser && (
+              <AppearanceSelector
+                currentTheme={theme}
+                onThemeChange={handleThemeChange}
+              />
+            )}
+
+            <button
+              onClick={() => setIsAboutModalOpen(true)}
+              title="About AniVerse & Version Info"
+              className="px-2.5 py-1.5 rounded-xl text-[#77747D] hover:text-[#7567C7] hover:bg-[#F0EDFA]/60 border border-transparent hover:border-[#E7E3DF] transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+            >
+              <Info className="h-4 w-4 text-[#7567C7]" />
+              <span className="hidden sm:inline">About</span>
+            </button>
+
             {malUser ? (
               <div className="flex items-center gap-3 bg-white border border-[#E7E3DF] rounded-xl px-3 py-1.5 shadow-2xs">
                 {malUser.picture ? (
@@ -1118,14 +1179,27 @@ export default function App() {
       {/* FOOTER */}
       <footer className="w-full bg-white border-t border-[#E7E3DF] py-6 px-4 sm:px-8 mt-12">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-[#77747D] gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[#7567C7] font-bold">✦ ANIME TRACKER</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[#7567C7] font-bold">✦ AniVerse</span>
             <span>•</span>
             <span>Personal Japanese Editorial Tracker</span>
+            <span>•</span>
+            <button
+              onClick={() => setIsAboutModalOpen(true)}
+              className="text-[#7567C7] hover:underline font-semibold cursor-pointer"
+            >
+              About {APP_VERSION_INFO.currentVersion}
+            </button>
           </div>
           <div>DATA SYNCED WITH MYANIMELIST & JIKAN API</div>
         </div>
       </footer>
+
+      {/* ABOUT / VERSION MODAL */}
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
+      />
     </div>
   );
 }
