@@ -31,6 +31,7 @@ import { SeasonReview } from './components/SeasonReview';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
 import { EditMalEntryModal, EditableAnimeData } from './components/EditMalEntryModal';
+import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { APP_VERSION_INFO } from './config/version';
@@ -163,6 +164,7 @@ export default function App() {
   // Modal and toast state for MAL Two-Way Management
   const [editingMalAnime, setEditingMalAnime] = useState<EditableAnimeData | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [selectedDetailAnime, setSelectedDetailAnime] = useState<AnimeDetailData | null>(null);
   const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const toastTimeoutRef = useRef<any>(null);
 
@@ -176,9 +178,11 @@ export default function App() {
     }, 4000);
   };
 
-  const handleSaveCustomNote = (animeId: number, note: string) => {
+  const handleSaveCustomNote = async (animeId: number, note: string) => {
+    const trimmed = note.trim();
+    // 1. Optimistic local update
     setCustomUserNotes((prev) => {
-      const updated = { ...prev, [animeId]: note };
+      const updated = { ...prev, [animeId]: trimmed };
       try {
         localStorage.setItem('season_custom_notes', JSON.stringify(updated));
       } catch {
@@ -186,6 +190,47 @@ export default function App() {
       }
       return updated;
     });
+
+    // 2. Sync to MyAnimeList if connected
+    if (malUser) {
+      showSyncToast('Saving note to MyAnimeList...');
+      try {
+        const res = await fetch(`/api/mal/anime/${animeId}/status`, {
+          method: 'PATCH',
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ comments: trimmed }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showSyncToast('✓ Saved note to MyAnimeList', 'success');
+          // Update in-memory malList
+          setMalList((prev) =>
+            prev.map((item) =>
+              item.node.id === animeId
+                ? {
+                    ...item,
+                    list_status: {
+                      ...item.list_status,
+                      comments: trimmed,
+                      updated_at: new Date().toISOString(),
+                    },
+                  }
+                : item
+            )
+          );
+        } else {
+          showSyncToast(data.error || 'Failed to save note to MyAnimeList', 'error');
+        }
+      } catch (err: any) {
+        console.error('Failed to sync note to MAL:', err);
+        showSyncToast('Failed to save note to MyAnimeList', 'error');
+      }
+    }
   };
 
   // User MAL Map for quick lookup
@@ -198,6 +243,53 @@ export default function App() {
     }
     return map;
   }, [malList]);
+
+  // Open the Anime Detail modal
+  const handleOpenDetailModal = (target: any) => {
+    if (!target) return;
+    const rawId = target.id || target.malId || target.mal_id || target.node?.id;
+    const animeId = rawId ? Number(rawId) : undefined;
+    const existingMalEntry = animeId ? userMalMap.get(animeId) : undefined;
+
+    const title = target.title || target.node?.title || existingMalEntry?.node?.title || 'Anime Details';
+    const titleEnglish = target.titleEnglish || target.title_english || target.node?.alternative_titles?.en || existingMalEntry?.node?.alternative_titles?.en || null;
+    const titleNative = target.titleNative || target.title_japanese || target.node?.alternative_titles?.ja || existingMalEntry?.node?.alternative_titles?.ja || null;
+    const imageUrl =
+      target.imageUrl ||
+      target.images?.jpg?.large_image_url ||
+      target.images?.webp?.large_image_url ||
+      target.node?.main_picture?.large ||
+      target.node?.main_picture?.medium ||
+      existingMalEntry?.node?.main_picture?.large ||
+      existingMalEntry?.node?.main_picture?.medium ||
+      null;
+
+    const detailData: AnimeDetailData = {
+      id: animeId,
+      malId: animeId,
+      title,
+      titleEnglish,
+      titleNative,
+      imageUrl,
+      score: target.score || target.node?.mean || existingMalEntry?.node?.mean || null,
+      userScore: typeof target.userScore === 'number' ? target.userScore : existingMalEntry?.list_status?.score,
+      episodes: target.episodes || target.totalEpisodes || target.node?.num_episodes || existingMalEntry?.node?.num_episodes || null,
+      episodesWatched: typeof target.episodesWatched === 'number' ? target.episodesWatched : existingMalEntry?.list_status?.num_episodes_watched,
+      status: target.status || existingMalEntry?.list_status?.status || target.node?.status,
+      mediaType: target.mediaType || target.media_type || target.type || target.node?.media_type || existingMalEntry?.node?.media_type,
+      startDate: target.startDate || target.aired?.from || existingMalEntry?.list_status?.start_date,
+      finishDate: target.finishDate || target.aired?.to || existingMalEntry?.list_status?.finish_date,
+      synopsis: target.synopsis || target.node?.synopsis,
+      comment: target.comment || existingMalEntry?.list_status?.comments || (animeId ? customUserNotes[animeId] : ''),
+      genres: target.genres || target.node?.genres,
+      season: target.season || (target.node?.start_season ? { season: target.node.start_season.season, year: target.node.start_season.year } : null),
+      studio: target.studio || (Array.isArray(target.studios) ? target.studios.map((s: any) => s.name).join(', ') : null),
+      source: target.source || target.node?.source,
+      broadcast: target.broadcast || target.node?.broadcast,
+    };
+
+    setSelectedDetailAnime(detailData);
+  };
 
   // Open the MAL Edit modal for any anime item (from List, Season, Calendar, or Detail modal)
   const handleOpenEditModal = (target: any) => {
@@ -1533,6 +1625,7 @@ export default function App() {
                     key={item.node.id}
                     item={item}
                     index={index}
+                    onSelect={handleOpenDetailModal}
                     onEdit={handleOpenEditModal}
                     onQuickIncrement={handleQuickIncrement}
                   />
@@ -1620,7 +1713,8 @@ export default function App() {
               badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
-              onEdit={handleOpenEditModal}
+              onSelectAnime={handleOpenDetailModal}
+              onEditAnime={handleOpenEditModal}
               onQuickIncrement={handleQuickIncrement}
             />
 
@@ -1635,7 +1729,8 @@ export default function App() {
               badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
-              onEdit={handleOpenEditModal}
+              onSelectAnime={handleOpenDetailModal}
+              onEditAnime={handleOpenEditModal}
               onQuickIncrement={handleQuickIncrement}
             />
           </div>
@@ -1739,6 +1834,16 @@ export default function App() {
         anime={editingMalAnime}
         onSave={handleSaveMalStatus}
         onDelete={handleDeleteMalStatus}
+      />
+
+      {/* ANIME DETAIL MODAL */}
+      <AnimeDetailModal
+        isOpen={Boolean(selectedDetailAnime)}
+        onClose={() => setSelectedDetailAnime(null)}
+        anime={selectedDetailAnime}
+        customNotes={customUserNotes}
+        onSaveNote={handleSaveCustomNote}
+        onOpenMalEditor={handleOpenEditModal}
       />
 
       {/* FLOATING SYNC TOAST NOTIFICATION */}

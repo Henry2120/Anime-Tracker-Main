@@ -53,6 +53,7 @@ interface SeasonTableProps {
   badgeTextClass: string;
   customUserNotes: Record<number, string>;
   onSaveCustomNote: (animeId: number, note: string) => void;
+  onSelectAnime?: (item: SeasonTableItem) => void;
   onEditAnime?: (item: SeasonTableItem) => void;
   onQuickIncrement?: (item: SeasonTableItem) => void;
 }
@@ -67,6 +68,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   badgeTextClass,
   customUserNotes,
   onSaveCustomNote,
+  onSelectAnime,
   onEditAnime,
   onQuickIncrement,
 }) => {
@@ -175,8 +177,9 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                     {/* Image Thumbnail */}
                     <td className="py-2.5 px-3">
                       <div
-                        onClick={() => onEditAnime?.(item)}
-                        className="h-14 w-10 overflow-hidden rounded-lg bg-[#F7F5F2] dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] shrink-0 cursor-pointer shadow-2xs hover:opacity-90"
+                        onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
+                        className="h-14 w-10 overflow-hidden rounded-lg bg-[#F7F5F2] dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] shrink-0 cursor-pointer shadow-2xs hover:opacity-90 hover:ring-2 hover:ring-[#7567C7]/50 transition-all"
+                        title={`View details for ${titleStr}`}
                       >
                         {imgUrl ? (
                           <img
@@ -199,9 +202,9 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => onEditAnime?.(item)}
-                          className="hover:underline text-left leading-snug line-clamp-2 cursor-pointer"
-                          title={`Click to edit ${titleStr}`}
+                          onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
+                          className="hover:underline hover:text-[#7567C7] text-left leading-snug line-clamp-2 cursor-pointer font-bold text-[#25242A] dark:text-[#F4F2F7] transition-colors"
+                          title={`View details for ${titleStr}`}
                         >
                           {titleStr}
                         </button>

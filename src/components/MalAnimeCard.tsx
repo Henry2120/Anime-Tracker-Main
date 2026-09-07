@@ -6,6 +6,7 @@ import { MalListItem } from '../types';
 interface MalAnimeCardProps {
   item: MalListItem;
   index: number;
+  onSelect?: (item: MalListItem) => void;
   onEdit?: (item: MalListItem) => void;
   onQuickIncrement?: (item: MalListItem) => void;
 }
@@ -18,7 +19,7 @@ const statusBadgeStyles: Record<string, { label: string; bg: string; text: strin
   dropped: { label: 'Dropped', bg: 'bg-[#D6A0AF]/20 border-[#D6A0AF]/40', text: 'text-[#C77B82]' },
 };
 
-export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onEdit, onQuickIncrement }) => {
+export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onSelect, onEdit, onQuickIncrement }) => {
   const [imageError, setImageError] = useState(false);
 
   const imageUrl = item.node.main_picture?.large || item.node.main_picture?.medium;
@@ -43,8 +44,9 @@ export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onEdit,
     >
       {/* Thumbnail Container */}
       <div
-        onClick={() => onEdit?.(item)}
+        onClick={() => (onSelect ? onSelect(item) : onEdit?.(item))}
         className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-[#F7F5F2] dark:bg-[#25232F] mb-3 cursor-pointer"
+        title={`View details for ${item.node.title}`}
       >
         {/* Status Badge */}
         <div
@@ -82,19 +84,27 @@ export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onEdit,
         )}
 
         {/* Hover overlay with edit prompt */}
-        <div className="absolute inset-0 bg-[#25242A]/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <span className="px-3 py-1.5 rounded-xl bg-white/90 dark:bg-[#1C1A24]/90 text-xs font-bold text-[#25242A] dark:text-[#EAE8F0] shadow-sm flex items-center gap-1.5 backdrop-blur-xs">
-            <Edit2 className="h-3.5 w-3.5 text-[#7567C7]" />
-            Edit on MAL
-          </span>
-        </div>
+        {onEdit && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(item);
+            }}
+            className="absolute inset-0 bg-[#25242A]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+          >
+            <span className="px-3 py-1.5 rounded-xl bg-white/95 dark:bg-[#1C1A24]/95 text-xs font-bold text-[#25242A] dark:text-[#EAE8F0] shadow-sm flex items-center gap-1.5 backdrop-blur-xs hover:bg-[#7567C7] hover:text-white transition-colors">
+              <Edit2 className="h-3.5 w-3.5 text-[#7567C7]" />
+              Edit on MAL
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Content Section */}
       <div className="flex flex-1 flex-col justify-between px-1 pb-1">
         <div>
           <h3
-            onClick={() => onEdit?.(item)}
+            onClick={() => (onSelect ? onSelect(item) : onEdit?.(item))}
             className="font-bold text-[#25242A] dark:text-[#EAE8F0] text-sm leading-snug line-clamp-2 group-hover:text-[#7567C7] transition-colors cursor-pointer"
             title={item.node.title}
           >
