@@ -74,7 +74,27 @@ export interface MalListStatus {
   finish_date?: string;
   updated_at?: string;
   comments?: string;
-  tags?: string[];
+  tags?: string[] | string;
+  priority?: number;
+  num_times_rewatched?: number;
+  rewatch_value?: number;
+}
+
+export interface MalUpdateStatusPayload {
+  status?: 'watching' | 'completed' | 'on_hold' | 'dropped' | 'plan_to_watch';
+  score?: number;
+  num_watched_episodes?: number;
+  num_episodes_watched?: number;
+  is_rewatching?: boolean;
+  start_date?: string;
+  finish_date?: string;
+  comments?: string;
+  comment?: string;
+  notes?: string;
+  tags?: string | string[];
+  priority?: number;
+  num_times_rewatched?: number;
+  rewatch_value?: number;
 }
 
 export interface MalListItem {

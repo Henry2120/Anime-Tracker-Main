@@ -632,7 +632,198 @@ app.get("/api/mal/animelist", async (req, res) => {
   }
 });
 
-// 5. Logout / Disconnect Endpoint
+// 5. Update Anime Status on MyAnimeList (Two-Way Management)
+const handleMalStatusUpdate = async (req: express.Request, res: express.Response) => {
+  try {
+    const sessionId = getSessionToken(req);
+    if (!sessionId) {
+      return res.status(401).json({ error: "Unauthorized: Please connect your MyAnimeList account." });
+    }
+    const accessToken = await getValidAccessToken(sessionId, res);
+    if (!accessToken) {
+      return res.status(401).json({ error: "Unauthorized: Session expired or invalid. Please connect again." });
+    }
+
+    const animeId = parseInt(req.params.id, 10);
+    if (isNaN(animeId) || animeId <= 0) {
+      return res.status(400).json({ error: "Invalid anime ID" });
+    }
+
+    const {
+      status,
+      score,
+      num_watched_episodes,
+      num_episodes_watched,
+      is_rewatching,
+      start_date,
+      finish_date,
+      comments,
+      comment,
+      notes,
+      tags,
+      priority,
+      num_times_rewatched,
+      rewatch_value,
+    } = req.body || {};
+
+    const bodyParams = new URLSearchParams();
+
+    if (typeof status === "string" && status.trim() !== "") {
+      const validStatuses = ["watching", "completed", "on_hold", "dropped", "plan_to_watch"];
+      const normalizedStatus = status.trim().toLowerCase();
+      if (validStatuses.includes(normalizedStatus)) {
+        bodyParams.set("status", normalizedStatus);
+      }
+    }
+
+    if (score !== undefined && score !== null) {
+      const numScore = parseInt(String(score), 10);
+      if (!isNaN(numScore) && numScore >= 0 && numScore <= 10) {
+        bodyParams.set("score", String(numScore));
+      }
+    }
+
+    const eps = num_watched_episodes !== undefined ? num_watched_episodes : num_episodes_watched;
+    if (eps !== undefined && eps !== null) {
+      const numEps = parseInt(String(eps), 10);
+      if (!isNaN(numEps) && numEps >= 0) {
+        bodyParams.set("num_watched_episodes", String(numEps));
+      }
+    }
+
+    if (typeof is_rewatching === "boolean") {
+      bodyParams.set("is_rewatching", is_rewatching ? "true" : "false");
+    } else if (is_rewatching === "true" || is_rewatching === "false") {
+      bodyParams.set("is_rewatching", is_rewatching);
+    }
+
+    if (start_date !== undefined) {
+      bodyParams.set("start_date", typeof start_date === "string" ? start_date.trim() : "");
+    }
+
+    if (finish_date !== undefined) {
+      bodyParams.set("finish_date", typeof finish_date === "string" ? finish_date.trim() : "");
+    }
+
+    const noteVal = comments !== undefined ? comments : comment !== undefined ? comment : notes;
+    if (noteVal !== undefined && typeof noteVal === "string") {
+      bodyParams.set("comments", noteVal.trim());
+    }
+
+    if (tags !== undefined) {
+      const tagsStr = Array.isArray(tags) ? tags.join(", ") : String(tags);
+      bodyParams.set("tags", tagsStr.trim());
+    }
+
+    if (priority !== undefined && priority !== null) {
+      const numPriority = parseInt(String(priority), 10);
+      if (!isNaN(numPriority) && numPriority >= 0 && numPriority <= 2) {
+        bodyParams.set("priority", String(numPriority));
+      }
+    }
+
+    if (num_times_rewatched !== undefined && num_times_rewatched !== null) {
+      const numRewatches = parseInt(String(num_times_rewatched), 10);
+      if (!isNaN(numRewatches) && numRewatches >= 0) {
+        bodyParams.set("num_times_rewatched", String(numRewatches));
+      }
+    }
+
+    if (rewatch_value !== undefined && rewatch_value !== null) {
+      const val = parseInt(String(rewatch_value), 10);
+      if (!isNaN(val) && val >= 0 && val <= 5) {
+        bodyParams.set("rewatch_value", String(val));
+      }
+    }
+
+    console.log(`[MAL UPDATE] Updating anime ${animeId} with params:`, bodyParams.toString());
+
+    const malRes = await fetch(
+      `https://api.myanimelist.net/v2/anime/${encodeURIComponent(animeId)}/my_list_status`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: bodyParams.toString(),
+      }
+    );
+
+    if (!malRes.ok) {
+      const errBody = await malRes.text();
+      console.error(`[MAL UPDATE ERROR] (${malRes.status}) for anime ${animeId}:`, errBody);
+      if (malRes.status === 401) {
+        res.clearCookie("mal_session", { httpOnly: true, secure: true, sameSite: "none" });
+        return res.status(401).json({ error: "MyAnimeList session expired. Please connect again." });
+      }
+      return res.status(malRes.status).json({
+        error: `Failed to update MyAnimeList entry (${malRes.status}): ${errBody || malRes.statusText}`,
+      });
+    }
+
+    const data = await malRes.json();
+    console.log(`[MAL UPDATE SUCCESS] Anime ${animeId} updated:`, data);
+    return res.json({ success: true, list_status: data });
+  } catch (err: any) {
+    console.error("[MAL UPDATE] Unexpected error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error updating MyAnimeList entry" });
+  }
+};
+
+app.patch("/api/mal/anime/:id/status", handleMalStatusUpdate);
+app.put("/api/mal/anime/:id/status", handleMalStatusUpdate);
+app.post("/api/mal/anime/:id/status", handleMalStatusUpdate);
+app.patch("/api/mal/anime/:id/my_list_status", handleMalStatusUpdate);
+app.put("/api/mal/anime/:id/my_list_status", handleMalStatusUpdate);
+
+// Delete Anime Entry from MyAnimeList
+const handleMalStatusDelete = async (req: express.Request, res: express.Response) => {
+  try {
+    const sessionId = getSessionToken(req);
+    if (!sessionId) {
+      return res.status(401).json({ error: "Unauthorized: Please connect your MyAnimeList account." });
+    }
+    const accessToken = await getValidAccessToken(sessionId, res);
+    if (!accessToken) {
+      return res.status(401).json({ error: "Unauthorized: Session expired. Please connect again." });
+    }
+
+    const animeId = parseInt(req.params.id, 10);
+    if (isNaN(animeId) || animeId <= 0) {
+      return res.status(400).json({ error: "Invalid anime ID" });
+    }
+
+    console.log(`[MAL DELETE] Deleting anime ${animeId} from list`);
+    const malRes = await fetch(
+      `https://api.myanimelist.net/v2/anime/${encodeURIComponent(animeId)}/my_list_status`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (!malRes.ok && malRes.status !== 404) {
+      const errBody = await malRes.text();
+      console.error(`[MAL DELETE ERROR] (${malRes.status}) for anime ${animeId}:`, errBody);
+      return res.status(malRes.status).json({
+        error: `Failed to remove entry from MyAnimeList (${malRes.status}): ${errBody || malRes.statusText}`,
+      });
+    }
+
+    return res.json({ success: true, deleted: true });
+  } catch (err: any) {
+    console.error("[MAL DELETE] Unexpected error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error deleting MyAnimeList entry" });
+  }
+};
+
+app.delete("/api/mal/anime/:id/status", handleMalStatusDelete);
+app.delete("/api/mal/anime/:id/my_list_status", handleMalStatusDelete);
+
+// 6. Logout / Disconnect Endpoint
 app.post("/api/mal/logout", (req, res) => {
   res.clearCookie("mal_session", {
     httpOnly: true,

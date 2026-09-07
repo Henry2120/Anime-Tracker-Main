@@ -58,6 +58,7 @@ interface AnimeDetailModalProps {
   customNote?: string;
   customNotes?: Record<number, string>;
   onSaveNote?: (animeId: number, note: string) => void;
+  onOpenMalEditor?: (anime: AnimeDetailData) => void;
 }
 
 const statusBadgeStyles: Record<string, { label: string; bg: string; text: string }> = {
@@ -77,6 +78,7 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
   customNote = '',
   customNotes,
   onSaveNote,
+  onOpenMalEditor,
 }) => {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteText, setNoteText] = useState(customNote);
@@ -386,27 +388,46 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 bg-[#F7F5F2] border-t border-[#E7E3DF] flex items-center justify-between shrink-0">
+          <div className="p-4 bg-[#F7F5F2] dark:bg-[#25232F] border-t border-[#E7E3DF] dark:border-[#2E2C37] flex items-center justify-between shrink-0">
             {animeId ? (
-              <a
-                href={`https://myanimelist.net/anime/${animeId}`}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#7567C7] hover:underline"
-              >
-                <span>View on MyAnimeList</span>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`https://myanimelist.net/anime/${animeId}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#7567C7] hover:underline"
+                >
+                  <span>View on MAL</span>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
             ) : (
               <div />
             )}
 
-            <button
-              onClick={onClose}
-              className="px-5 py-2 rounded-xl bg-[#25242A] hover:bg-[#38363F] text-white font-semibold text-xs shadow-2xs cursor-pointer transition-colors"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2.5">
+              {onOpenMalEditor && animeId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenMalEditor(anime);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#7567C7] hover:bg-[#6455b8] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  <span>Edit on MAL</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-[#25242A] dark:bg-[#38363F] hover:bg-[#38363F] dark:hover:bg-[#484652] text-white font-semibold text-xs shadow-2xs cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </motion.div>
       </div>

@@ -20,7 +20,7 @@ import {
   Trophy,
   User,
 } from 'lucide-react';
-import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
+import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload } from './types';
 import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { SeasonTable } from './components/SeasonTable';
@@ -30,6 +30,7 @@ import { GeminiInsightsView } from './components/GeminiInsightsView';
 import { SeasonReview } from './components/SeasonReview';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
+import { EditMalEntryModal, EditableAnimeData } from './components/EditMalEntryModal';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { APP_VERSION_INFO } from './config/version';
@@ -159,6 +160,22 @@ export default function App() {
     }
   });
 
+  // Modal and toast state for MAL Two-Way Management
+  const [editingMalAnime, setEditingMalAnime] = useState<EditableAnimeData | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const toastTimeoutRef = useRef<any>(null);
+
+  const showSyncToast = (message: string, type: 'success' | 'error' = 'success') => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setSyncToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setSyncToast(null);
+    }, 4000);
+  };
+
   const handleSaveCustomNote = (animeId: number, note: string) => {
     setCustomUserNotes((prev) => {
       const updated = { ...prev, [animeId]: note };
@@ -181,6 +198,243 @@ export default function App() {
     }
     return map;
   }, [malList]);
+
+  // Open the MAL Edit modal for any anime item (from List, Season, Calendar, or Detail modal)
+  const handleOpenEditModal = (target: any) => {
+    if (!target) return;
+
+    const rawId = target.id || target.malId || target.mal_id || target.node?.id;
+    if (!rawId) return;
+
+    const animeId = Number(rawId);
+    const existingMalEntry = userMalMap.get(animeId);
+
+    const title = target.title || target.node?.title || existingMalEntry?.node?.title || 'Anime Details';
+    const titleEnglish = target.titleEnglish || target.title_english || target.node?.alternative_titles?.en || existingMalEntry?.node?.alternative_titles?.en || null;
+    const titleNative = target.titleNative || target.title_japanese || target.node?.alternative_titles?.ja || existingMalEntry?.node?.alternative_titles?.ja || null;
+
+    const imageUrl =
+      target.imageUrl ||
+      target.images?.jpg?.large_image_url ||
+      target.images?.webp?.large_image_url ||
+      target.node?.main_picture?.large ||
+      target.node?.main_picture?.medium ||
+      existingMalEntry?.node?.main_picture?.large ||
+      existingMalEntry?.node?.main_picture?.medium ||
+      null;
+
+    const totalEpisodes =
+      target.episodes ||
+      target.totalEpisodes ||
+      target.node?.num_episodes ||
+      existingMalEntry?.node?.num_episodes ||
+      null;
+
+    const mediaType =
+      target.mediaType ||
+      target.media_type ||
+      target.type ||
+      target.node?.media_type ||
+      existingMalEntry?.node?.media_type ||
+      null;
+
+    const meanScore =
+      target.meanScore ||
+      target.score ||
+      target.node?.mean ||
+      existingMalEntry?.node?.mean ||
+      null;
+
+    // Determine current MAL status if in user's list
+    const currentStatus = existingMalEntry?.list_status || target.list_status || target.currentStatus || (target.userScore !== undefined || target.episodesWatched !== undefined ? {
+      status: target.status || 'plan_to_watch',
+      score: target.userScore || 0,
+      num_episodes_watched: target.episodesWatched || 0,
+      comments: target.comment || customUserNotes[animeId] || '',
+    } : null);
+
+    const editableData: EditableAnimeData = {
+      id: animeId,
+      title,
+      titleEnglish,
+      titleNative,
+      imageUrl,
+      totalEpisodes,
+      mediaType,
+      meanScore,
+      currentStatus: currentStatus ? {
+        status: currentStatus.status || 'plan_to_watch',
+        score: currentStatus.score || 0,
+        num_episodes_watched: currentStatus.num_episodes_watched || 0,
+        is_rewatching: currentStatus.is_rewatching || false,
+        start_date: currentStatus.start_date || '',
+        finish_date: currentStatus.finish_date || '',
+        comments: currentStatus.comments || customUserNotes[animeId] || '',
+        priority: currentStatus.priority || 0,
+        num_times_rewatched: currentStatus.num_times_rewatched || 0,
+      } : null,
+    };
+
+    setEditingMalAnime(editableData);
+    setIsEditModalOpen(true);
+  };
+
+  // Real-time Save handler to update MyAnimeList entry
+  const handleSaveMalStatus = async (animeId: number, payload: MalUpdateStatusPayload): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`/api/mal/anime/${animeId}/status`, {
+        method: 'PATCH',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        const errorMsg = data.error || data.details || `Failed to update MyAnimeList (${res.status})`;
+        showSyncToast(errorMsg, 'error');
+        return { success: false, error: errorMsg };
+      }
+
+      // Optimistic update for immediate visual feedback
+      setMalList((prev) => {
+        const index = prev.findIndex((item) => item.node.id === animeId);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = {
+            ...updated[index],
+            list_status: {
+              ...updated[index].list_status,
+              ...(payload.status ? { status: payload.status } : {}),
+              ...(payload.score !== undefined ? { score: payload.score } : {}),
+              ...(payload.num_watched_episodes !== undefined ? { num_episodes_watched: payload.num_watched_episodes } : {}),
+              ...(payload.is_rewatching !== undefined ? { is_rewatching: payload.is_rewatching } : {}),
+              ...(payload.start_date !== undefined ? { start_date: payload.start_date } : {}),
+              ...(payload.finish_date !== undefined ? { finish_date: payload.finish_date } : {}),
+              ...(payload.comments !== undefined ? { comments: payload.comments } : {}),
+              updated_at: new Date().toISOString(),
+            },
+          };
+          return updated;
+        } else if (editingMalAnime) {
+          // If was not in list before (e.g. added from seasonal catalogue)
+          const newItem: MalListItem = {
+            node: {
+              id: animeId,
+              title: editingMalAnime.title,
+              main_picture: editingMalAnime.imageUrl ? { large: editingMalAnime.imageUrl, medium: editingMalAnime.imageUrl } : undefined,
+              alternative_titles: {
+                en: editingMalAnime.titleEnglish || undefined,
+                ja: editingMalAnime.titleNative || undefined,
+              },
+              num_episodes: editingMalAnime.totalEpisodes || undefined,
+              media_type: editingMalAnime.mediaType || undefined,
+              mean: editingMalAnime.meanScore || undefined,
+            },
+            list_status: {
+              status: payload.status || 'plan_to_watch',
+              score: payload.score || 0,
+              num_episodes_watched: payload.num_watched_episodes || 0,
+              is_rewatching: payload.is_rewatching || false,
+              start_date: payload.start_date || '',
+              finish_date: payload.finish_date || '',
+              comments: payload.comments || '',
+              updated_at: new Date().toISOString(),
+            },
+          };
+          return [newItem, ...prev];
+        }
+        return prev;
+      });
+
+      // Synchronize comments with local note cache
+      if (payload.comments !== undefined) {
+        handleSaveCustomNote(animeId, payload.comments);
+      }
+
+      showSyncToast('✓ Synced with MyAnimeList', 'success');
+
+      // Refresh data from MAL in background
+      setTimeout(() => {
+        fetchMalList();
+      }, 500);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error saving MAL status:', err);
+      const errorMsg = err.message || 'Failed to communicate with MyAnimeList';
+      showSyncToast(errorMsg, 'error');
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // Delete handler to remove an entry from MAL
+  const handleDeleteMalStatus = async (animeId: number): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`/api/mal/anime/${animeId}/status`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        const errorMsg = data.error || `Failed to remove anime from list (${res.status})`;
+        showSyncToast(errorMsg, 'error');
+        return { success: false, error: errorMsg };
+      }
+
+      // Optimistic removal
+      setMalList((prev) => prev.filter((item) => item.node.id !== animeId));
+      showSyncToast('✓ Removed from MyAnimeList', 'success');
+
+      setTimeout(() => {
+        fetchMalList();
+      }, 500);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting anime from MAL list:', err);
+      const errorMsg = err.message || 'Failed to remove from MyAnimeList';
+      showSyncToast(errorMsg, 'error');
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // Quick increment (+1 episode) handler
+  const handleQuickIncrement = async (target: any) => {
+    const rawId = target?.id || target?.malId || target?.mal_id || target?.node?.id;
+    if (!rawId) return;
+    const animeId = Number(rawId);
+
+    const existingMalEntry = userMalMap.get(animeId);
+    const currentWatched =
+      typeof target?.list_status?.num_episodes_watched === 'number'
+        ? target.list_status.num_episodes_watched
+        : typeof target?.episodesWatched === 'number'
+        ? target.episodesWatched
+        : existingMalEntry?.list_status?.num_episodes_watched || 0;
+
+    const totalEpisodes =
+      target?.totalEpisodes ||
+      target?.episodes ||
+      target?.node?.num_episodes ||
+      existingMalEntry?.node?.num_episodes ||
+      null;
+
+    const nextWatched = currentWatched + 1;
+    const autoCompleted = totalEpisodes && nextWatched >= totalEpisodes;
+
+    const payload: MalUpdateStatusPayload = {
+      num_watched_episodes: nextWatched,
+      ...(autoCompleted ? { status: 'completed' } : existingMalEntry?.list_status?.status ? {} : { status: 'watching' }),
+    };
+
+    await handleSaveMalStatus(animeId, payload);
+  };
 
   // Primary Set of MAL IDs from Jikan Summer 2026 seasonal catalogue
   const jikanSummer2026Ids = useMemo(() => {
@@ -1275,7 +1529,13 @@ export default function App() {
             {!malLoading && filteredMalList.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
                 {filteredMalList.map((item, index) => (
-                  <MalAnimeCard key={item.node.id} item={item} index={index} />
+                  <MalAnimeCard
+                    key={item.node.id}
+                    item={item}
+                    index={index}
+                    onEdit={handleOpenEditModal}
+                    onQuickIncrement={handleQuickIncrement}
+                  />
                 ))}
               </div>
             )}
@@ -1360,6 +1620,8 @@ export default function App() {
               badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
+              onEdit={handleOpenEditModal}
+              onQuickIncrement={handleQuickIncrement}
             />
 
             {/* COMPLETED DURING SUMMER 2026 */}
@@ -1373,6 +1635,8 @@ export default function App() {
               badgeTextClass="text-[#7567C7]"
               customUserNotes={customUserNotes}
               onSaveCustomNote={handleSaveCustomNote}
+              onEdit={handleOpenEditModal}
+              onQuickIncrement={handleQuickIncrement}
             />
           </div>
         )}
@@ -1384,6 +1648,7 @@ export default function App() {
               malList={malList}
               malLoading={malLoading}
               onCalendarItemsLoaded={handleCalendarItemsLoaded}
+              onOpenMalEditor={handleOpenEditModal}
             />
           </div>
         )}
@@ -1463,6 +1728,38 @@ export default function App() {
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
       />
+
+      {/* TWO-WAY MAL ENTRY EDIT MODAL */}
+      <EditMalEntryModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingMalAnime(null);
+        }}
+        anime={editingMalAnime}
+        onSave={handleSaveMalStatus}
+        onDelete={handleDeleteMalStatus}
+      />
+
+      {/* FLOATING SYNC TOAST NOTIFICATION */}
+      {syncToast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div
+            className={`px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold border backdrop-blur-md ${
+              syncToast.type === 'success'
+                ? 'bg-[#1C1A24]/90 text-white border-[#6D9B7C]/40 shadow-[#6D9B7C]/10'
+                : 'bg-[#1C1A24]/90 text-[#E78B90] border-[#C77B82]/40 shadow-[#C77B82]/10'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                syncToast.type === 'success' ? 'bg-[#6D9B7C]' : 'bg-[#C77B82]'
+              }`}
+            />
+            <span>{syncToast.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

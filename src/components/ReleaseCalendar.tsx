@@ -36,6 +36,7 @@ interface ReleaseCalendarProps {
   onCalendarItemsLoaded?: (malIds: number[]) => void;
   customUserNotes?: Record<number, string>;
   onSaveCustomNote?: (animeId: number, note: string) => void;
+  onOpenMalEditor?: (anime: AnimeDetailData) => void;
 }
 
 export function ReleaseCalendar({
@@ -44,6 +45,7 @@ export function ReleaseCalendar({
   onCalendarItemsLoaded,
   customUserNotes = {},
   onSaveCustomNote,
+  onOpenMalEditor,
 }: ReleaseCalendarProps) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -876,6 +878,7 @@ export function ReleaseCalendar({
           onClose={() => setSelectedAnimeForModal(null)}
           customNote={selectedAnimeForModal.malId ? customUserNotes[selectedAnimeForModal.malId] : ''}
           onSaveNote={onSaveCustomNote}
+          onOpenMalEditor={onOpenMalEditor}
         />
       )}
     </div>
