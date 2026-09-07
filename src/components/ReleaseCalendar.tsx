@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ import type { MalListItem, ReleaseCalendarItem } from '../types';
 import { ReleaseCalendarFilters } from './ReleaseCalendarFilters';
 import { TodayReleaseView } from './TodayReleaseView';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
+import { decodeHtmlEntities } from '../utils/htmlUtils';
 import {
   TIMEZONE_OPTIONS,
   getResolvedTimezone,
@@ -43,6 +45,8 @@ export function ReleaseCalendar({
   customUserNotes = {},
   onSaveCustomNote,
 }: ReleaseCalendarProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   // Calendar View & Navigation State
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [selectedTimezone, setSelectedTimezone] = useState<string>('Asia/Tokyo');
@@ -342,7 +346,7 @@ export function ReleaseCalendar({
       source: matchedMal?.node.source,
       genres: matchedMal?.node.genres,
       synopsis: matchedMal?.node.synopsis,
-      comment: matchedMal?.list_status?.comments,
+      comment: matchedMal?.list_status?.comments ? decodeHtmlEntities(matchedMal.list_status.comments) : undefined,
       finishDate: matchedMal?.list_status?.finish_date,
     };
     setSelectedAnimeForModal(modalData);
@@ -739,7 +743,7 @@ export function ReleaseCalendar({
                       key={`row-${rowIndex}`}
                       className="grid grid-cols-7 divide-x divide-[#E7E3DF]"
                     >
-                      {displayedDaysWithUpcoming.map((day) => {
+                      {displayedDaysWithUpcoming.map((day, dayIndex) => {
                         const item = day.items[rowIndex];
                         const isToday = day.dateKey === todayDateKey;
                         const titleToDisplay = item
@@ -752,16 +756,30 @@ export function ReleaseCalendar({
                             <div
                               key={`empty-${day.dateKey}-${rowIndex}`}
                               className={`w-full aspect-[3/4.2] ${
-                                isToday ? 'bg-[#F0EDFA]/40' : 'bg-[#F7F5F2]/20'
+                                isToday
+                                  ? 'bg-[#F0EDFA]/40 dark:bg-[#2A2542]/30'
+                                  : 'bg-[#F7F5F2]/20 dark:bg-[#141318]/40'
                               }`}
                             />
                           );
                         }
 
                         return (
-                          <div
+                          <motion.div
                             key={`${day.dateKey}-${item.id}-${item.airingAt}`}
                             onClick={() => handleOpenModal(item)}
+                            initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
+                            whileInView={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+                            viewport={{ once: true, amount: 0.15 }}
+                            transition={
+                              shouldReduceMotion
+                                ? { duration: 0 }
+                                : {
+                                    duration: 0.45,
+                                    delay: Math.min((rowIndex * 0.05) + (dayIndex * 0.02), 0.35),
+                                    ease: [0.25, 0.1, 0.25, 1.0],
+                                  }
+                            }
                             className={`relative group w-full aspect-[3/4.2] overflow-hidden bg-slate-900 flex flex-col justify-between transition-all duration-200 cursor-pointer ${
                               item.isWatching
                                 ? 'ring-2 ring-inset ring-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.35)] z-10'
@@ -838,7 +856,7 @@ export function ReleaseCalendar({
                                 </div>
                               )}
                             </div>
-                          </div>
+                          </motion.div>
                         );
                       })}
                     </div>

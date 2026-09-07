@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Sparkles,
   Info,
+  Home,
+  Trophy,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
 import { AppTheme } from './types/theme';
@@ -24,6 +26,7 @@ import { SeasonTable } from './components/SeasonTable';
 import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
 import { GeminiInsightsView } from './components/GeminiInsightsView';
+import { SeasonReview } from './components/SeasonReview';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
 import { AppearanceSelector } from './components/AppearanceSelector';
@@ -40,8 +43,8 @@ import {
 } from './utils/seasonUtils';
 
 export default function App() {
-  // Navigation tab state ('season' | 'mal' | 'calendar' | 'status' | 'gemini')
-  const [activeTab, setActiveTab] = useState<'season' | 'mal' | 'calendar' | 'status' | 'gemini'>('season');
+  // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
+  const [activeTab, setActiveTab] = useState<'home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review'>('season');
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   // Appearance / Theme State ('light' | 'dark' | 'sakura')
@@ -56,6 +59,22 @@ export default function App() {
     }
     return 'light';
   });
+
+  // Insights dropdown navigation state
+  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+  const insightsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (insightsMenuRef.current && !insightsMenuRef.current.contains(event.target as Node)) {
+        setIsInsightsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleThemeChange = (newTheme: AppTheme) => {
     setTheme(newTheme);
@@ -702,7 +721,7 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white border-b border-[#E7E3DF] shadow-2xs px-4 sm:px-8 py-3">
         <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
           {/* BRAND */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('season')}>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <span className="text-[#7567C7] text-lg font-bold">✦</span>
             <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] flex items-center gap-2">
               <span>AniVerse</span>
@@ -716,6 +735,20 @@ export default function App() {
           {malUser && (
             <nav className="hidden md:flex items-center gap-1.5 bg-[#F7F5F2] p-1 rounded-2xl border border-[#E7E3DF]">
               <button
+                id="home-tab-btn"
+                onClick={() => setActiveTab('home')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'home'
+                    ? 'bg-white text-[#7567C7] shadow-2xs'
+                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
+                }`}
+              >
+                <Home className="h-4 w-4 text-[#7567C7]" />
+                <span>HOME</span>
+              </button>
+
+              <button
+                id="season-tab-btn"
                 onClick={() => {
                   setActiveTab('season');
                   if (seasonalList.length === 0 && !seasonalLoading) {
@@ -729,10 +762,11 @@ export default function App() {
                 }`}
               >
                 <Sun className="h-4 w-4 text-[#C69A55]" />
-                <span>SEASON</span>
+                <span>MY SEASON</span>
               </button>
 
               <button
+                id="mal-tab-btn"
                 onClick={() => {
                   setActiveTab('mal');
                   if (malUser && malList.length === 0 && !malLoading) {
@@ -764,44 +798,124 @@ export default function App() {
                 }`}
               >
                 <CalendarDays className="h-4 w-4 text-[#7567C7]" />
-                <span>RELEASES</span>
+                <span>RELEASE CALENDAR</span>
               </button>
 
-              <button
-                id="status-tab-btn"
-                onClick={() => {
-                  setActiveTab('status');
-                  if (malUser && malList.length === 0 && !malLoading) {
-                    fetchMalList();
-                  }
-                }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${
-                  activeTab === 'status'
-                    ? 'bg-white text-[#7567C7] shadow-2xs'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
-                }`}
-              >
-                <BarChart3 className="h-4 w-4 text-[#6D9B7C]" />
-                <span>STATS</span>
-              </button>
+              {/* INSIGHTS COMPACT DROPDOWN GROUP */}
+              <div className="relative" ref={insightsMenuRef}>
+                <button
+                  id="insights-dropdown-btn"
+                  onClick={() => setIsInsightsOpen((prev) => !prev)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'status' || activeTab === 'gemini' || activeTab === 'review'
+                      ? 'bg-white text-[#7567C7] shadow-2xs border border-[#7567C7]/30'
+                      : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
+                  }`}
+                >
+                  {activeTab === 'status' ? (
+                    <>
+                      <BarChart3 className="h-4 w-4 text-[#6D9B7C]" />
+                      <span>STATISTICS</span>
+                    </>
+                  ) : activeTab === 'gemini' ? (
+                    <>
+                      <Sparkles className="h-4 w-4 text-[#C69A55]" />
+                      <span>AI INSIGHTS</span>
+                    </>
+                  ) : activeTab === 'review' ? (
+                    <>
+                      <Trophy className="h-4 w-4 text-[#E5B869]" />
+                      <span>SEASON REVIEW</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 text-[#7567C7]" />
+                      <span>INSIGHTS</span>
+                    </>
+                  )}
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                      isInsightsOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
 
-              <button
-                id="gemini-tab-btn"
-                onClick={() => {
-                  setActiveTab('gemini');
-                  if (malUser && malList.length === 0 && !malLoading) {
-                    fetchMalList();
-                  }
-                }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === 'gemini'
-                    ? 'bg-white text-[#7567C7] shadow-2xs border border-[#7567C7]/30'
-                    : 'text-[#77747D] hover:text-[#25242A] hover:bg-white/60'
-                }`}
-              >
-                <Sparkles className="h-4 w-4 text-[#C69A55]" />
-                <span>✨ GEMINI</span>
-              </button>
+                {isInsightsOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-[#1C192E] rounded-2xl shadow-xl border border-[#E7E3DF] dark:border-[#2D2A4A] p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                    <button
+                      id="dropdown-opt-stats"
+                      onClick={() => {
+                        setActiveTab('status');
+                        setIsInsightsOpen(false);
+                        if (malUser && malList.length === 0 && !malLoading) {
+                          fetchMalList();
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeTab === 'status'
+                          ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF]'
+                          : 'text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white'
+                      }`}
+                    >
+                      <div className="p-1.5 rounded-lg bg-[#6D9B7C]/15 text-[#6D9B7C] shrink-0">
+                        <BarChart3 className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold">Statistics</div>
+                        <div className="text-[10px] text-[#77747D] dark:text-[#AEA8C9]/80 font-normal">Score curves & charts</div>
+                      </div>
+                    </button>
+
+                    <button
+                      id="dropdown-opt-gemini"
+                      onClick={() => {
+                        setActiveTab('gemini');
+                        setIsInsightsOpen(false);
+                        if (malUser && malList.length === 0 && !malLoading) {
+                          fetchMalList();
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2.5 transition-colors cursor-pointer mt-1 ${
+                        activeTab === 'gemini'
+                          ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF]'
+                          : 'text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white'
+                      }`}
+                    >
+                      <div className="p-1.5 rounded-lg bg-[#C69A55]/15 text-[#C69A55] shrink-0">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold">AI Insights</div>
+                        <div className="text-[10px] text-[#77747D] dark:text-[#AEA8C9]/80 font-normal">Gemini season analysis</div>
+                      </div>
+                    </button>
+
+                    <button
+                      id="dropdown-opt-review"
+                      onClick={() => {
+                        setActiveTab('review');
+                        setIsInsightsOpen(false);
+                        if (malUser && malList.length === 0 && !malLoading) {
+                          fetchMalList();
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2.5 transition-colors cursor-pointer mt-1 ${
+                        activeTab === 'review'
+                          ? 'bg-[#FDF8EE] text-[#C69A55] dark:bg-[#C69A55]/20 dark:text-[#F5D78E]'
+                          : 'text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white'
+                      }`}
+                    >
+                      <div className="p-1.5 rounded-lg bg-[#E5B869]/15 text-[#E5B869] shrink-0">
+                        <Trophy className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold">Season Review</div>
+                        <div className="text-[10px] text-[#77747D] dark:text-[#AEA8C9]/80 font-normal">Yearbook & awards podium</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </nav>
           )}
 
@@ -867,12 +981,21 @@ export default function App() {
         {malUser && (
           <div className="flex md:hidden items-center gap-1.5 mt-3 pt-2 border-t border-[#E7E3DF] overflow-x-auto">
             <button
+              onClick={() => setActiveTab('home')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 flex items-center gap-1.5 ${
+                activeTab === 'home' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
+              }`}
+            >
+              <Home className="h-3.5 w-3.5" />
+              <span>HOME</span>
+            </button>
+            <button
               onClick={() => setActiveTab('season')}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 ${
                 activeTab === 'season' ? 'bg-[#F0EDFA] text-[#7567C7]' : 'text-[#77747D]'
               }`}
             >
-              SEASON
+              MY SEASON
             </button>
             <button
               onClick={() => setActiveTab('mal')}
@@ -911,6 +1034,15 @@ export default function App() {
             >
               ✨ GEMINI
             </button>
+            <button
+              onClick={() => setActiveTab('review')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 flex items-center gap-1.5 ${
+                activeTab === 'review' ? 'bg-[#FDF8EE] text-[#C69A55] font-bold' : 'text-[#77747D]'
+              }`}
+            >
+              <Trophy className="h-3.5 w-3.5 text-[#E5B869]" />
+              <span>REVIEW</span>
+            </button>
           </div>
         )}
       </header>
@@ -922,6 +1054,16 @@ export default function App() {
           <WelcomePage
             onConnectMal={handleConnectMal}
             seasonalSampleList={jikanSummer2026List}
+            isAuthenticated={false}
+          />
+        )}
+
+        {/* LOGGED IN EXPERIENCE: HOME / WELCOME PAGE */}
+        {malUser && activeTab === 'home' && (
+          <WelcomePage
+            onConnectMal={() => setActiveTab('season')}
+            seasonalSampleList={jikanSummer2026List}
+            isAuthenticated={true}
           />
         )}
 
@@ -1171,6 +1313,23 @@ export default function App() {
               malUser={malUser}
               malLoading={malLoading}
               onConnectMal={handleConnectMal}
+            />
+          </div>
+        )}
+
+        {/* LOGGED IN TAB 6: SEASON REVIEW */}
+        {malUser && activeTab === 'review' && (
+          <div>
+            <SeasonReview
+              malList={malList}
+              summer2026List={summer2026MalList}
+              watchingSummer2026List={currentlyWatchingItems}
+              completedSummer2026List={completedSummer2026Items}
+              customUserNotes={customUserNotes}
+              malUser={malUser}
+              onSaveCustomNote={handleSaveCustomNote}
+              onConnectMal={handleConnectMal}
+              theme={theme}
             />
           </div>
         )}

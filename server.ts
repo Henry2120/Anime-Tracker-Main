@@ -1072,7 +1072,7 @@ app.get("/api/mal/anime/:id", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// RELEASE CALENDAR (AniList GraphQL API + Caching)
+// RELEASE CALENDAR (AniList GraphQL + MAL Broadcast Fallback & Caching)
 // ----------------------------------------------------
 interface CachedReleaseCalendar {
   cachedAt: number;
@@ -1080,6 +1080,183 @@ interface CachedReleaseCalendar {
 }
 const releaseCalendarCache = new Map<string, CachedReleaseCalendar>();
 const CALENDAR_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+interface CachedMalBroadcastCatalogue {
+  cachedAt: number;
+  anime: any[];
+}
+let malBroadcastCatalogueCache: CachedMalBroadcastCatalogue | null = null;
+const MAL_BROADCAST_CATALOGUE_TTL = 60 * 60 * 1000; // 1 hour
+
+const MAL_DAY_MAP: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+async function getMalBroadcastCatalogue(): Promise<any[]> {
+  if (
+    malBroadcastCatalogueCache &&
+    Date.now() - malBroadcastCatalogueCache.cachedAt < MAL_BROADCAST_CATALOGUE_TTL &&
+    malBroadcastCatalogueCache.anime.length > 0
+  ) {
+    return malBroadcastCatalogueCache.anime;
+  }
+
+  const rawClientId = process.env.MAL_CLIENT_ID;
+  const headers: Record<string, string> = {};
+  if (rawClientId && rawClientId.trim() !== "MY_MAL_CLIENT_ID") {
+    headers["X-MAL-CLIENT-ID"] = rawClientId.trim();
+  }
+
+  const fields =
+    "broadcast,start_date,end_date,title,alternative_titles,main_picture,genres,mean,status,num_episodes,studios,media_type";
+
+  try {
+    const [airingRes, seasonRes] = await Promise.allSettled([
+      fetch(
+        `https://api.myanimelist.net/v2/anime/ranking?ranking_type=airing&limit=100&fields=${encodeURIComponent(fields)}`,
+        { headers, signal: AbortSignal.timeout(6000) }
+      ),
+      fetch(
+        `https://api.myanimelist.net/v2/anime/season/2026/summer?limit=100&fields=${encodeURIComponent(fields)}`,
+        { headers, signal: AbortSignal.timeout(6000) }
+      ),
+    ]);
+
+    const map = new Map<number, any>();
+
+    if (airingRes.status === "fulfilled" && airingRes.value.ok) {
+      const json = await airingRes.value.json();
+      if (Array.isArray(json.data)) {
+        for (const item of json.data) {
+          if (item?.node?.id) map.set(item.node.id, item.node);
+        }
+      }
+    }
+
+    if (seasonRes.status === "fulfilled" && seasonRes.value.ok) {
+      const json = await seasonRes.value.json();
+      if (Array.isArray(json.data)) {
+        for (const item of json.data) {
+          if (item?.node?.id) map.set(item.node.id, item.node);
+        }
+      }
+    }
+
+    const animeList = Array.from(map.values());
+    if (animeList.length > 0) {
+      malBroadcastCatalogueCache = {
+        cachedAt: Date.now(),
+        anime: animeList,
+      };
+    }
+    return animeList;
+  } catch (err: any) {
+    console.warn("[ReleaseCalendar] Failed to refresh MAL broadcast catalogue:", err.message);
+    return malBroadcastCatalogueCache?.anime || [];
+  }
+}
+
+function generateMalBroadcastSchedule(catalogue: any[], startSec: number, endSec: number): any[] {
+  const scheduleItems: any[] = [];
+  const seenEpisodeKeys = new Set<string>();
+
+  for (const node of catalogue) {
+    if (!node || !node.id) continue;
+
+    let dayOfWeek = node.broadcast?.day_of_the_week?.toLowerCase();
+    let startTime = node.broadcast?.start_time || "23:00";
+
+    // Fallback: derive weekday from start_date if broadcast.day_of_the_week is omitted
+    if (!dayOfWeek && node.start_date) {
+      const d = new Date(node.start_date);
+      if (!isNaN(d.getTime())) {
+        const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+        dayOfWeek = days[d.getUTCDay()];
+      }
+    }
+
+    if (!dayOfWeek || !(dayOfWeek in MAL_DAY_MAP)) continue;
+
+    const targetDay = MAL_DAY_MAP[dayOfWeek];
+    const [hStr, mStr] = startTime.split(":");
+    const jstHour = parseInt(hStr || "23", 10);
+    const jstMinute = parseInt(mStr || "0", 10);
+
+    const startDate = new Date(startSec * 1000);
+    const endDate = new Date(endSec * 1000);
+
+    // Iterate through days within the query window
+    for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      const utcYear = d.getUTCFullYear();
+      const utcMonth = d.getUTCMonth();
+      const utcDay = d.getUTCDate();
+
+      // JST is UTC+9, so UTC hours = jstHour - 9
+      const candidateUtcMs = Date.UTC(utcYear, utcMonth, utcDay, jstHour - 9, jstMinute, 0);
+      const candidateSec = Math.floor(candidateUtcMs / 1000);
+
+      // Verify the day of the week in JST matches targetDay
+      const jstDate = new Date(candidateUtcMs + 9 * 3600 * 1000);
+      if (jstDate.getUTCDay() !== targetDay) continue;
+
+      if (candidateSec >= startSec && candidateSec <= endSec) {
+        let ep = 1;
+        if (node.start_date) {
+          const firstAirMs = Date.parse(`${node.start_date}T${startTime}+09:00`);
+          if (!isNaN(firstAirMs)) {
+            const firstAirSec = Math.floor(firstAirMs / 1000);
+            if (candidateSec < firstAirSec - 3600) continue; // Has not started yet
+            ep = Math.max(1, Math.floor((candidateSec - firstAirSec + 86400) / (7 * 86400)) + 1);
+          }
+        }
+
+        if (typeof node.num_episodes === "number" && node.num_episodes > 0 && ep > node.num_episodes) {
+          continue; // Already finished
+        }
+
+        const episodeKey = `${node.id}_${ep}_${candidateSec}`;
+        if (seenEpisodeKeys.has(episodeKey)) continue;
+        seenEpisodeKeys.add(episodeKey);
+
+        const rawEnglish = node.alternative_titles?.en;
+        const titleEnglish =
+          typeof rawEnglish === "string" && rawEnglish.trim().length > 0 ? rawEnglish.trim() : null;
+        const hasEnglishTitle = Boolean(titleEnglish);
+
+        scheduleItems.push({
+          id: node.id * 1000 + ep,
+          malId: node.id,
+          anilistId: node.id,
+          title: {
+            romaji: node.title || "Untitled",
+            english: titleEnglish || node.title || "Untitled",
+            native: node.alternative_titles?.ja || "",
+            userPreferred: titleEnglish || node.title || "Untitled",
+          },
+          titleEnglish,
+          titleNative: node.alternative_titles?.ja || null,
+          titleRomaji: node.title || null,
+          hasEnglishTitle,
+          totalEpisodes: typeof node.num_episodes === "number" && node.num_episodes > 0 ? node.num_episodes : null,
+          episode: ep,
+          airingAt: candidateSec,
+          imageUrl: node.main_picture?.large || node.main_picture?.medium || null,
+          studio: node.studios?.[0]?.name || null,
+          format: node.media_type ? node.media_type.toUpperCase() : "TV",
+        });
+      }
+    }
+  }
+
+  scheduleItems.sort((a, b) => a.airingAt - b.airingAt);
+  return scheduleItems;
+}
 
 const ANILIST_SCHEDULE_QUERY = `
 query ($page: Int, $perPage: Int, $airingAt_greater: Int, $airingAt_lesser: Int) {
@@ -1136,6 +1313,8 @@ app.get("/api/release-calendar", async (req, res) => {
     return res.json({ data: cached.data, cached: true });
   }
 
+  // Attempt 1: Try AniList GraphQL API with timeout and headers
+  let anilistSucceeded = false;
   try {
     let page = 1;
     let hasNextPage = true;
@@ -1148,6 +1327,7 @@ app.get("/api/release-calendar", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AniVerse/1.0",
         },
         body: JSON.stringify({
           query: ANILIST_SCHEDULE_QUERY,
@@ -1158,15 +1338,22 @@ app.get("/api/release-calendar", async (req, res) => {
             airingAt_lesser: endSec,
           },
         }),
+        signal: AbortSignal.timeout(3500),
       });
 
       if (!anilistResponse.ok) {
-        throw new Error(`AniList GraphQL endpoint responded with status ${anilistResponse.status}`);
+        console.warn(
+          `[ReleaseCalendar] AniList returned HTTP ${anilistResponse.status} (service temporarily unavailable). Switching to MAL official broadcast schedule.`
+        );
+        break;
       }
 
       const json = await anilistResponse.json();
       if (json.errors && json.errors.length > 0) {
-        throw new Error(json.errors[0]?.message || "AniList GraphQL error");
+        console.warn(
+          `[ReleaseCalendar] AniList returned GraphQL error: ${json.errors[0]?.message || "unknown"}. Switching to MAL broadcast schedule.`
+        );
+        break;
       }
 
       const schedules = json.data?.Page?.airingSchedules || [];
@@ -1175,76 +1362,94 @@ app.get("/api/release-calendar", async (req, res) => {
       page++;
     }
 
-    // Normalize items into consistent structure
-    const normalizedData = allSchedules.map((item) => {
-      const media = item.media;
-      const studioName = media?.studios?.nodes?.[0]?.name || null;
-      const rawEnglish = media?.title?.english;
-      const titleEnglish =
-        typeof rawEnglish === "string" && rawEnglish.trim().length > 0
-          ? rawEnglish.trim()
-          : null;
-      const hasEnglishTitle = Boolean(titleEnglish);
+    if (allSchedules.length > 0) {
+      const normalizedData = allSchedules.map((item) => {
+        const media = item.media;
+        const studioName = media?.studios?.nodes?.[0]?.name || null;
+        const rawEnglish = media?.title?.english;
+        const titleEnglish =
+          typeof rawEnglish === "string" && rawEnglish.trim().length > 0
+            ? rawEnglish.trim()
+            : null;
+        const hasEnglishTitle = Boolean(titleEnglish);
 
-      const rawEpisodes = media?.episodes;
-      const totalEpisodes =
-        typeof rawEpisodes === "number" && rawEpisodes > 0
-          ? rawEpisodes
-          : null;
+        const rawEpisodes = media?.episodes;
+        const totalEpisodes =
+          typeof rawEpisodes === "number" && rawEpisodes > 0 ? rawEpisodes : null;
 
-      return {
-        id: item.id,
-        malId: media?.idMal || null,
-        anilistId: media?.id || item.mediaId,
-        title: {
-          romaji: media?.title?.romaji || "",
-          english: media?.title?.english || "",
-          native: media?.title?.native || "",
-          userPreferred:
-            media?.title?.userPreferred ||
-            media?.title?.english ||
-            media?.title?.romaji ||
-            media?.title?.native ||
-            "Untitled",
-        },
-        titleEnglish,
-        titleNative: media?.title?.native || null,
-        titleRomaji: media?.title?.romaji || null,
-        hasEnglishTitle,
-        totalEpisodes,
-        episode: item.episode ?? null,
-        airingAt: item.airingAt,
-        imageUrl: media?.coverImage?.large || media?.coverImage?.medium || null,
-        studio: studioName,
-        format: media?.format || null,
-      };
-    });
-
-    // Save to cache
-    releaseCalendarCache.set(cacheKey, {
-      cachedAt: Date.now(),
-      data: normalizedData,
-    });
-
-    return res.json({ data: normalizedData, cached: false });
-  } catch (err: any) {
-    console.error("Error querying AniList airing schedule:", err);
-
-    // Fallback: check if we have any cached data for this key even if expired
-    if (cached) {
-      return res.json({
-        data: cached.data,
-        cached: true,
-        stale: true,
-        warning: "Served from stale cache due to upstream provider rate limits.",
+        return {
+          id: item.id,
+          malId: media?.idMal || null,
+          anilistId: media?.id || item.mediaId,
+          title: {
+            romaji: media?.title?.romaji || "",
+            english: media?.title?.english || "",
+            native: media?.title?.native || "",
+            userPreferred:
+              media?.title?.userPreferred ||
+              media?.title?.english ||
+              media?.title?.romaji ||
+              media?.title?.native ||
+              "Untitled",
+          },
+          titleEnglish,
+          titleNative: media?.title?.native || null,
+          titleRomaji: media?.title?.romaji || null,
+          hasEnglishTitle,
+          totalEpisodes,
+          episode: item.episode ?? null,
+          airingAt: item.airingAt,
+          imageUrl: media?.coverImage?.large || media?.coverImage?.medium || null,
+          studio: studioName,
+          format: media?.format || null,
+        };
       });
-    }
 
-    return res.status(502).json({
-      error: "Unable to load the release schedule. Please try again.",
-      details: err.message || String(err),
+      releaseCalendarCache.set(cacheKey, {
+        cachedAt: Date.now(),
+        data: normalizedData,
+      });
+
+      anilistSucceeded = true;
+      return res.json({ data: normalizedData, cached: false, provider: "anilist" });
+    }
+  } catch (err: any) {
+    console.warn(`[ReleaseCalendar] AniList unavailable (${err.message}). Using MyAnimeList broadcast fallback.`);
+  }
+
+  // Attempt 2: Fallback to official MyAnimeList broadcast schedule
+  try {
+    const catalogue = await getMalBroadcastCatalogue();
+    if (catalogue.length > 0) {
+      const malSchedule = generateMalBroadcastSchedule(catalogue, startSec, endSec);
+      if (malSchedule.length > 0) {
+        releaseCalendarCache.set(cacheKey, {
+          cachedAt: Date.now(),
+          data: malSchedule,
+        });
+        return res.json({ data: malSchedule, cached: false, provider: "myanimelist" });
+      }
+    }
+  } catch (malErr: any) {
+    console.warn("[ReleaseCalendar] MAL broadcast schedule generation error:", malErr.message);
+  }
+
+  // Attempt 3: If expired cache exists, return stale cache
+  if (cached) {
+    return res.json({
+      data: cached.data,
+      cached: true,
+      stale: true,
+      warning: "Served from cached schedule data.",
     });
   }
+
+  // Final fallback: return safe empty array with 200 OK so frontend does not fail
+  return res.json({
+    data: [],
+    cached: false,
+    warning: "Release schedule temporarily unavailable. Please try again in a few moments.",
+  });
 });
 
 // ----------------------------------------------------

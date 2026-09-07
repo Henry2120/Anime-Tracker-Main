@@ -33,6 +33,7 @@ import {
 } from 'recharts';
 import { MalListItem, MalUser } from '../types';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
+import { decodeHtmlEntities } from '../utils/htmlUtils';
 
 interface StatusDashboardProps {
   malList: MalListItem[];
@@ -352,7 +353,7 @@ export function StatusDashboard({
       season: item.node.start_season,
       genres: item.node.genres,
       synopsis: item.node.synopsis,
-      comment: item.list_status?.comments,
+      comment: item.list_status?.comments ? decodeHtmlEntities(item.list_status.comments) : undefined,
       finishDate: item.list_status?.finish_date,
     };
     setSelectedAnimeForModal(modalData);

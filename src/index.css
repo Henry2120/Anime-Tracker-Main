@@ -53,8 +53,20 @@ canvas {
 .dark header .bg-\[\#F7F5F2\],
 .dark nav.bg-\[\#F7F5F2\],
 .dark .bg-\[\#F7F5F2\].rounded-xl,
-.dark .bg-\[\#F7F5F2\].rounded-2xl {
+.dark .bg-\[\#F7F5F2\].rounded-2xl,
+.dark .grid.bg-\[\#F7F5F2\] {
   background-color: #26252F !important;
+}
+
+/* Dark mode empty slots and subtle opacity tints in Release Calendar */
+.dark .bg-\[\#F7F5F2\]\/20,
+.dark .bg-\[\#F7F5F2\]\/40 {
+  background-color: rgba(20, 19, 24, 0.5) !important;
+}
+
+.dark .bg-\[\#F0EDFA\]\/40,
+.dark .bg-\[\#F0EDFA\]\/30 {
+  background-color: rgba(42, 37, 66, 0.4) !important;
 }
 
 /* Dark mode pale purple containers */
@@ -105,7 +117,8 @@ canvas {
   background-color: #2B2A36 !important;
 }
 
-.dark .hover\:bg-\[\#F7F5F2\]:hover {
+.dark .hover\:bg-\[\#F7F5F2\]:hover,
+.dark .hover\:bg-\[\#F7F5F2\]\/40:hover {
   background-color: #272632 !important;
 }
 

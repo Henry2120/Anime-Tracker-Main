@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -17,6 +17,7 @@ import {
   Info,
 } from 'lucide-react';
 import { MalListItem } from '../types';
+import { decodeHtmlEntities } from '../utils/htmlUtils';
 
 export interface AnimeDetailData {
   id?: number;
@@ -55,6 +56,7 @@ interface AnimeDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   customNote?: string;
+  customNotes?: Record<number, string>;
   onSaveNote?: (animeId: number, note: string) => void;
 }
 
@@ -73,14 +75,23 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
   isOpen,
   onClose,
   customNote = '',
+  customNotes,
   onSaveNote,
 }) => {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteText, setNoteText] = useState(customNote);
 
-  if (!isOpen || !anime) return null;
+  const animeId = anime ? (anime.malId || anime.id) : null;
+  const currentCustomNote = customNote || (animeId && customNotes ? customNotes[animeId] : '') || '';
+  const decodedMalComment = anime?.comment ? decodeHtmlEntities(anime.comment) : '';
+  const effectiveNote = noteText || currentCustomNote || decodedMalComment || '';
 
-  const animeId = anime.malId || anime.id;
+  useEffect(() => {
+    setIsEditingNote(false);
+    setNoteText(currentCustomNote);
+  }, [animeId, currentCustomNote, isOpen]);
+
+  if (!isOpen || !anime) return null;
   const displayTitle = anime.titleEnglish || anime.title;
   const subtitle = anime.title !== displayTitle ? anime.title : anime.titleNative || anime.titleRomaji;
 
@@ -106,8 +117,6 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
     }
     setIsEditingNote(false);
   };
-
-  const effectiveNote = noteText || customNote || anime.comment || '';
 
   return (
     <AnimatePresence>

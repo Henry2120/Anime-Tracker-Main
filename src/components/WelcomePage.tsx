@@ -18,11 +18,13 @@ import { JikanSeasonalAnime } from '../utils/seasonUtils';
 interface WelcomePageProps {
   onConnectMal: () => void;
   seasonalSampleList?: JikanSeasonalAnime[];
+  isAuthenticated?: boolean;
 }
 
 export const WelcomePage: React.FC<WelcomePageProps> = ({
   onConnectMal,
   seasonalSampleList = [],
+  isAuthenticated = false,
 }) => {
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
@@ -97,7 +99,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({
               onClick={onConnectMal}
               className="w-full sm:w-auto px-8 py-4 rounded-xl bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-base shadow-sm hover:shadow transition-all flex items-center justify-center gap-3 cursor-pointer group"
             >
-              <span>Connect MyAnimeList</span>
+              <span>{isAuthenticated ? 'Go to My Season' : 'Connect MyAnimeList'}</span>
               <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
             </button>
 
@@ -371,7 +373,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({
               className="px-8 py-4 rounded-xl bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-base shadow-sm hover:shadow transition-all inline-flex items-center gap-3 cursor-pointer group"
             >
               <ExternalLink className="h-5 w-5" />
-              <span>Connect MyAnimeList →</span>
+              <span>{isAuthenticated ? 'Go to My Season →' : 'Connect MyAnimeList →'}</span>
             </button>
           </div>
         </div>

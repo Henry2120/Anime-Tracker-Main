@@ -8,6 +8,7 @@ import {
   Check,
   X,
 } from 'lucide-react';
+import { decodeHtmlEntities } from '../utils/htmlUtils';
 
 interface SeasonTableItem {
   node: {
@@ -146,7 +147,8 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                 const totalEps = item.node.num_episodes && item.node.num_episodes > 0 ? item.node.num_episodes : '?';
 
                 // Note source priority: Custom Local Note > MAL Comments > Synopsis snippet
-                const malComment = item.list_status?.comments?.trim();
+                const rawMalComment = item.list_status?.comments?.trim();
+                const malComment = rawMalComment ? decodeHtmlEntities(rawMalComment) : '';
                 const localNote = customUserNotes[animeId]?.trim();
                 const displayNote = localNote || malComment || '';
                 const truncatedNote = displayNote.length > 50 ? `${displayNote.slice(0, 50)}...` : displayNote;

@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   Clock,
   Film,
@@ -39,6 +40,8 @@ export function TodayReleaseView({
   onClearFilters,
   onSelectAnime,
 }: TodayReleaseViewProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   const hasActiveFilter = Boolean(
     searchTerm.trim() || watchingOnly || hideWithoutEnglishTitle || hideLongRunning
   );
@@ -131,7 +134,7 @@ export function TodayReleaseView({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const titleToDisplay = item.displayTitle || getAnimeDisplayTitle(item.title);
             const secondaryTitle =
               item.title?.native && item.title.native !== titleToDisplay
@@ -141,9 +144,21 @@ export function TodayReleaseView({
                 : null;
 
             return (
-              <div
+              <motion.div
                 key={`today-item-${item.id}-${item.airingAt}`}
                 onClick={() => onSelectAnime?.(item)}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
+                whileInView={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.15 }}
+                transition={
+                  shouldReduceMotion
+                    ? { duration: 0 }
+                    : {
+                        duration: 0.45,
+                        delay: Math.min(index * 0.05, 0.35),
+                        ease: [0.25, 0.1, 0.25, 1.0],
+                      }
+                }
                 className={`relative rounded-2xl overflow-hidden border p-3.5 sm:p-4 flex gap-3.5 transition-all duration-200 cursor-pointer ${
                   item.isWatching
                     ? 'bg-white border-[#6D9B7C] shadow-2xs ring-1 ring-[#6D9B7C]/40 hover:ring-2'
@@ -264,7 +279,7 @@ export function TodayReleaseView({
                     )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
