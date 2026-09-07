@@ -93,9 +93,10 @@ export function getPreviousSeason(year: number, season: string): { year: number;
 
 /**
  * Checks whether an anime node belongs to a specific broadcast debut season (e.g. Summer 2026, Spring 2026).
- * An anime belongs to a season ONLY when its MAL start_season metadata matches the target year and season.
- * If start_season is missing/unspecified on the node, it checks verified seasonal debut catalogue IDs.
- * Note: Airing dates (node.start_date), ongoing broadcast schedules, and personal start dates MUST NOT be used.
+ * Priority Order:
+ * 1. MAL start_season metadata (authoritative)
+ * 2. Verified Jikan seasonal debut catalogue IDs / individual Jikan fallback IDs
+ * 3. Parsed season from anime's broadcast start date (node.start_date, node.aired.from)
  */
 export function isAnimeInSeason(
   node?: any,
@@ -119,9 +120,18 @@ export function isAnimeInSeason(
     }
   }
 
-  // 2. Fallback ONLY for missing start_season: check verified Jikan seasonal debut catalogue IDs
+  // 2. Fallback for missing start_season: check verified Jikan seasonal debut catalogue / fallback IDs
   if (node.id && jikanSeasonIds && jikanSeasonIds.has(node.id)) {
     return true;
+  }
+
+  // 3. Fallback: Check if broadcast start_date provides valid seasonal debut info
+  const startDateStr = node.start_date || node.aired?.from || node.release_date;
+  if (startDateStr) {
+    const parsed = parseSeasonFromDate(startDateStr);
+    if (parsed && parsed.year === targetYear && parsed.season.toLowerCase() === targetSeasonLower) {
+      return true;
+    }
   }
 
   return false;
@@ -129,7 +139,7 @@ export function isAnimeInSeason(
 
 /**
  * Checks if a MAL anime node strictly belongs to Summer 2026
- * Formula: start_season.year === 2026 && start_season.season === "summer"
+ * Formula: start_season.year === 2026 && start_season.season === "summer" (with fallbacks)
  */
 export function isAnimeSummer2026(node?: any, jikanSummerIds?: Set<number>): boolean {
   return isAnimeInSeason(node, 2026, 'summer', jikanSummerIds);
@@ -180,10 +190,12 @@ export const getEarliestPersonalStartDate = getEarliestFirstEpisodeAiringDate;
 /**
  * Determines whether a completed anime belongs to the target seasonal tracking period:
  * 1. MAL list_status.status must be 'completed'
- * 2. Has a valid completion/finish date (list_status.finish_date)
- * 3. finish_date must be on or after the first-episode airing date boundary (earliestFirstEpisodeAiringDate)
- * 4. CRITICAL: The anime must NOT belong to the season immediately preceding the target season
- *    (e.g., Spring 2026 anime finished after June 25 are excluded from Summer 2026 completed).
+ * 2. If the anime's debut season IS the target season, it belongs to that season.
+ * 3. If it is an older/backlog title completed during the seasonal window:
+ *    a. Has a valid completion/finish date (list_status.finish_date)
+ *    b. finish_date must be on or after the first-episode airing date boundary (earliestFirstEpisodeAiringDate)
+ *    c. CRITICAL: The anime must NOT belong to the season immediately preceding the target season
+ *       (e.g., Spring 2026 anime finished after June 25 are excluded from Summer 2026 completed).
  */
 export function isAnimeCompletedInSeason(
   item: any,
@@ -200,17 +212,29 @@ export function isAnimeCompletedInSeason(
   // 1. Must have completed status
   if (listStatus.status !== 'completed') return false;
 
-  // 2. Airing boundary date must be established
+  // 2. If the anime itself debuted in the target season (e.g. Summer 2026), it is a seasonal completed anime
+  const isCurrentSeasonDebut = isAnimeInSeason(
+    item.node,
+    targetYear,
+    targetSeason,
+    targetCatalogueIds
+  );
+
+  if (isCurrentSeasonDebut) {
+    return true;
+  }
+
+  // 3. For backlog/older anime completed during the season: Airing boundary date must be established
   if (!earliestFirstEpisodeAiringDate) return false;
 
-  // 3. Must have a valid finish date
+  // 4. Must have a valid finish date
   const finishDate = parseDateToComparable(listStatus.finish_date);
   if (!finishDate) return false;
 
-  // 4. finish_date must be on or after the earliest first-episode airing date boundary (inclusive)
+  // 5. finish_date must be on or after the earliest first-episode airing date boundary (inclusive)
   if (finishDate < earliestFirstEpisodeAiringDate) return false;
 
-  // 5. CRITICAL: Previous season exclusion
+  // 6. CRITICAL: Previous season exclusion (Spring 2026 carryovers finished during Summer are excluded)
   const prevSeason = getPreviousSeason(targetYear, targetSeason);
   const isPreviousSeasonAnime = isAnimeInSeason(
     item.node,

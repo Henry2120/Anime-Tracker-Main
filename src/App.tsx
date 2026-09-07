@@ -549,11 +549,15 @@ export default function App() {
     return combined;
   }, [jikanSummer2026Ids, fallbackSummer2026Ids]);
 
-  // Step 1: Currently Watching items (Independent from Summer 2026 debut classification)
+  // Step 1: Currently Watching items (Summer 2026 debuts + active ongoing carryovers)
   // An anime is included in Currently Watching when:
   // 1. MAL list_status.status === 'watching'
   // AND
-  // 2. It has an active matching entry on the Release Calendar (calendarSummer2026Ids.has(item.node.id))
+  // 2. Either:
+  //    - It is a Summer 2026 debut anime (via MAL start_season, seasonal catalogue, or fallback)
+  //      -> Included regardless of adult/NSFW classification, rating, genre, media type, or Jikan/calendar visibility.
+  //    OR
+  //    - It is an active carryover currently airing on the Summer 2026 Release Calendar.
   const currentlyWatchingItems = useMemo(() => {
     const items: Array<{
       node: any;
@@ -566,9 +570,11 @@ export default function App() {
       // 1. MAL watching status is the first condition
       if (item.list_status?.status !== 'watching') continue;
 
-      // 2. Must be actively represented on the Release Calendar
+      // 2. Must be either a Summer 2026 anime OR an active carryover on the Release Calendar
+      const isSummerAnime = isAnimeSummer2026(item.node, allSummer2026Ids);
       const isOnReleaseCalendar = calendarSummer2026Ids.has(item.node.id);
-      if (!isOnReleaseCalendar) continue;
+
+      if (!isSummerAnime && !isOnReleaseCalendar) continue;
 
       if (!seenIds.has(item.node.id)) {
         seenIds.add(item.node.id);
@@ -580,7 +586,7 @@ export default function App() {
     }
 
     return items;
-  }, [malList, calendarSummer2026Ids]);
+  }, [malList, allSummer2026Ids, calendarSummer2026Ids]);
 
   // Step 2: Seasonal start boundary for Summer 2026:
   // Earliest first-episode airing date among the user's currently-watching Summer 2026 anime.
@@ -718,26 +724,31 @@ export default function App() {
     });
   };
 
-  // Targeted Fallback: For watching anime not found in the primary Jikan seasonal set,
-  // query individual Jikan metadata (/v4/anime/{mal_id})
+  // Targeted Fallback: For anime without clear start_season in MAL metadata,
+  // query individual Jikan metadata (/v4/anime/{mal_id}) to verify seasonal placement
   useEffect(() => {
     if (!malList || malList.length === 0) return;
     if (jikanSeasonLoading) return;
 
-    const watchingMissing = malList.filter((item) => {
-      if (item.list_status?.status !== 'watching') return false;
+    const itemsNeedingLookup = malList.filter((item) => {
       const animeId = item.node?.id;
       if (!animeId) return false;
+      // If node.start_season is already defined on MAL, MAL is authoritative! No need to query Jikan.
+      if (item.node?.start_season && typeof item.node.start_season === 'object') {
+        const year = Number(item.node.start_season.year);
+        const season = item.node.start_season.season;
+        if (!isNaN(year) && season) return false;
+      }
       if (jikanSummer2026Ids.has(animeId)) return false;
       if (fallbackSummer2026Ids.has(animeId)) return false;
       return true;
     });
 
-    if (watchingMissing.length === 0) return;
+    if (itemsNeedingLookup.length === 0) return;
 
     let isMounted = true;
     const runFallbackLookups = async () => {
-      for (const item of watchingMissing) {
+      for (const item of itemsNeedingLookup) {
         if (!isMounted) break;
         const animeId = item.node.id;
         const info = await fetchJikanAnimeInfo(animeId);
