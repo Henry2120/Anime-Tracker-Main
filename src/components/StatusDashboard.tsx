@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart3,
   Tv,
@@ -18,6 +18,7 @@ import {
   Flame,
   Percent,
   Compass,
+  X,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -322,6 +323,22 @@ export function StatusDashboard({
   const [showAllSeasonalWatching, setShowAllSeasonalWatching] = useState<boolean>(false);
   const [showAllOverallWatching, setShowAllOverallWatching] = useState<boolean>(false);
   const [selectedAnimeForModal, setSelectedAnimeForModal] = useState<AnimeDetailData | null>(null);
+  const [selectedGenreModal, setSelectedGenreModal] = useState<{
+    genre: string;
+    source: 'seasonal' | 'overall';
+    color?: string;
+  } | null>(null);
+
+  // Escape key handler to close the genre modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedGenreModal) {
+        setSelectedGenreModal(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedGenreModal]);
 
   // Gemini Insights state
   const [geminiLoading, setGeminiLoading] = useState<boolean>(false);
@@ -396,6 +413,40 @@ export function StatusDashboard({
   const overallStats = useMemo(() => {
     return computeAnimeStats(malList);
   }, [malList]);
+
+  // Anime list matching the currently selected genre in the interactive modal
+  const genreModalAnimeList = useMemo(() => {
+    if (!selectedGenreModal) return [];
+    const targetGenre = selectedGenreModal.genre.toLowerCase();
+    const sourceList = selectedGenreModal.source === 'seasonal'
+      ? ((watchingSummer2026List && watchingSummer2026List.length > 0)
+          ? watchingSummer2026List
+          : summer2026List.filter((item) => item.list_status?.status === 'watching'))
+      : malList;
+
+    const matches: MalListItem[] = [];
+    const seenIds = new Set<number>();
+
+    for (const item of sourceList) {
+      if (!item?.node?.id || seenIds.has(item.node.id)) continue;
+      const genres = item.node.genres;
+      if (Array.isArray(genres)) {
+        const hasGenre = genres.some((g: any) => g?.name && g.name.toLowerCase() === targetGenre);
+        if (hasGenre) {
+          seenIds.add(item.node.id);
+          matches.push(item as MalListItem);
+        }
+      }
+    }
+
+    // Sort by score descending, then title
+    return matches.sort((a, b) => {
+      const scoreA = Number(a.list_status?.score) || Number(a.node?.mean) || 0;
+      const scoreB = Number(b.list_status?.score) || Number(b.node?.mean) || 0;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return (a.node?.title || '').localeCompare(b.node?.title || '');
+    });
+  }, [selectedGenreModal, watchingSummer2026List, summer2026List, malList]);
 
   // Gemini Insights Analysis Handler
   const handleAnalyzeWatching = useCallback(async () => {
@@ -892,14 +943,14 @@ export function StatusDashboard({
                 {/* Seasonal Charts: Status Distribution & Score Distribution */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Status Donut Chart */}
-                  <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-emerald-100 shadow-lg flex flex-col justify-between">
-                    <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-50">
+                  <div className="bg-white dark:bg-[#1E1D24] rounded-3xl p-6 sm:p-7 border-2 border-emerald-100 dark:border-[#2E2C37] shadow-lg flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-4 pb-3 border-b border-emerald-50 dark:border-[#2E2C37]">
                       <div>
-                        <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                          <Sun className="h-5 w-5 text-emerald-600" />
+                        <h4 className="text-lg font-black text-slate-900 dark:text-[#F4F2F7] flex items-center gap-2">
+                          <Sun className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                           {currentSeasonName} Status Distribution
                         </h4>
-                        <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-[#9E9AA6] mt-0.5">
                           Status breakdown for your {currentSeasonName} anime
                         </p>
                       </div>
@@ -939,10 +990,10 @@ export function StatusDashboard({
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                          <span className="text-2xl font-black text-emerald-950 tracking-tight">
+                          <span className="text-2xl font-black text-emerald-950 dark:text-[#F4F2F7] tracking-tight">
                             {seasonalStats.totalAnime}
                           </span>
-                          <span className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-wider">
+                          <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
                             SEASONAL
                           </span>
                         </div>
@@ -963,15 +1014,15 @@ export function StatusDashboard({
                           return (
                             <div
                               key={status.key}
-                              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold"
+                              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#26252F] border border-slate-100 dark:border-[#363442] text-xs font-bold transition-colors"
                             >
                               <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: status.color }} />
-                                <span className="text-slate-700 font-extrabold">{status.label}</span>
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs" style={{ backgroundColor: status.color }} />
+                                <span className="text-slate-700 dark:text-[#E2DEED] font-extrabold">{status.label}</span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-slate-900 font-black">{status.count}</span>
-                                <span className="text-[10px] text-slate-400 w-8 text-right">{percent}%</span>
+                                <span className="text-slate-900 dark:text-white font-black">{status.count}</span>
+                                <span className="text-[10px] text-slate-400 dark:text-[#9E9AA6] w-8 text-right font-bold">{percent}%</span>
                               </div>
                             </div>
                           );
@@ -1168,25 +1219,30 @@ export function StatusDashboard({
                 {/* Seasonal Top Genres & Top Rated This Season */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Top Genres (Summer 2026) - PIE CHART */}
-                  <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-emerald-100 shadow-xl space-y-4 flex flex-col justify-between">
-                    <div className="border-b border-emerald-50 pb-3 flex items-center justify-between">
+                  <div className="bg-white dark:bg-[#1E1D24] rounded-3xl p-6 sm:p-7 border-2 border-emerald-100 dark:border-[#2E2C37] shadow-xl space-y-4 flex flex-col justify-between">
+                    <div className="border-b border-emerald-50 dark:border-[#2E2C37] pb-3 flex items-center justify-between">
                       <div>
-                        <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                          <TrendingUp className="h-5 w-5 text-emerald-600" />
+                        <h4 className="text-lg font-black text-slate-900 dark:text-[#F4F2F7] flex items-center gap-2">
+                          <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                           {currentSeasonName} Top Genres
                         </h4>
-                        <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-[#9E9AA6] mt-0.5">
                           Genre distribution among your currently watching {currentSeasonName} anime
                         </p>
                       </div>
-                      <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                        {seasonalStats.genreChartData.length} Genres
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hidden sm:inline">
+                          Click genre to view
+                        </span>
+                        <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300">
+                          {seasonalStats.genreChartData.length} Genres
+                        </span>
+                      </div>
                     </div>
 
                     {seasonalStats.genreChartData.length === 0 ? (
-                      <div className="h-56 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                        <p className="text-xs font-bold text-slate-500">No genres found for your currently watching {currentSeasonName} anime.</p>
+                      <div className="h-56 flex flex-col items-center justify-center text-center p-6 bg-slate-50 dark:bg-[#26252F] rounded-2xl border border-dashed border-slate-200 dark:border-[#363442]">
+                        <p className="text-xs font-bold text-slate-500 dark:text-[#9E9AA6]">No genres found for your currently watching {currentSeasonName} anime.</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center pt-1">
@@ -1201,33 +1257,47 @@ export function StatusDashboard({
                                 outerRadius={76}
                                 paddingAngle={2}
                                 dataKey="value"
+                                cursor="pointer"
+                                onClick={(entry: any) => {
+                                  if (entry && entry.name) {
+                                    setSelectedGenreModal({
+                                      genre: entry.name,
+                                      source: 'seasonal',
+                                      color: entry.color,
+                                    });
+                                  }
+                                }}
                               >
                                 {seasonalStats.genreChartData.map((entry) => (
-                                  <Cell key={`seasonal-pie-${entry.name}`} fill={entry.color} />
+                                  <Cell
+                                    key={`seasonal-pie-${entry.name}`}
+                                    fill={entry.color}
+                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                  />
                                 ))}
                               </Pie>
                               <RechartsTooltip
                                 formatter={(value: any, name: any) => [
-                                  `${value} watching anime (${Math.round(((Number(value) || 0) / (seasonalStats.totalGenreInstances || 1)) * 100)}%)`,
+                                  `${value} watching anime (${Math.round(((Number(value) || 0) / (seasonalStats.totalGenreInstances || 1)) * 100)}%) — Click to view`,
                                   name,
                                 ]}
                                 contentStyle={{
-                                  backgroundColor: '#ffffff',
-                                  border: '1px solid #E7E3DF',
+                                  backgroundColor: '#1E1D24',
+                                  border: '1px solid #363442',
                                   borderRadius: '12px',
-                                  color: '#25242A',
+                                  color: '#F4F2F7',
                                   fontWeight: 600,
                                   fontSize: '12px',
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                                 }}
                               />
                             </PieChart>
                           </ResponsiveContainer>
                           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-xl font-black text-slate-900 tracking-tight">
+                            <span className="text-xl font-black text-slate-900 dark:text-[#F4F2F7] tracking-tight">
                               {seasonalStats.genreChartData.length}
                             </span>
-                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                            <span className="text-[9px] font-extrabold text-slate-400 dark:text-[#9E9AA6] uppercase tracking-wider">
                               GENRES
                             </span>
                           </div>
@@ -1237,20 +1307,28 @@ export function StatusDashboard({
                           {seasonalStats.genreChartData.map((genre) => (
                             <div
                               key={`seasonal-legend-${genre.name}`}
-                              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-emerald-50/50 border border-slate-100 transition-colors text-xs font-bold"
+                              onClick={() =>
+                                setSelectedGenreModal({
+                                  genre: genre.name,
+                                  source: 'seasonal',
+                                  color: genre.color,
+                                })
+                              }
+                              title={`Click to view ${genre.name} anime`}
+                              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#26252F] hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 border border-slate-100 dark:border-[#363442] hover:border-emerald-300 dark:hover:border-emerald-700/60 transition-all text-xs font-bold cursor-pointer hover:translate-x-0.5 group"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <span
-                                  className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                                  className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs group-hover:scale-125 transition-transform"
                                   style={{ backgroundColor: genre.color }}
                                 />
-                                <span className="text-slate-700 font-extrabold truncate" title={genre.name}>
+                                <span className="text-slate-700 dark:text-[#E2DEED] font-extrabold truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400" title={genre.name}>
                                   {genre.name}
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-slate-900 font-black">{genre.count}</span>
-                                <span className="text-[10px] text-slate-400 w-8 text-right font-bold">{genre.percentage}%</span>
+                                <span className="text-slate-900 dark:text-white font-black">{genre.count}</span>
+                                <span className="text-[10px] text-slate-400 dark:text-[#9E9AA6] w-8 text-right font-bold">{genre.percentage}%</span>
                               </div>
                             </div>
                           ))}
@@ -1502,14 +1580,14 @@ export function StatusDashboard({
             {/* Overall Visual Charts Row (Donut Chart & Score Distribution) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Status Distribution Donut Chart */}
-              <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-indigo-100 shadow-xl flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-indigo-50">
+              <div className="bg-white dark:bg-[#1E1D24] rounded-3xl p-6 sm:p-7 border-2 border-indigo-100 dark:border-[#2E2C37] shadow-xl flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-indigo-50 dark:border-[#2E2C37]">
                   <div>
-                    <h4 className="text-lg font-black text-indigo-950 flex items-center gap-2">
-                      <Tv className="h-5 w-5 text-indigo-600" />
+                    <h4 className="text-lg font-black text-indigo-950 dark:text-[#F4F2F7] flex items-center gap-2">
+                      <Tv className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                       Anime Status Distribution
                     </h4>
-                    <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-[#9E9AA6] mt-0.5">
                       Breakdown of your library across all MAL watch statuses
                     </p>
                   </div>
@@ -1539,22 +1617,22 @@ export function StatusDashboard({
                             name,
                           ]}
                           contentStyle={{
-                            backgroundColor: '#ffffff',
-                            border: '1px solid #E7E3DF',
+                            backgroundColor: '#1E1D24',
+                            border: '1px solid #363442',
                             borderRadius: '12px',
-                            color: '#25242A',
+                            color: '#F4F2F7',
                             fontWeight: 600,
                             fontSize: '12px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                           }}
                         />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-2xl font-black text-indigo-950 tracking-tight">
+                      <span className="text-2xl font-black text-indigo-950 dark:text-[#F4F2F7] tracking-tight">
                         {overallStats.totalAnime}
                       </span>
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-[#9E9AA6] uppercase tracking-wider">
                         TOTAL
                       </span>
                     </div>
@@ -1576,15 +1654,15 @@ export function StatusDashboard({
                       return (
                         <div
                           key={status.key}
-                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/80 transition-colors"
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#26252F] border border-slate-100 dark:border-[#363442] hover:bg-slate-100/80 dark:hover:bg-[#2F2E3A] transition-colors"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: status.color }} />
-                            <span className="text-xs font-bold text-slate-700">{status.label}</span>
+                            <span className="w-3 h-3 rounded-full shrink-0 shadow-xs" style={{ backgroundColor: status.color }} />
+                            <span className="text-xs font-bold text-slate-700 dark:text-[#E2DEED]">{status.label}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-black text-indigo-950">{status.count}</span>
-                            <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{percent}%</span>
+                            <span className="text-xs font-black text-indigo-950 dark:text-white">{status.count}</span>
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-[#9E9AA6] w-8 text-right">{percent}%</span>
                           </div>
                         </div>
                       );
@@ -1784,25 +1862,30 @@ export function StatusDashboard({
             {/* Overall Bottom Row: Top Genres & Top Rated Anime */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Top Genres (All Library) - PIE CHART */}
-              <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-indigo-100 shadow-xl space-y-4 flex flex-col justify-between">
-                <div className="border-b border-indigo-50 pb-3 flex items-center justify-between">
+              <div className="bg-white dark:bg-[#1E1D24] rounded-3xl p-6 sm:p-7 border-2 border-indigo-100 dark:border-[#2E2C37] shadow-xl space-y-4 flex flex-col justify-between">
+                <div className="border-b border-indigo-50 dark:border-[#2E2C37] pb-3 flex items-center justify-between">
                   <div>
-                    <h4 className="text-lg font-black text-indigo-950 flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-purple-600" />
+                    <h4 className="text-lg font-black text-indigo-950 dark:text-[#F4F2F7] flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       Top Genres (All Library)
                     </h4>
-                    <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-[#9E9AA6] mt-0.5">
                       Your complete anime genre distribution
                     </p>
                   </div>
-                  <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800">
-                    {overallStats.genreChartData.length} Genres
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hidden sm:inline">
+                      Click genre to view
+                    </span>
+                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-950/50 text-purple-800 dark:text-purple-300">
+                      {overallStats.genreChartData.length} Genres
+                    </span>
+                  </div>
                 </div>
 
                 {overallStats.genreChartData.length === 0 ? (
-                  <div className="h-60 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    <p className="text-xs font-bold text-slate-500">No genre data found in your list.</p>
+                  <div className="h-60 flex flex-col items-center justify-center text-center p-6 bg-slate-50 dark:bg-[#26252F] rounded-2xl border border-dashed border-slate-200 dark:border-[#363442]">
+                    <p className="text-xs font-bold text-slate-500 dark:text-[#9E9AA6]">No genre data found in your list.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center pt-1">
@@ -1817,33 +1900,47 @@ export function StatusDashboard({
                             outerRadius={80}
                             paddingAngle={2}
                             dataKey="value"
+                            cursor="pointer"
+                            onClick={(entry: any) => {
+                              if (entry && entry.name) {
+                                setSelectedGenreModal({
+                                  genre: entry.name,
+                                  source: 'overall',
+                                  color: entry.color,
+                                });
+                              }
+                            }}
                           >
                             {overallStats.genreChartData.map((entry) => (
-                              <Cell key={`overall-pie-${entry.name}`} fill={entry.color} />
+                              <Cell
+                                key={`overall-pie-${entry.name}`}
+                                fill={entry.color}
+                                className="cursor-pointer hover:opacity-80 transition-opacity"
+                              />
                             ))}
                           </Pie>
                           <RechartsTooltip
                             formatter={(value: any, name: any) => [
-                              `${value} anime (${Math.round(((Number(value) || 0) / (overallStats.totalGenreInstances || 1)) * 100)}%)`,
+                              `${value} anime (${Math.round(((Number(value) || 0) / (overallStats.totalGenreInstances || 1)) * 100)}%) — Click to view`,
                               name,
                             ]}
                             contentStyle={{
-                              backgroundColor: '#ffffff',
-                              border: '1px solid #E7E3DF',
+                              backgroundColor: '#1E1D24',
+                              border: '1px solid #363442',
                               borderRadius: '12px',
-                              color: '#25242A',
+                              color: '#F4F2F7',
                               fontWeight: 600,
                               fontSize: '12px',
-                              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                             }}
                           />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <span className="text-2xl font-black text-indigo-950 tracking-tight">
+                        <span className="text-2xl font-black text-indigo-950 dark:text-[#F4F2F7] tracking-tight">
                           {overallStats.genreChartData.length}
                         </span>
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-[#9E9AA6] uppercase tracking-wider">
                           GENRES
                         </span>
                       </div>
@@ -1853,20 +1950,28 @@ export function StatusDashboard({
                       {overallStats.genreChartData.map((genre) => (
                         <div
                           key={`overall-legend-${genre.name}`}
-                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-purple-50/50 border border-slate-100 transition-colors text-xs font-bold"
+                          onClick={() =>
+                            setSelectedGenreModal({
+                              genre: genre.name,
+                              source: 'overall',
+                              color: genre.color,
+                            })
+                          }
+                          title={`Click to view ${genre.name} anime`}
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#26252F] hover:bg-purple-50/70 dark:hover:bg-purple-950/40 border border-slate-100 dark:border-[#363442] hover:border-purple-300 dark:hover:border-purple-700/60 transition-all text-xs font-bold cursor-pointer hover:translate-x-0.5 group"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                              className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs group-hover:scale-125 transition-transform"
                               style={{ backgroundColor: genre.color }}
                             />
-                            <span className="text-slate-700 font-extrabold truncate" title={genre.name}>
+                            <span className="text-slate-700 dark:text-[#E2DEED] font-extrabold truncate group-hover:text-purple-700 dark:group-hover:text-purple-400" title={genre.name}>
                               {genre.name}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-indigo-950 font-black">{genre.count}</span>
-                            <span className="text-[10px] text-slate-400 w-8 text-right font-bold">{genre.percentage}%</span>
+                            <span className="text-indigo-950 dark:text-white font-black">{genre.count}</span>
+                            <span className="text-[10px] text-slate-400 dark:text-[#9E9AA6] w-8 text-right font-bold">{genre.percentage}%</span>
                           </div>
                         </div>
                       ))}
@@ -1965,6 +2070,148 @@ export function StatusDashboard({
             </div>
           </section>
         </>
+      )}
+
+      {/* Interactive Genre Anime List Modal */}
+      {selectedGenreModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-xs transition-opacity"
+          onClick={() => setSelectedGenreModal(null)}
+        >
+          <div
+            className="bg-white dark:bg-[#1E1D24] border border-[#E7E3DF] dark:border-[#2E2C37] rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden text-[#25242A] dark:text-[#F4F2F7] animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-[#E7E3DF] dark:border-[#2E2C37] flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-xs shrink-0"
+                  style={{ backgroundColor: selectedGenreModal.color || '#7567C7' }}
+                >
+                  <Flame className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                      {selectedGenreModal.genre}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F0EDFA] dark:bg-[#2A2542] text-[#7567C7] dark:text-[#B9B0F2]">
+                      {genreModalAnimeList.length} Anime
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#77747D] dark:text-[#9E9AA6] mt-0.5">
+                    {selectedGenreModal.source === 'seasonal'
+                      ? `${currentSeasonName} watching anime in this genre`
+                      : 'All anime in your MyAnimeList library in this genre'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedGenreModal(null)}
+                className="p-2 rounded-xl text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white hover:bg-[#F7F5F2] dark:hover:bg-[#26252F] transition-colors cursor-pointer"
+                title="Close dialog (Esc)"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Anime List */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-3">
+              {genreModalAnimeList.length === 0 ? (
+                <div className="py-12 text-center text-[#77747D] dark:text-[#9E9AA6] space-y-2">
+                  <Film className="h-8 w-8 mx-auto text-[#77747D]/50" />
+                  <p className="text-sm font-semibold">No anime found matching this genre.</p>
+                </div>
+              ) : (
+                genreModalAnimeList.map((item) => {
+                  const animeId = item.node.id;
+                  const title = item.node.title;
+                  const poster = item.node.main_picture?.medium || item.node.main_picture?.large;
+                  const score = item.list_status?.score && item.list_status.score > 0
+                    ? item.list_status.score
+                    : (item.node.mean || null);
+                  const status = item.list_status?.status;
+                  const statusColor = status ? STATUS_COLORS[status] || '#7567C7' : '#7567C7';
+                  const statusLabel = status ? STATUS_LABELS[status] || status : 'Tracked';
+                  const epsWatched = item.list_status?.num_episodes_watched ?? 0;
+                  const totalEps = item.node.num_episodes && item.node.num_episodes > 0 ? item.node.num_episodes : '?';
+
+                  return (
+                    <div
+                      key={`genre-modal-anime-${animeId}`}
+                      onClick={() => handleOpenAnimeModal(item)}
+                      className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#F7F5F2] dark:bg-[#26252F] border border-[#E7E3DF] dark:border-[#363442] hover:border-[#7567C7]/50 dark:hover:border-[#7567C7]/50 transition-all cursor-pointer group"
+                    >
+                      <div className="w-12 h-16 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 shrink-0 border border-[#E7E3DF] dark:border-[#363442] group-hover:scale-105 transition-transform">
+                        {poster ? (
+                          <img
+                            src={poster}
+                            alt={title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400">
+                            <Film className="h-5 w-5" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <h4
+                            className="font-bold text-sm text-[#25242A] dark:text-[#F4F2F7] truncate group-hover:text-[#7567C7] dark:group-hover:text-[#A294EE] transition-colors"
+                            title={title}
+                          >
+                            {title}
+                          </h4>
+                          {score && (
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 text-xs font-bold shrink-0">
+                              <Star className="h-3 w-3 fill-current" />
+                              <span>{score}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold"
+                            style={{
+                              backgroundColor: `${statusColor}1A`,
+                              color: statusColor,
+                            }}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor }} />
+                            {statusLabel}
+                          </span>
+
+                          <span className="text-[#77747D] dark:text-[#9E9AA6] text-[11px] font-medium">
+                            {epsWatched} / {totalEps} eps
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-[#F7F5F2] dark:bg-[#181720] border-t border-[#E7E3DF] dark:border-[#2E2C37] flex items-center justify-between text-xs text-[#77747D] dark:text-[#9E9AA6] shrink-0">
+              <span>Click any anime to view full details</span>
+              <button
+                onClick={() => setSelectedGenreModal(null)}
+                className="px-4 py-1.5 rounded-xl bg-white dark:bg-[#26252F] border border-[#E7E3DF] dark:border-[#363442] text-[#25242A] dark:text-[#F4F2F7] font-semibold hover:bg-slate-50 dark:hover:bg-[#2E2D3B] transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Anime Detail Modal */}

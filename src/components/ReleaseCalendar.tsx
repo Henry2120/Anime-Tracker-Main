@@ -661,9 +661,9 @@ export function ReleaseCalendar({
           />
         ) : (
           <div className="w-full overflow-x-auto pb-4">
-            <div className="min-w-[1050px] rounded-2xl border border-[#E7E3DF] bg-white overflow-hidden shadow-2xs">
+            <div className="min-w-[1050px] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37] bg-white dark:bg-[#1E1D24] overflow-hidden shadow-2xs">
               {/* 1. Day Column Headers: Seamless horizontal row */}
-              <div className="grid grid-cols-7 divide-x divide-[#E7E3DF] bg-[#F7F5F2] border-b border-[#E7E3DF]">
+              <div className="grid grid-cols-7 divide-x divide-[#E7E3DF] dark:divide-[#2E2C37] bg-[#F7F5F2] dark:bg-[#26252F] border-b border-[#E7E3DF] dark:border-[#2E2C37]">
                 {displayedDaysWithUpcoming.map((day) => {
                   const isToday = day.dateKey === todayDateKey;
                   return (
@@ -671,8 +671,8 @@ export function ReleaseCalendar({
                       key={day.dateKey}
                       className={`px-2.5 py-2.5 text-center flex flex-col justify-center transition-colors ${
                         isToday
-                          ? 'bg-[#F0EDFA] text-[#25242A]'
-                          : 'bg-[#F7F5F2] text-[#25242A]'
+                          ? 'bg-[#F0EDFA] dark:bg-[#2A2542] text-[#25242A] dark:text-[#F4F2F7]'
+                          : 'bg-[#F7F5F2] dark:bg-[#26252F] text-[#25242A] dark:text-[#F4F2F7]'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 mb-0.5">
@@ -694,7 +694,7 @@ export function ReleaseCalendar({
                           className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
                             isToday
                               ? 'bg-[#7567C7] text-white'
-                              : 'bg-white text-[#77747D] border border-[#E7E3DF]'
+                              : 'bg-white dark:bg-[#1E1D24] text-[#77747D] dark:text-[#9E9AA6] border border-[#E7E3DF] dark:border-[#2E2C37]'
                           }`}
                         >
                           {day.items.length}
@@ -714,11 +714,11 @@ export function ReleaseCalendar({
                 })}
               </div>
 
-              {/* 2. Aligned Anime Releases Grid (Row-by-Row Layout) */}
+              {/* 2. Aligned Anime Releases Grid (Seamless Continuous Poster Grid) */}
               {maxRows === 0 ? (
-                <div className="p-12 text-center text-[#77747D] bg-white">
+                <div className="p-12 text-center text-[#77747D] bg-white dark:bg-[#1E1D24]">
                   <CalendarDays className="h-8 w-8 mx-auto mb-2 text-[#77747D]/50" />
-                  <p className="text-sm font-bold text-[#25242A] mb-1">
+                  <p className="text-sm font-bold text-[#25242A] dark:text-[#F4F2F7] mb-1">
                     {searchTerm.trim()
                       ? `No anime releases found for "${searchTerm.trim()}".`
                       : watchingOnly
@@ -737,11 +737,11 @@ export function ReleaseCalendar({
                   )}
                 </div>
               ) : (
-                <div className="divide-y divide-[#E7E3DF]">
+                <div className="bg-[#181724] dark:bg-[#141318] overflow-hidden">
                   {rowIndices.map((rowIndex) => (
                     <div
                       key={`row-${rowIndex}`}
-                      className="grid grid-cols-7 divide-x divide-[#E7E3DF]"
+                      className="grid grid-cols-7 gap-0 p-0 m-0"
                     >
                       {displayedDaysWithUpcoming.map((day, dayIndex) => {
                         const item = day.items[rowIndex];
@@ -751,15 +751,15 @@ export function ReleaseCalendar({
                           : '';
 
                         if (!item) {
-                          // Empty slot to maintain row alignment across all 7 days
+                          // Seamless empty slot to maintain continuous grid without gaps or white boxes
                           return (
                             <div
                               key={`empty-${day.dateKey}-${rowIndex}`}
                               className={`w-full aspect-[3/4.2] ${
                                 isToday
-                                  ? 'bg-[#F0EDFA]/40 dark:bg-[#2A2542]/30'
-                                  : 'bg-[#F7F5F2]/20 dark:bg-[#141318]/40'
-                              }`}
+                                  ? 'bg-[#211F2F]/80'
+                                  : 'bg-[#14131C]/90'
+                              } transition-colors`}
                             />
                           );
                         }
@@ -783,7 +783,7 @@ export function ReleaseCalendar({
                             className={`relative group w-full aspect-[3/4.2] overflow-hidden bg-slate-900 flex flex-col justify-between transition-all duration-200 cursor-pointer ${
                               item.isWatching
                                 ? 'ring-2 ring-inset ring-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.35)] z-10'
-                                : 'hover:ring-1 hover:ring-inset hover:ring-indigo-400/70'
+                                : 'hover:z-10 hover:ring-1 hover:ring-inset hover:ring-indigo-400/80'
                             }`}
                           >
                             {/* Artwork Background Image (fills 100% of the tile) */}

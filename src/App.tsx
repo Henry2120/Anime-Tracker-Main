@@ -18,6 +18,7 @@ import {
   Info,
   Home,
   Trophy,
+  User,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem } from './types';
 import { AppTheme } from './types/theme';
@@ -64,15 +65,32 @@ export default function App() {
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const insightsMenuRef = useRef<HTMLDivElement>(null);
 
+  // Profile dropdown menu state
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (insightsMenuRef.current && !insightsMenuRef.current.contains(event.target as Node)) {
         setIsInsightsOpen(false);
       }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setIsProfileOpen(false);
+      }
     };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsInsightsOpen(false);
+        setIsProfileOpen(false);
+      }
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
@@ -713,19 +731,19 @@ export default function App() {
   }, [isEffectiveDark]);
 
   return (
-    <div className={`min-h-screen ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
+    <div className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
       {/* SAKURA PETALS CANVAS (SHOWN ONLY IN SAKURA MODE WHEN LOGGED IN) */}
       {isEffectiveSakura && <SakuraPetalsCanvas />}
 
       {/* MINIMAL TOP NAVIGATION BAR */}
-      <header className="sticky top-0 z-40 bg-white border-b border-[#E7E3DF] shadow-2xs px-4 sm:px-8 py-3">
+      <header className="w-full sticky top-0 z-40 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs px-4 sm:px-8 py-3">
         <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
           {/* BRAND */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <span className="text-[#7567C7] text-lg font-bold">✦</span>
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] dark:text-[#F4F2F7] flex items-center gap-2">
               <span>AniVerse</span>
-              <span className="text-[11px] font-medium text-[#77747D] tracking-wider hidden md:inline-block">
+              <span className="text-[11px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden md:inline-block">
                 アニバース
               </span>
             </h1>
@@ -733,7 +751,7 @@ export default function App() {
 
           {/* DESKTOP TOP NAV TABS */}
           {malUser && (
-            <nav className="hidden md:flex items-center gap-1.5 bg-[#F7F5F2] p-1 rounded-2xl border border-[#E7E3DF]">
+            <nav className="hidden md:flex items-center gap-1.5 bg-[#F7F5F2] dark:bg-[#26252F] p-1 rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37]">
               <button
                 id="home-tab-btn"
                 onClick={() => setActiveTab('home')}
@@ -939,31 +957,117 @@ export default function App() {
             </button>
 
             {malUser ? (
-              <div className="flex items-center gap-3 bg-white border border-[#E7E3DF] rounded-xl px-3 py-1.5 shadow-2xs">
-                {malUser.picture ? (
-                  <img
-                    src={malUser.picture}
-                    alt={malUser.name}
-                    className="w-7 h-7 rounded-lg object-cover"
+              <div className="relative" ref={profileMenuRef}>
+                <button
+                  id="user-profile-menu-button"
+                  onClick={() => setIsProfileOpen(!isProfileOpen)}
+                  aria-expanded={isProfileOpen}
+                  aria-haspopup="true"
+                  title="Account menu"
+                  className="flex items-center gap-2 sm:gap-2.5 bg-white dark:bg-[#1E1D24] border border-[#E7E3DF] dark:border-[#2E2C37] rounded-xl px-2.5 py-1.5 shadow-2xs hover:border-[#7567C7]/50 dark:hover:border-[#7567C7]/50 transition-colors cursor-pointer"
+                >
+                  {malUser.picture ? (
+                    <img
+                      src={malUser.picture}
+                      alt={malUser.name}
+                      className="w-7 h-7 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-lg bg-[#F0EDFA] dark:bg-[#2A2542] flex items-center justify-center text-[#7567C7] dark:text-[#B9B0F2] font-bold text-xs">
+                      {malUser.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="text-left hidden sm:block">
+                    <div className="text-xs font-semibold text-[#25242A] dark:text-[#F4F2F7] leading-none flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#6D9B7C]" />
+                      {malUser.name}
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 text-[#77747D] dark:text-[#9E9AA6] transition-transform duration-200 ${
+                      isProfileOpen ? 'rotate-180' : ''
+                    }`}
                   />
-                ) : (
-                  <div className="w-7 h-7 rounded-lg bg-[#F0EDFA] flex items-center justify-center text-[#7567C7] font-bold text-xs">
-                    {malUser.name.charAt(0).toUpperCase()}
+                </button>
+
+                {isProfileOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-[#1C192E] rounded-2xl shadow-xl border border-[#E7E3DF] dark:border-[#2D2A4A] p-2.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                    {/* User header card */}
+                    <div className="p-2.5 rounded-xl bg-[#F7F5F2] dark:bg-[#25223D] flex items-center gap-3">
+                      {malUser.picture ? (
+                        <img
+                          src={malUser.picture}
+                          alt={malUser.name}
+                          className="w-10 h-10 rounded-xl object-cover border border-[#E7E3DF] dark:border-[#3A3656]"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-[#F0EDFA] dark:bg-[#342D59] flex items-center justify-center text-[#7567C7] dark:text-[#D8D2FF] font-black text-base border border-[#E7E3DF] dark:border-[#3A3656]">
+                          {malUser.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-sm text-[#25242A] dark:text-[#F4F2F7] truncate" title={malUser.name}>
+                          {malUser.name}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#6D9B7C] animate-pulse" />
+                          <span className="text-[10px] font-semibold text-[#6D9B7C]">Connected to MAL</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Stats Pill */}
+                    {malList.length > 0 && (
+                      <div className="mt-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-[#201D35] border border-slate-100 dark:border-[#2E2A4D] flex items-center justify-between text-xs">
+                        <span className="text-[#77747D] dark:text-[#AEA8C9] font-medium text-[11px]">Tracked Anime</span>
+                        <span className="font-black text-[#7567C7] dark:text-[#D8D2FF]">{malList.length}</span>
+                      </div>
+                    )}
+
+                    {/* Menu links */}
+                    <div className="mt-2 space-y-1">
+                      <button
+                        onClick={() => {
+                          setActiveTab('mal');
+                          setIsProfileOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white transition-colors cursor-pointer flex items-center gap-2.5"
+                      >
+                        <Tv className="h-4 w-4 text-[#7567C7]" />
+                        <span>My Anime List</span>
+                      </button>
+
+                      <a
+                        href={`https://myanimelist.net/profile/${encodeURIComponent(malUser.name)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setIsProfileOpen(false)}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <User className="h-4 w-4 text-[#6D9B7C]" />
+                          <span>View on MyAnimeList</span>
+                        </div>
+                        <ExternalLink className="h-3.5 w-3.5 text-[#77747D]/70" />
+                      </a>
+                    </div>
+
+                    <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
+
+                    {/* Disconnect / Logout Button */}
+                    <button
+                      id="profile-logout-button"
+                      onClick={() => {
+                        setIsProfileOpen(false);
+                        handleDisconnectMal();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-[#C77B82] hover:bg-[#C77B82]/10 dark:hover:bg-[#C77B82]/20 transition-colors cursor-pointer flex items-center gap-2.5"
+                    >
+                      <LogOut className="h-4 w-4 text-[#C77B82]" />
+                      <span>Log Out</span>
+                    </button>
                   </div>
                 )}
-                <div className="text-left">
-                  <div className="text-xs font-semibold text-[#25242A] leading-none flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#6D9B7C]" />
-                    {malUser.name}
-                  </div>
-                </div>
-                <button
-                  onClick={handleDisconnectMal}
-                  title="Disconnect MyAnimeList"
-                  className="ml-1 text-[#77747D] hover:text-[#C77B82] transition-colors cursor-pointer"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                </button>
               </div>
             ) : (
               <button
@@ -979,7 +1083,7 @@ export default function App() {
 
         {/* MOBILE SECONDARY NAV ROW WHEN LOGGED IN */}
         {malUser && (
-          <div className="flex md:hidden items-center gap-1.5 mt-3 pt-2 border-t border-[#E7E3DF] overflow-x-auto">
+          <div className="flex md:hidden items-center gap-1.5 mt-3 pt-2 border-t border-[#E7E3DF] dark:border-[#2E2C37] overflow-x-auto">
             <button
               onClick={() => setActiveTab('home')}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all duration-200 flex items-center gap-1.5 ${
@@ -1336,8 +1440,8 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="w-full bg-white border-t border-[#E7E3DF] py-6 px-4 sm:px-8 mt-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-[#77747D] gap-4">
+      <footer className="w-full bg-white dark:bg-[#1E1D24] border-t border-[#E7E3DF] dark:border-[#2E2C37] py-6 px-4 sm:px-8 mt-12">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-[#77747D] dark:text-[#9E9AA6] gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[#7567C7] font-bold">✦ AniVerse</span>
             <span>•</span>

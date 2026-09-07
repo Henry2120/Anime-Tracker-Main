@@ -95,22 +95,22 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-[#E7E3DF] shadow-2xs overflow-hidden mb-8">
+    <div className="bg-white dark:bg-[#1E1D24] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs overflow-hidden mb-8">
       {/* Table Header Section */}
-      <div className="p-5 sm:p-6 bg-white border-b border-[#E7E3DF] text-[#25242A] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-5 sm:p-6 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] text-[#25242A] dark:text-[#F4F2F7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-[#F0EDFA] text-[#7567C7]">
             {icon}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A]">{title}</h3>
+              <h3 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] dark:text-[#F4F2F7]">{title}</h3>
               <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${badgeBg} ${badgeTextClass}`}>
                 {items.length} Anime
               </span>
             </div>
             {subtitle && (
-              <p className="text-[#77747D] text-xs mt-0.5">{subtitle}</p>
+              <p className="text-[#77747D] dark:text-[#9E9AA6] text-xs mt-0.5">{subtitle}</p>
             )}
           </div>
         </div>
@@ -120,7 +120,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
-            <tr className="bg-[#F7F5F2] border-b border-[#E7E3DF] text-[#77747D] font-bold text-[11px] uppercase tracking-wider">
+            <tr className="bg-[#F7F5F2] dark:bg-[#26252F] border-b border-[#E7E3DF] dark:border-[#2E2C37] text-[#77747D] dark:text-[#9E9AA6] font-bold text-[11px] uppercase tracking-wider">
               <th className="py-3.5 px-4 text-center w-12">#</th>
               <th className="py-3.5 px-3 w-16">Image</th>
               <th className="py-3.5 px-4 min-w-[200px]">Anime Title</th>
@@ -130,7 +130,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
               <th className="py-3.5 px-4 min-w-[220px]">Notes</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#E7E3DF] text-[#25242A] text-xs font-semibold">
+          <tbody className="divide-y divide-[#E7E3DF] dark:divide-[#2E2C37] text-[#25242A] dark:text-[#F4F2F7] text-xs font-semibold">
             {items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-12 text-center text-[#77747D] font-medium text-sm bg-[#F7F5F2]/40">
