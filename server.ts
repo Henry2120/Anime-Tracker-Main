@@ -1262,6 +1262,113 @@ app.get("/api/mal/anime/:id", async (req, res) => {
   return res.status(404).json({ error: "Anime not found" });
 });
 
+// 9. MAL Anime Catalogue Search Endpoint (with Jikan Fallback and Cache)
+interface CachedSearchResult {
+  cachedAt: number;
+  data: any[];
+}
+const malSearchCache = new Map<string, CachedSearchResult>();
+const SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+app.get("/api/mal/search", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20"), 10) || 20, 1), 50);
+
+  if (!query || query.length < 2) {
+    return res.json({ data: [] });
+  }
+
+  const cacheKey = `${query.toLowerCase()}_${limit}`;
+  const cached = malSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < SEARCH_CACHE_TTL) {
+    return res.json({ data: cached.data });
+  }
+
+  const sessionId = getSessionToken(req);
+  let headers: Record<string, string> = {};
+
+  if (sessionId) {
+    const accessToken = await getValidAccessToken(sessionId, res);
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+  }
+
+  if (!headers["Authorization"] && process.env.MAL_CLIENT_ID) {
+    headers["X-MAL-CLIENT-ID"] = process.env.MAL_CLIENT_ID.trim();
+  }
+
+  const fields = "id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source";
+
+  // Try official MAL API if headers are available
+  if (Object.keys(headers).length > 0) {
+    try {
+      const malUrl = `https://api.myanimelist.net/v2/anime?q=${encodeURIComponent(query)}&limit=${limit}&fields=${encodeURIComponent(fields)}&nsfw=true`;
+      const malResponse = await fetch(malUrl, { headers });
+
+      if (malResponse.ok) {
+        const json = await malResponse.json();
+        const results = Array.isArray(json.data) ? json.data : [];
+        const cleanResults = results.filter((item: any) => item?.node?.id && item?.node?.title);
+
+        malSearchCache.set(cacheKey, {
+          cachedAt: Date.now(),
+          data: cleanResults,
+        });
+
+        return res.json({ data: cleanResults });
+      }
+    } catch (malErr) {
+      console.error(`Error querying MAL search for "${query}":`, malErr);
+    }
+  }
+
+  // Fallback to Jikan API
+  try {
+    const jikanUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=${limit}&sfw=false`;
+    const jikanRes = await fetch(jikanUrl);
+
+    if (jikanRes.ok) {
+      const json = await jikanRes.json();
+      const results = Array.isArray(json.data) ? json.data : [];
+      const converted = results.map((j: any) => ({
+        node: {
+          id: j.mal_id,
+          title: j.title,
+          main_picture: {
+            medium: j.images?.jpg?.image_url,
+            large: j.images?.jpg?.large_image_url || j.images?.webp?.large_image_url,
+          },
+          synopsis: j.synopsis,
+          mean: j.score,
+          status: j.status === "Currently Airing" ? "currently_airing" : j.status === "Finished Airing" ? "finished_airing" : "not_yet_aired",
+          media_type: j.type ? j.type.toLowerCase() : undefined,
+          num_episodes: j.episodes,
+          start_date: j.aired?.from ? j.aired.from.split("T")[0] : undefined,
+          end_date: j.aired?.to ? j.aired.to.split("T")[0] : undefined,
+          start_season: j.season && j.year ? { year: j.year, season: j.season.toLowerCase() } : undefined,
+          alternative_titles: {
+            en: j.title_english,
+            ja: j.title_japanese,
+            synonyms: j.title_synonyms,
+          },
+        },
+      }));
+
+      malSearchCache.set(cacheKey, {
+        cachedAt: Date.now(),
+        data: converted,
+      });
+
+      return res.json({ data: converted });
+    }
+  } catch (jikanErr) {
+    console.error(`Error querying Jikan search fallback for "${query}":`, jikanErr);
+  }
+
+  return res.json({ data: [] });
+});
+
 // ----------------------------------------------------
 // RELEASE CALENDAR (AniList GraphQL + MAL Broadcast Fallback & Caching)
 // ----------------------------------------------------

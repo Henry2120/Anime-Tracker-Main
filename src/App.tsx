@@ -19,10 +19,14 @@ import {
   Home,
   Trophy,
   User,
+  Search,
+  X,
+  BookOpen,
 } from 'lucide-react';
-import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload } from './types';
+import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload, MalAnimeNode } from './types';
 import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
+import { MalCatalogueSearchResults } from './components/MalCatalogueSearchResults';
 import { SeasonTable } from './components/SeasonTable';
 import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
@@ -121,6 +125,11 @@ export default function App() {
   const [malConfigured, setMalConfigured] = useState<boolean>(true);
   const [malFilterStatus, setMalFilterStatus] = useState<string>('all');
   const [malSortOption, setMalSortOption] = useState<string>('title_asc');
+  const [malSearchQuery, setMalSearchQuery] = useState<string>('');
+  const [malCatalogueResults, setMalCatalogueResults] = useState<Array<{ node: MalAnimeNode }>>([]);
+  const [malCatalogueLoading, setMalCatalogueLoading] = useState<boolean>(false);
+  const [addingAnimeId, setAddingAnimeId] = useState<number | null>(null);
+  const catalogueSearchGenRef = useRef<number>(0);
 
   // Race-condition safety refs for MAL Auth
   const authRequestGenRef = useRef<number>(0);
@@ -496,6 +505,71 @@ export default function App() {
     }
   };
 
+  // Add a new anime from the MAL catalogue to the user's list (defaulting to Plan to Watch)
+  const handleAddCatalogueAnime = async (node: MalAnimeNode) => {
+    if (!node?.id) return;
+    const animeId = node.id;
+    setAddingAnimeId(animeId);
+
+    try {
+      const payload: MalUpdateStatusPayload = {
+        status: 'plan_to_watch',
+        score: 0,
+        num_watched_episodes: 0,
+      };
+
+      const res = await fetch(`/api/mal/anime/${animeId}/status`, {
+        method: 'PATCH',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        const errorMsg = data.error || `Failed to add anime to MyAnimeList (${res.status})`;
+        showSyncToast(errorMsg, 'error');
+        return;
+      }
+
+      // Optimistic update of local malList
+      const newItem: MalListItem = {
+        node,
+        list_status: {
+          status: 'plan_to_watch',
+          score: 0,
+          num_episodes_watched: 0,
+          is_rewatching: false,
+          start_date: '',
+          finish_date: '',
+          comments: '',
+          updated_at: new Date().toISOString(),
+        },
+      };
+
+      setMalList((prev) => {
+        const exists = prev.some((item) => item.node.id === animeId);
+        if (exists) return prev;
+        return [newItem, ...prev];
+      });
+
+      showSyncToast(`✓ Added "${node.title}" to My List (Plan to Watch)`, 'success');
+
+      // Refresh in background
+      setTimeout(() => {
+        fetchMalList();
+      }, 500);
+    } catch (err: any) {
+      console.error('Error adding catalogue anime to MAL:', err);
+      showSyncToast(err.message || 'Failed to add anime to MyAnimeList', 'error');
+    } finally {
+      setAddingAnimeId(null);
+    }
+  };
+
   // Quick increment (+1 episode) handler
   const handleQuickIncrement = async (target: any) => {
     const rawId = target?.id || target?.malId || target?.mal_id || target?.node?.id;
@@ -811,6 +885,50 @@ export default function App() {
     }
   }, [activeTab, seasonalList.length, seasonalLoading]);
 
+  // Debounced MAL Catalogue Search
+  useEffect(() => {
+    const trimmed = malSearchQuery.trim();
+    if (trimmed.length < 2) {
+      setMalCatalogueResults([]);
+      setMalCatalogueLoading(false);
+      return;
+    }
+
+    const currentGen = ++catalogueSearchGenRef.current;
+    setMalCatalogueLoading(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/mal/search?q=${encodeURIComponent(trimmed)}&limit=20`, {
+          headers: getAuthHeaders(),
+          credentials: 'include',
+        });
+
+        if (currentGen !== catalogueSearchGenRef.current) return;
+
+        if (res.ok) {
+          const json = await res.json();
+          setMalCatalogueResults(Array.isArray(json.data) ? json.data : []);
+        } else {
+          setMalCatalogueResults([]);
+        }
+      } catch (err) {
+        if (currentGen === catalogueSearchGenRef.current) {
+          console.error('Error searching MAL catalogue:', err);
+          setMalCatalogueResults([]);
+        }
+      } finally {
+        if (currentGen === catalogueSearchGenRef.current) {
+          setMalCatalogueLoading(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [malSearchQuery]);
+
   // Ensure Gemini tab is not active if user is logged out
   useEffect(() => {
     if (!malUser && activeTab === 'gemini') {
@@ -1041,40 +1159,64 @@ export default function App() {
   };
 
   // Filtered and sorted MAL list
-  const filteredMalList = malList
-    .filter((item) => {
-      if (malFilterStatus === 'all') return true;
-      return item.list_status?.status === malFilterStatus;
-    })
-    .sort((a, b) => {
-      if (malSortOption === 'title_asc') {
-        const titleA = (a.node?.title || '').toLowerCase();
-        const titleB = (b.node?.title || '').toLowerCase();
-        return titleA.localeCompare(titleB);
-      }
-      if (malSortOption === 'title_desc') {
-        const titleA = (a.node?.title || '').toLowerCase();
-        const titleB = (b.node?.title || '').toLowerCase();
-        return titleB.localeCompare(titleA);
-      }
-      if (malSortOption === 'score_desc') {
-        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
-        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
-        if (scoreA !== scoreB) {
-          return scoreB - scoreA;
+  const filteredMalList = useMemo(() => {
+    const query = malSearchQuery.trim().toLowerCase();
+
+    return malList
+      .filter((item) => {
+        // Status filter
+        if (malFilterStatus !== 'all' && item.list_status?.status !== malFilterStatus) {
+          return false;
         }
-        return (a.node?.title || '').localeCompare(b.node?.title || '');
-      }
-      if (malSortOption === 'score_asc') {
-        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
-        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
-        if (scoreA !== scoreB) {
-          return scoreA - scoreB;
+
+        // Local search query filter
+        if (query.length > 0) {
+          const title = (item.node?.title || '').toLowerCase();
+          const titleEn = (item.node?.alternative_titles?.en || '').toLowerCase();
+          const titleJa = (item.node?.alternative_titles?.ja || '').toLowerCase();
+          const synonyms = (item.node?.alternative_titles?.synonyms || []).map((s) => s.toLowerCase());
+
+          const matchesTitle =
+            title.includes(query) ||
+            titleEn.includes(query) ||
+            titleJa.includes(query) ||
+            synonyms.some((s) => s.includes(query));
+
+          if (!matchesTitle) return false;
         }
-        return (a.node?.title || '').localeCompare(b.node?.title || '');
-      }
-      return 0;
-    });
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (malSortOption === 'title_asc') {
+          const titleA = (a.node?.title || '').toLowerCase();
+          const titleB = (b.node?.title || '').toLowerCase();
+          return titleA.localeCompare(titleB);
+        }
+        if (malSortOption === 'title_desc') {
+          const titleA = (a.node?.title || '').toLowerCase();
+          const titleB = (b.node?.title || '').toLowerCase();
+          return titleB.localeCompare(titleA);
+        }
+        if (malSortOption === 'score_desc') {
+          const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+          const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+          return (a.node?.title || '').localeCompare(b.node?.title || '');
+        }
+        if (malSortOption === 'score_asc') {
+          const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+          const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+          if (scoreA !== scoreB) {
+            return scoreA - scoreB;
+          }
+          return (a.node?.title || '').localeCompare(b.node?.title || '');
+        }
+        return 0;
+      });
+  }, [malList, malFilterStatus, malSortOption, malSearchQuery]);
 
   const isEffectiveDark = malUser !== null && theme === 'dark';
   const isEffectiveSakura = malUser !== null && theme === 'sakura';
@@ -1531,24 +1673,24 @@ export default function App() {
         {/* LOGGED IN EXPERIENCE: TRACKER DASHBOARD */}
         {malUser && activeTab === 'mal' && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white border border-[#E7E3DF] rounded-2xl p-6 shadow-2xs gap-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white dark:bg-[#1C1A24] border border-[#E7E3DF] dark:border-[#2E2C37] rounded-2xl p-6 shadow-2xs gap-4">
               <div className="flex items-center gap-4">
                 {malUser.picture ? (
                   <img
                     src={malUser.picture}
                     alt={malUser.name}
-                    className="w-12 h-12 rounded-xl object-cover border border-[#E7E3DF]"
+                    className="w-12 h-12 rounded-xl object-cover border border-[#E7E3DF] dark:border-[#2E2C37]"
                   />
                 ) : (
-                  <div className="w-12 h-12 rounded-xl bg-[#F0EDFA] flex items-center justify-center text-[#7567C7] font-bold text-lg">
+                  <div className="w-12 h-12 rounded-xl bg-[#F0EDFA] dark:bg-[#25232F] flex items-center justify-center text-[#7567C7] font-bold text-lg">
                     {malUser.name.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <h3 className="text-xl font-bold text-[#25242A]">
+                  <h3 className="text-xl font-bold text-[#25242A] dark:text-[#EAE8F0]">
                     MY LIST
                   </h3>
-                  <p className="text-xs text-[#77747D] mt-0.5">
+                  <p className="text-xs text-[#77747D] dark:text-[#A4A1AA] mt-0.5">
                     {malList.length} anime series retrieved from MyAnimeList
                   </p>
                 </div>
@@ -1558,7 +1700,7 @@ export default function App() {
                 <button
                   onClick={fetchMalList}
                   disabled={malLoading}
-                  className="p-2.5 rounded-xl border border-[#E7E3DF] hover:bg-[#F7F5F2] text-[#25242A] transition-colors cursor-pointer shadow-2xs"
+                  className="p-2.5 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37] hover:bg-[#F7F5F2] dark:hover:bg-[#25232F] text-[#25242A] dark:text-[#EAE8F0] transition-colors cursor-pointer shadow-2xs"
                   title="Refresh List"
                 >
                   <RefreshCw className={`h-4 w-4 ${malLoading ? 'animate-spin' : ''}`} />
@@ -1573,14 +1715,40 @@ export default function App() {
               </div>
             </div>
 
+            {/* Anime Search Bar */}
+            <div className="relative w-full">
+              <div className="relative flex items-center">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[#77747D] dark:text-[#A4A1AA]">
+                  <Search className="h-4 w-4 text-[#7567C7]" />
+                </div>
+                <input
+                  type="text"
+                  value={malSearchQuery}
+                  onChange={(e) => setMalSearchQuery(e.target.value)}
+                  placeholder="Search anime in your list or discover new titles on MyAnimeList..."
+                  className="w-full rounded-2xl bg-white dark:bg-[#1C1A24] border border-[#E7E3DF] dark:border-[#2E2C37] py-3.5 pl-11 pr-10 text-sm text-[#25242A] dark:text-[#EAE8F0] placeholder-[#77747D] dark:placeholder-[#A4A1AA] shadow-2xs focus:border-[#7567C7] focus:outline-none focus:ring-2 focus:ring-[#7567C7]/20 transition-all"
+                />
+                {malSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setMalSearchQuery('')}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[#77747D] hover:text-[#25242A] dark:hover:text-[#EAE8F0] transition-colors cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Filter Controls with Secondary Segmented Control System */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white border border-[#E7E3DF] rounded-2xl p-4 shadow-2xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-[#1C1A24] border border-[#E7E3DF] dark:border-[#2E2C37] rounded-2xl p-4 shadow-2xs">
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <span className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0 px-1">
+                <span className="text-xs font-bold text-[#77747D] dark:text-[#A4A1AA] tracking-wider uppercase flex items-center gap-1.5 shrink-0 px-1">
                   <Filter className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>Status:</span>
                 </span>
-                <div className="flex flex-wrap items-center gap-1 bg-[#F7F5F2] p-1 rounded-xl border border-[#E7E3DF]">
+                <div className="flex flex-wrap items-center gap-1 bg-[#F7F5F2] dark:bg-[#25232F] p-1 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37]">
                   {[
                     { id: 'all', label: 'All' },
                     { id: 'watching', label: 'Watching' },
@@ -1594,8 +1762,8 @@ export default function App() {
                       onClick={() => setMalFilterStatus(st.id)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer ${
                         malFilterStatus === st.id
-                          ? 'bg-white text-[#7567C7] font-semibold shadow-2xs'
-                          : 'text-[#77747D] hover:text-[#25242A]'
+                          ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] font-semibold shadow-2xs'
+                          : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
                       }`}
                     >
                       {st.label}
@@ -1605,7 +1773,7 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-3 self-end lg:self-auto">
-                <label htmlFor="mal-sort-option" className="text-xs font-bold text-[#77747D] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
+                <label htmlFor="mal-sort-option" className="text-xs font-bold text-[#77747D] dark:text-[#A4A1AA] tracking-wider uppercase flex items-center gap-1.5 shrink-0">
                   <ArrowUpDown className="h-3.5 w-3.5 text-[#7567C7]" />
                   <span>Sort:</span>
                 </label>
@@ -1614,21 +1782,33 @@ export default function App() {
                     id="mal-sort-option"
                     value={malSortOption}
                     onChange={(e) => setMalSortOption(e.target.value)}
-                    className="w-full appearance-none bg-[#F7F5F2] hover:bg-white border border-[#E7E3DF] text-[#25242A] text-xs font-medium rounded-xl py-2 pl-3 pr-8 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
+                    className="w-full appearance-none bg-[#F7F5F2] dark:bg-[#25232F] hover:bg-white dark:hover:bg-[#1C1A24] border border-[#E7E3DF] dark:border-[#2E2C37] text-[#25242A] dark:text-[#EAE8F0] text-xs font-medium rounded-xl py-2 pl-3 pr-8 shadow-2xs focus:outline-none focus:ring-1 focus:ring-[#7567C7] transition-all cursor-pointer"
                   >
                     <option value="title_asc">A to Z</option>
                     <option value="title_desc">Z to A</option>
                     <option value="score_desc">Score (Highest to Lowest)</option>
                     <option value="score_asc">Score (Lowest to Highest)</option>
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[#77747D]">
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[#77747D] dark:text-[#A4A1AA]">
                     <ChevronDown className="h-3.5 w-3.5" />
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Anime Cards Grid */}
+            {/* In-List Results Header when searching */}
+            {malSearchQuery.trim().length >= 2 && (
+              <div className="flex items-center justify-between px-1">
+                <h4 className="text-sm font-bold text-[#25242A] dark:text-[#EAE8F0] flex items-center gap-2">
+                  <span>My List Matches</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#6D9B7C]/15 text-[#6D9B7C] text-[11px] font-bold">
+                    {filteredMalList.length} {filteredMalList.length === 1 ? 'anime' : 'anime'}
+                  </span>
+                </h4>
+              </div>
+            )}
+
+            {/* Anime Cards Grid for user's list */}
             {!malLoading && filteredMalList.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
                 {filteredMalList.map((item, index) => (
@@ -1644,12 +1824,29 @@ export default function App() {
               </div>
             )}
 
+            {/* In-List Empty State */}
             {!malLoading && filteredMalList.length === 0 && (
-              <div className="text-center py-16 bg-white rounded-2xl border border-[#E7E3DF]">
-                <p className="text-[#77747D] font-medium text-sm">
-                  No anime found in status "{malFilterStatus.replace(/_/g, ' ')}".
+              <div className="text-center py-12 px-4 bg-white dark:bg-[#1C1A24] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37]">
+                <p className="text-[#77747D] dark:text-[#A4A1AA] font-medium text-sm">
+                  {malSearchQuery.trim().length >= 2
+                    ? `No anime in your list matches "${malSearchQuery.trim()}". Check catalogue search below.`
+                    : `No anime found in status "${malFilterStatus.replace(/_/g, ' ')}".`}
                 </p>
               </div>
+            )}
+
+            {/* Global MAL Catalogue Search Results */}
+            {malSearchQuery.trim().length >= 2 && (
+              <MalCatalogueSearchResults
+                query={malSearchQuery}
+                results={malCatalogueResults}
+                loading={malCatalogueLoading}
+                userMalMap={userMalMap}
+                addingAnimeId={addingAnimeId}
+                onAdd={handleAddCatalogueAnime}
+                onSelect={handleOpenDetailModal}
+                onEdit={handleOpenEditModal}
+              />
             )}
           </div>
         )}
