@@ -1379,11 +1379,11 @@ interface CachedReleaseCalendar {
 const releaseCalendarCache = new Map<string, CachedReleaseCalendar>();
 const CALENDAR_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
-interface CachedMalBroadcastCatalogue {
+interface CachedSeasonalCatalogue {
   cachedAt: number;
   anime: any[];
 }
-let malBroadcastCatalogueCache: CachedMalBroadcastCatalogue | null = null;
+const seasonalCatalogueCache = new Map<string, CachedSeasonalCatalogue>();
 const MAL_BROADCAST_CATALOGUE_TTL = 60 * 60 * 1000; // 1 hour
 
 const MAL_DAY_MAP: Record<string, number> = {
@@ -1396,68 +1396,165 @@ const MAL_DAY_MAP: Record<string, number> = {
   saturday: 6,
 };
 
-async function getMalBroadcastCatalogue(): Promise<any[]> {
-  if (
-    malBroadcastCatalogueCache &&
-    Date.now() - malBroadcastCatalogueCache.cachedAt < MAL_BROADCAST_CATALOGUE_TTL &&
-    malBroadcastCatalogueCache.anime.length > 0
-  ) {
-    return malBroadcastCatalogueCache.anime;
-  }
+function getSeasonsForRange(startSec: number, endSec: number): Array<{ year: number; season: 'winter' | 'spring' | 'summer' | 'fall' }> {
+  const toSeason = (d: Date): { year: number; season: 'winter' | 'spring' | 'summer' | 'fall' } => {
+    const year = d.getUTCFullYear();
+    const m = d.getUTCMonth(); // 0-11
+    if (m >= 0 && m <= 2) return { year, season: 'winter' };
+    if (m >= 3 && m <= 5) return { year, season: 'spring' };
+    if (m >= 6 && m <= 8) return { year, season: 'summer' };
+    return { year, season: 'fall' };
+  };
 
+  const prevSeason = (s: { year: number; season: 'winter' | 'spring' | 'summer' | 'fall' }) => {
+    if (s.season === 'winter') return { year: s.year - 1, season: 'fall' as const };
+    if (s.season === 'spring') return { year: s.year, season: 'winter' as const };
+    if (s.season === 'summer') return { year: s.year, season: 'spring' as const };
+    return { year: s.year, season: 'summer' as const };
+  };
+
+  const startSeason = toSeason(new Date(startSec * 1000));
+  const endSeason = toSeason(new Date(endSec * 1000));
+
+  const list: Array<{ year: number; season: 'winter' | 'spring' | 'summer' | 'fall' }> = [];
+  const seen = new Set<string>();
+
+  const add = (s: { year: number; season: 'winter' | 'spring' | 'summer' | 'fall' }) => {
+    const key = `${s.year}_${s.season}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      list.push(s);
+    }
+  };
+
+  add(startSeason);
+  add(prevSeason(startSeason)); // include previous season to catch 2-cour carryovers
+  add(endSeason);
+
+  return list;
+}
+
+async function getBroadcastCatalogueForRange(startSec: number, endSec: number): Promise<any[]> {
+  const seasons = getSeasonsForRange(startSec, endSec);
   const rawClientId = process.env.MAL_CLIENT_ID;
-  const headers: Record<string, string> = {};
+  const malHeaders: Record<string, string> = {};
   if (rawClientId && rawClientId.trim() !== "MY_MAL_CLIENT_ID") {
-    headers["X-MAL-CLIENT-ID"] = rawClientId.trim();
+    malHeaders["X-MAL-CLIENT-ID"] = rawClientId.trim();
   }
 
   const fields =
     "broadcast,start_date,end_date,title,alternative_titles,main_picture,genres,mean,status,num_episodes,studios,media_type";
 
-  try {
-    const [airingRes, seasonRes] = await Promise.allSettled([
-      fetch(
+  const map = new Map<number, any>();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const isNearNow = Math.abs(startSec - nowSec) < 30 * 86400 || Math.abs(endSec - nowSec) < 30 * 86400;
+
+  // 1. If date range is near now, optionally query ranking_type=airing
+  if (isNearNow && malHeaders["X-MAL-CLIENT-ID"]) {
+    try {
+      const airingRes = await fetch(
         `https://api.myanimelist.net/v2/anime/ranking?ranking_type=airing&limit=100&fields=${encodeURIComponent(fields)}`,
-        { headers, signal: AbortSignal.timeout(6000) }
-      ),
-      fetch(
-        `https://api.myanimelist.net/v2/anime/season/2026/summer?limit=100&fields=${encodeURIComponent(fields)}`,
-        { headers, signal: AbortSignal.timeout(6000) }
-      ),
-    ]);
-
-    const map = new Map<number, any>();
-
-    if (airingRes.status === "fulfilled" && airingRes.value.ok) {
-      const json = await airingRes.value.json();
-      if (Array.isArray(json.data)) {
-        for (const item of json.data) {
-          if (item?.node?.id) map.set(item.node.id, item.node);
+        { headers: malHeaders, signal: AbortSignal.timeout(5000) }
+      );
+      if (airingRes.ok) {
+        const json = await airingRes.json();
+        if (Array.isArray(json.data)) {
+          for (const item of json.data) {
+            if (item?.node?.id) map.set(item.node.id, item.node);
+          }
         }
       }
+    } catch {
+      // Non-critical, continue
     }
-
-    if (seasonRes.status === "fulfilled" && seasonRes.value.ok) {
-      const json = await seasonRes.value.json();
-      if (Array.isArray(json.data)) {
-        for (const item of json.data) {
-          if (item?.node?.id) map.set(item.node.id, item.node);
-        }
-      }
-    }
-
-    const animeList = Array.from(map.values());
-    if (animeList.length > 0) {
-      malBroadcastCatalogueCache = {
-        cachedAt: Date.now(),
-        anime: animeList,
-      };
-    }
-    return animeList;
-  } catch (err: any) {
-    console.warn("[ReleaseCalendar] Failed to refresh MAL broadcast catalogue:", err.message);
-    return malBroadcastCatalogueCache?.anime || [];
   }
+
+  // 2. Query each relevant season (with in-memory cache)
+  for (const s of seasons) {
+    const cacheKey = `${s.year}_${s.season}`;
+    const cached = seasonalCatalogueCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < MAL_BROADCAST_CATALOGUE_TTL && cached.anime.length > 0) {
+      for (const node of cached.anime) {
+        if (node?.id) map.set(node.id, node);
+      }
+      continue;
+    }
+
+    let seasonNodes: any[] = [];
+
+    // Try MAL official season API first if client ID exists
+    if (malHeaders["X-MAL-CLIENT-ID"]) {
+      try {
+        const malSeasonRes = await fetch(
+          `https://api.myanimelist.net/v2/anime/season/${s.year}/${s.season}?limit=100&fields=${encodeURIComponent(fields)}`,
+          { headers: malHeaders, signal: AbortSignal.timeout(6000) }
+        );
+        if (malSeasonRes.ok) {
+          const json = await malSeasonRes.json();
+          if (Array.isArray(json.data)) {
+            seasonNodes = json.data.map((i: any) => i.node).filter(Boolean);
+          }
+        }
+      } catch (malErr: any) {
+        console.warn(`[ReleaseCalendar] MAL season ${s.year}/${s.season} fetch error:`, malErr.message);
+      }
+    }
+
+    // If MAL returned nothing or failed, try Jikan season fallback
+    if (seasonNodes.length === 0) {
+      try {
+        const jikanRes = await fetch(
+          `https://api.jikan.moe/v4/seasons/${s.year}/${s.season}`,
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (jikanRes.ok) {
+          const jikanJson = await jikanRes.json();
+          if (Array.isArray(jikanJson.data)) {
+            seasonNodes = jikanJson.data.map((j: any) => ({
+              id: j.mal_id,
+              title: j.title,
+              alternative_titles: {
+                en: j.title_english || null,
+                ja: j.title_japanese || null,
+              },
+              main_picture: {
+                large: j.images?.jpg?.large_image_url || j.images?.webp?.large_image_url,
+                medium: j.images?.jpg?.image_url || j.images?.webp?.image_url,
+              },
+              broadcast: {
+                day_of_the_week: j.broadcast?.day ? j.broadcast.day.toLowerCase() : null,
+                start_time: j.broadcast?.time || "23:00",
+              },
+              start_date: j.aired?.from ? j.aired.from.split("T")[0] : null,
+              end_date: j.aired?.to ? j.aired.to.split("T")[0] : null,
+              num_episodes: typeof j.episodes === "number" ? j.episodes : null,
+              studios: Array.isArray(j.studios) ? j.studios.map((st: any) => ({ name: st.name })) : [],
+              media_type: j.type ? j.type.toLowerCase() : "tv",
+            }));
+          }
+        }
+      } catch (jikanErr: any) {
+        console.warn(`[ReleaseCalendar] Jikan season ${s.year}/${s.season} fallback error:`, jikanErr.message);
+      }
+    }
+
+    if (seasonNodes.length > 0) {
+      seasonalCatalogueCache.set(cacheKey, {
+        cachedAt: Date.now(),
+        anime: seasonNodes,
+      });
+      for (const node of seasonNodes) {
+        if (node?.id) map.set(node.id, node);
+      }
+    }
+  }
+
+  return Array.from(map.values());
 }
 
 function generateMalBroadcastSchedule(catalogue: any[], startSec: number, endSec: number): any[] {
@@ -1617,7 +1714,7 @@ app.get("/api/release-calendar", async (req, res) => {
     let page = 1;
     let hasNextPage = true;
     const allSchedules: any[] = [];
-    const maxPages = 10;
+    const maxPages = 12;
 
     while (hasNextPage && page <= maxPages) {
       const anilistResponse = await fetch("https://graphql.anilist.co", {
@@ -1625,7 +1722,9 @@ app.get("/api/release-calendar", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AniVerse/1.0",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
+          Origin: "https://anilist.co",
+          Referer: "https://anilist.co/",
         },
         body: JSON.stringify({
           query: ANILIST_SCHEDULE_QUERY,
@@ -1636,7 +1735,7 @@ app.get("/api/release-calendar", async (req, res) => {
             airingAt_lesser: endSec,
           },
         }),
-        signal: AbortSignal.timeout(3500),
+        signal: AbortSignal.timeout(6000),
       });
 
       if (!anilistResponse.ok) {
@@ -1717,7 +1816,7 @@ app.get("/api/release-calendar", async (req, res) => {
 
   // Attempt 2: Fallback to official MyAnimeList broadcast schedule
   try {
-    const catalogue = await getMalBroadcastCatalogue();
+    const catalogue = await getBroadcastCatalogueForRange(startSec, endSec);
     if (catalogue.length > 0) {
       const malSchedule = generateMalBroadcastSchedule(catalogue, startSec, endSec);
       if (malSchedule.length > 0) {

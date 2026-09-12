@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
+  ChevronsLeft,
+  ChevronsRight,
   ChevronLeft,
   ChevronRight,
   Globe,
@@ -95,50 +97,77 @@ export function ReleaseCalendar({
     return ids;
   }, [malList]);
 
-  // Fetch release schedule from backend endpoint covering week + today buffer
-  const fetchSchedule = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // In-memory cache keyed by query date range for fast instant browsing between weeks/months
+  const scheduleCacheRef = useRef<Map<string, ReleaseCalendarItem[]>>(new Map());
 
-    try {
+  // Determine query date range based on active view (showOnlyToday vs target week)
+  const targetRange = useMemo(() => {
+    if (showOnlyToday) {
       const todayStartSec = Math.floor((Date.now() - 86400000 * 2) / 1000);
       const todayEndSec = Math.floor((Date.now() + 86400000 * 2) / 1000);
-      const queryStartSec = Math.min(weekInfo.fetchStartSec, todayStartSec);
-      const queryEndSec = Math.max(weekInfo.fetchEndSec, todayEndSec);
-
-      const res = await fetch(
-        `/api/release-calendar?start=${queryStartSec}&end=${queryEndSec}`
-      );
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Server responded with status ${res.status}`
-        );
-      }
-
-      const data = await res.json();
-      const items: ReleaseCalendarItem[] = Array.isArray(data.data) ? data.data : [];
-      setRawItems(items);
-
-      if (onCalendarItemsLoaded && items.length > 0) {
-        const malIds = items
-          .map((i) => (i.malId ? Number(i.malId) : null))
-          .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
-        if (malIds.length > 0) {
-          onCalendarItemsLoaded(malIds);
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to load release calendar:', err);
-      setError(err.message || 'Unable to load the release schedule. Please try again.');
-    } finally {
-      setLoading(false);
+      return { startSec: todayStartSec, endSec: todayEndSec };
     }
-  }, [weekInfo, onCalendarItemsLoaded]);
+    return { startSec: weekInfo.fetchStartSec, endSec: weekInfo.fetchEndSec };
+  }, [showOnlyToday, weekInfo.fetchStartSec, weekInfo.fetchEndSec]);
+
+  // Fetch release schedule from backend endpoint for the target date range
+  const fetchSchedule = useCallback(
+    async (bypassCache: boolean = false) => {
+      const { startSec, endSec } = targetRange;
+      const cacheKey = `${startSec}_${endSec}`;
+
+      if (!bypassCache && scheduleCacheRef.current.has(cacheKey)) {
+        const cachedItems = scheduleCacheRef.current.get(cacheKey)!;
+        setRawItems(cachedItems);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(
+          `/api/release-calendar?start=${startSec}&end=${endSec}`
+        );
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(
+            errorData.error || `Server responded with status ${res.status}`
+          );
+        }
+
+        const data = await res.json();
+        const items: ReleaseCalendarItem[] = Array.isArray(data.data) ? data.data : [];
+        scheduleCacheRef.current.set(cacheKey, items);
+        setRawItems(items);
+
+        // Only notify summer season tracker if items actually fall within Summer 2026 (July 1 - Sep 30, 2026)
+        if (onCalendarItemsLoaded && items.length > 0) {
+          const summerItems = items.filter(
+            (i) => i.airingAt >= 1782864000 && i.airingAt <= 1790812800
+          );
+          const malIds = summerItems
+            .map((i) => (i.malId ? Number(i.malId) : null))
+            .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
+          if (malIds.length > 0) {
+            onCalendarItemsLoaded(malIds);
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to load release calendar:', err);
+        setError(err.message || 'Unable to load the release schedule. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [targetRange, onCalendarItemsLoaded]
+  );
 
   useEffect(() => {
-    fetchSchedule();
+    fetchSchedule(false);
   }, [fetchSchedule]);
 
   // 1. Compute 7 Days of the Week
@@ -401,6 +430,15 @@ export function ReleaseCalendar({
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="inline-flex items-center rounded-xl bg-[#F7F5F2] p-1 border border-[#E7E3DF]">
             <button
+              id="cal-prev-month-btn"
+              onClick={() => setWeekOffset((prev) => prev - 4)}
+              title="Previous Month (-4 weeks)"
+              className="p-1.5 rounded-lg hover:bg-white text-[#77747D] hover:text-[#25242A] transition-colors cursor-pointer"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </button>
+
+            <button
               id="cal-prev-week-btn"
               onClick={() => setWeekOffset((prev) => prev - 1)}
               title="Previous Week"
@@ -425,6 +463,15 @@ export function ReleaseCalendar({
               className="p-1.5 rounded-lg hover:bg-white text-[#77747D] hover:text-[#25242A] transition-colors cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
+            </button>
+
+            <button
+              id="cal-next-month-btn"
+              onClick={() => setWeekOffset((prev) => prev + 4)}
+              title="Next Month (+4 weeks)"
+              className="p-1.5 rounded-lg hover:bg-white text-[#77747D] hover:text-[#25242A] transition-colors cursor-pointer"
+            >
+              <ChevronsRight className="h-4 w-4" />
             </button>
           </div>
 
@@ -638,7 +685,7 @@ export function ReleaseCalendar({
             <h4 className="font-bold text-sm mb-0.5">Schedule Error</h4>
             <p className="text-xs text-[#77747D] mb-3">{error}</p>
             <button
-              onClick={fetchSchedule}
+              onClick={() => fetchSchedule(true)}
               className="bg-[#7567C7] hover:bg-[#6455b8] text-white font-semibold text-xs px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer shadow-2xs"
             >
               Try Again

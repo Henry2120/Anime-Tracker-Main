@@ -20,9 +20,13 @@ import { computeAnimeStats } from './StatusDashboard';
 
 interface GeminiInsightsViewProps {
   malList: MalListItem[];
-  summer2026List: MalListItem[];
-  watchingSummer2026List: any[];
+  summer2026List?: MalListItem[];
+  seasonalList?: MalListItem[];
+  watchingSummer2026List?: any[];
+  watchingSeasonList?: any[];
   currentSeasonName: string;
+  selectedSeason?: 'spring' | 'summer';
+  onSeasonChange?: (season: 'spring' | 'summer') => void;
   malUser: MalUser | null;
   malLoading: boolean;
   onConnectMal: () => void;
@@ -36,8 +40,12 @@ interface StructuredInsight {
 export const GeminiInsightsView: React.FC<GeminiInsightsViewProps> = ({
   malList,
   summer2026List,
+  seasonalList,
   watchingSummer2026List,
+  watchingSeasonList,
   currentSeasonName,
+  selectedSeason,
+  onSeasonChange,
   malUser,
   malLoading,
   onConnectMal,
@@ -49,9 +57,11 @@ export const GeminiInsightsView: React.FC<GeminiInsightsViewProps> = ({
     insights: StructuredInsight[];
   } | null>(null);
 
+  const activeSeasonalList = seasonalList || summer2026List || [];
+
   // Compute stats for data summary
   const overallStats = useMemo(() => computeAnimeStats(malList), [malList]);
-  const seasonalStats = useMemo(() => computeAnimeStats(summer2026List), [summer2026List]);
+  const seasonalStats = useMemo(() => computeAnimeStats(activeSeasonalList), [activeSeasonalList]);
 
   // Request analysis from backend Gemini API
   const handleAnalyzeWatching = useCallback(async () => {
@@ -149,9 +159,43 @@ export const GeminiInsightsView: React.FC<GeminiInsightsViewProps> = ({
       <div className="bg-white border border-[#E7E3DF] rounded-2xl p-6 sm:p-8 shadow-2xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase">
-              <Sparkles className="h-3.5 w-3.5 text-[#C69A55]" />
-              <span>AI INSIGHTS</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase">
+                <Sparkles className="h-3.5 w-3.5 text-[#C69A55]" />
+                <span>AI INSIGHTS</span>
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-widest bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30 px-2.5 py-0.5 rounded-md">
+                ✦ {currentSeasonName}
+              </span>
+              {onSeasonChange && (
+                <div
+                  id="gemini-season-selector-control"
+                  className="inline-flex items-center gap-1 bg-[#F7F5F2] p-0.5 rounded-lg border border-[#E7E3DF]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSeasonChange('spring')}
+                    className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                      selectedSeason === 'spring'
+                        ? 'bg-white text-[#7567C7] shadow-2xs'
+                        : 'text-[#77747D] hover:text-[#25242A]'
+                    }`}
+                  >
+                    Spring 2026
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSeasonChange('summer')}
+                    className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                      selectedSeason === 'summer'
+                        ? 'bg-white text-[#7567C7] shadow-2xs'
+                        : 'text-[#77747D] hover:text-[#25242A]'
+                    }`}
+                  >
+                    Summer 2026
+                  </button>
+                </div>
+              )}
             </div>
 
             <h1 className="text-3xl font-bold tracking-tight text-[#25242A]">

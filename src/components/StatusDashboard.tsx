@@ -19,6 +19,7 @@ import {
   Percent,
   Compass,
   X,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -38,9 +39,13 @@ import { decodeHtmlEntities } from '../utils/htmlUtils';
 
 interface StatusDashboardProps {
   malList: MalListItem[];
-  summer2026List: MalListItem[];
+  summer2026List?: MalListItem[];
+  seasonalList?: MalListItem[];
   watchingSummer2026List?: Array<{ node?: any; list_status?: any }>;
+  watchingSeasonList?: Array<{ node?: any; list_status?: any }>;
   currentSeasonName?: string;
+  selectedSeason?: 'spring' | 'summer';
+  onSeasonChange?: (season: 'spring' | 'summer') => void;
   earliestStartDate?: string | null;
   earliestAiringDate?: string | null;
   malUser: MalUser | null;
@@ -50,6 +55,7 @@ interface StatusDashboardProps {
   onSaveCustomNote?: (animeId: number, note: string) => void;
   onConnectMal: () => void;
   onRefreshMal: () => void;
+  onExportExcel?: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -308,8 +314,12 @@ export function computeAnimeStats(
 export function StatusDashboard({
   malList,
   summer2026List,
+  seasonalList,
   watchingSummer2026List,
+  watchingSeasonList,
   currentSeasonName = 'SUMMER 2026',
+  selectedSeason,
+  onSeasonChange,
   earliestStartDate,
   earliestAiringDate,
   malUser,
@@ -319,7 +329,11 @@ export function StatusDashboard({
   onSaveCustomNote,
   onConnectMal,
   onRefreshMal,
+  onExportExcel,
 }: StatusDashboardProps) {
+  const activeSeasonalList = seasonalList || summer2026List || [];
+  const activeWatchingList = watchingSeasonList || watchingSummer2026List;
+
   const [showAllSeasonalWatching, setShowAllSeasonalWatching] = useState<boolean>(false);
   const [showAllOverallWatching, setShowAllOverallWatching] = useState<boolean>(false);
   const [selectedAnimeForModal, setSelectedAnimeForModal] = useState<AnimeDetailData | null>(null);
@@ -376,11 +390,16 @@ export function StatusDashboard({
     setSelectedAnimeForModal(modalData);
   }, []);
 
-  // 1. Summer 2026 Seasonal Statistics (genres computed strictly and exclusively for currently-watching Summer 2026 anime)
+  // 1. Seasonal Statistics (genres computed strictly and exclusively for seasonal anime)
   const seasonalStats = useMemo(() => {
-    const watchingItems = watchingSummer2026List || summer2026List.filter((item) => item.list_status?.status === 'watching');
-    return computeAnimeStats(summer2026List, { customGenreItems: watchingItems });
-  }, [summer2026List, watchingSummer2026List]);
+    const watchingItems = (activeWatchingList && activeWatchingList.length > 0)
+      ? activeWatchingList
+      : activeSeasonalList.filter((item) => item.list_status?.status === 'watching');
+    if (watchingItems.length > 0) {
+      return computeAnimeStats(activeSeasonalList, { customGenreItems: watchingItems });
+    }
+    return computeAnimeStats(activeSeasonalList);
+  }, [activeSeasonalList, activeWatchingList]);
 
   // Dataset Composition & Deduplication Audit
   const seasonalAudit = useMemo(() => {
@@ -388,7 +407,7 @@ export function StatusDashboard({
     let completedCount = 0;
     let otherCount = 0;
 
-    for (const item of summer2026List) {
+    for (const item of activeSeasonalList) {
       if (item.list_status?.status === 'watching') {
         watchingCount++;
       } else if (item.list_status?.status === 'completed') {
@@ -398,16 +417,16 @@ export function StatusDashboard({
       }
     }
 
-    const uniqueIdCount = new Set(summer2026List.map((i) => i.node?.id)).size;
+    const uniqueIdCount = new Set(activeSeasonalList.map((i) => i.node?.id)).size;
 
     return {
-      total: summer2026List.length,
+      total: activeSeasonalList.length,
       uniqueIdCount,
       watchingCount,
       completedCount,
       otherCount,
     };
-  }, [summer2026List]);
+  }, [activeSeasonalList]);
 
   // 2. Complete Overall Statistics
   const overallStats = useMemo(() => {
@@ -418,10 +437,14 @@ export function StatusDashboard({
   const genreModalAnimeList = useMemo(() => {
     if (!selectedGenreModal) return [];
     const targetGenre = selectedGenreModal.genre.toLowerCase();
+    const seasonalSourceList = (activeWatchingList && activeWatchingList.length > 0)
+      ? activeWatchingList
+      : (activeSeasonalList.some((item) => item.list_status?.status === 'watching')
+          ? activeSeasonalList.filter((item) => item.list_status?.status === 'watching')
+          : activeSeasonalList);
+
     const sourceList = selectedGenreModal.source === 'seasonal'
-      ? ((watchingSummer2026List && watchingSummer2026List.length > 0)
-          ? watchingSummer2026List
-          : summer2026List.filter((item) => item.list_status?.status === 'watching'))
+      ? seasonalSourceList
       : malList;
 
     const matches: MalListItem[] = [];
@@ -446,7 +469,7 @@ export function StatusDashboard({
       if (scoreB !== scoreA) return scoreB - scoreA;
       return (a.node?.title || '').localeCompare(b.node?.title || '');
     });
-  }, [selectedGenreModal, watchingSummer2026List, summer2026List, malList]);
+  }, [selectedGenreModal, activeWatchingList, activeSeasonalList, malList]);
 
   // Gemini Insights Analysis Handler
   const handleAnalyzeWatching = useCallback(async () => {
@@ -582,6 +605,20 @@ export function StatusDashboard({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onExportExcel && (
+            <button
+              id="status-export-excel-btn"
+              type="button"
+              onClick={onExportExcel}
+              disabled={malLoading}
+              className="bg-[#7567C7] hover:bg-[#6556b6] text-white font-semibold py-2.5 px-4 rounded-xl transition-all flex items-center gap-2 text-xs cursor-pointer shadow-2xs"
+              title="Export seasonal and lifetime statistics to Excel"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>Export to Excel</span>
+            </button>
+          )}
+
           <button
             id="status-refresh-btn"
             onClick={onRefreshMal}
@@ -743,13 +780,39 @@ export function StatusDashboard({
                   <Sun className="h-6 w-6" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] font-bold uppercase tracking-widest bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30 px-2.5 py-0.5 rounded-md">
-                      ✦ CURRENT SEASON
+                      ✦ {currentSeasonName}
                     </span>
-                    <span className="text-xs font-semibold text-[#77747D]">
-                      Active Broadcast Window
-                    </span>
+                    {onSeasonChange && (
+                      <div
+                        id="status-season-selector-control"
+                        className="inline-flex items-center gap-1 bg-[#F7F5F2] dark:bg-[#25232F] p-0.5 rounded-lg border border-[#E7E3DF] dark:border-[#2E2C37]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onSeasonChange('spring')}
+                          className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                            selectedSeason === 'spring'
+                              ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
+                              : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
+                          }`}
+                        >
+                          Spring 2026
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onSeasonChange('summer')}
+                          className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                            selectedSeason === 'summer'
+                              ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
+                              : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
+                          }`}
+                        >
+                          Summer 2026
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#25242A] mt-1">
                     {currentSeasonName}
@@ -780,11 +843,11 @@ export function StatusDashboard({
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
-                  <h5 className="font-bold text-[#25242A] text-xs sm:text-sm">Summer 2026 Dataset Scope</h5>
+                  <h5 className="font-bold text-[#25242A] text-xs sm:text-sm">{currentSeasonName} Dataset Scope</h5>
                   <p className="text-[11px] text-[#77747D] mt-0.5">
                     {effectiveAiringDate
-                      ? `Includes currently watching Summer 2026 anime + anime completed on or after the earliest 1st-episode airing date (${effectiveAiringDate}), excluding Spring 2026 titles.`
-                      : 'Includes currently watching Summer 2026 anime + anime completed on or after your earliest Summer 2026 anime broadcast date.'}
+                      ? `Includes currently watching ${currentSeasonName} anime + anime completed on or after the earliest 1st-episode airing date (${effectiveAiringDate}).`
+                      : `Includes currently watching ${currentSeasonName} anime + anime completed on or after your earliest ${currentSeasonName} anime broadcast date.`}
                   </p>
                 </div>
               </div>

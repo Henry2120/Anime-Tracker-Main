@@ -146,6 +146,14 @@ export function isAnimeSummer2026(node?: any, jikanSummerIds?: Set<number>): boo
 }
 
 /**
+ * Checks if a MAL anime node strictly belongs to Spring 2026
+ * Formula: start_season.year === 2026 && start_season.season === "spring" (with fallbacks)
+ */
+export function isAnimeSpring2026(node?: any, jikanSpringIds?: Set<number>): boolean {
+  return isAnimeInSeason(node, 2026, 'spring', jikanSpringIds);
+}
+
+/**
  * Extracts the anime's actual first-episode airing date / broadcast start date (NOT personal user start date).
  * Checks node.start_date, node.aired.from, node.release_date.
  */
@@ -190,18 +198,19 @@ export const getEarliestPersonalStartDate = getEarliestFirstEpisodeAiringDate;
 /**
  * Determines whether a completed anime belongs to the target seasonal tracking period:
  * 1. MAL list_status.status must be 'completed'
- * 2. If the anime's debut season IS the target season, it belongs to that season.
- * 3. If it is an older/backlog title completed during the seasonal window:
- *    a. Has a valid completion/finish date (list_status.finish_date)
- *    b. finish_date must be on or after the first-episode airing date boundary (earliestFirstEpisodeAiringDate)
- *    c. CRITICAL: The anime must NOT belong to the season immediately preceding the target season
- *       (e.g., Spring 2026 anime finished after June 25 are excluded from Summer 2026 completed).
+ * 2. Spring 2026:
+ *    - Has finish_date: Must be between April 1, 2026 and June 30, 2026 (inclusive). Older/backlog titles completed in this window qualify.
+ *    - No finish_date: Qualifies if anime is a Spring 2026 debut anime.
+ *    - Summer 2026 anime or future releases never qualify.
+ * 3. Summer 2026:
+ *    - If the anime's debut season IS Summer 2026, it belongs to that season.
+ *    - If older/backlog: finish_date >= earliestFirstEpisodeAiringDate, excluding Spring 2026 carryovers.
  */
 export function isAnimeCompletedInSeason(
   item: any,
   targetYear: number = 2026,
   targetSeason: string = 'summer',
-  earliestFirstEpisodeAiringDate: string | null,
+  earliestFirstEpisodeAiringDate: string | null = null,
   targetCatalogueIds?: Set<number>,
   prevSeasonCatalogueIds?: Set<number>
 ): boolean {
@@ -212,6 +221,35 @@ export function isAnimeCompletedInSeason(
   // 1. Must have completed status
   if (listStatus.status !== 'completed') return false;
 
+  const targetSeasonLower = targetSeason.trim().toLowerCase();
+  const finishDate = parseDateToComparable(listStatus.finish_date);
+
+  // Spring 2026 bounded completion
+  if (targetYear === 2026 && targetSeasonLower === 'spring') {
+    const springStart = earliestFirstEpisodeAiringDate && earliestFirstEpisodeAiringDate < '2026-04-01'
+      ? earliestFirstEpisodeAiringDate
+      : '2026-04-01';
+    const springEnd = '2026-06-30';
+
+    // 1. If finish date is specified:
+    if (finishDate) {
+      // Must be between April 1, 2026 and June 30, 2026 (strictly finished within Spring)
+      if (finishDate < springStart || finishDate > springEnd) {
+        return false;
+      }
+      // Future season leakage prevention (Summer 2026 titles cannot be Spring completed)
+      const isSummerAnime = isAnimeInSeason(item.node, 2026, 'summer');
+      if (isSummerAnime) {
+        return false;
+      }
+      return true;
+    }
+
+    // 2. If no finish date is specified, only include if it was an actual Spring 2026 debut anime
+    return isAnimeInSeason(item.node, 2026, 'spring', targetCatalogueIds);
+  }
+
+  // Summer 2026 (and general default behavior)
   // 2. If the anime itself debuted in the target season (e.g. Summer 2026), it is a seasonal completed anime
   const isCurrentSeasonDebut = isAnimeInSeason(
     item.node,
@@ -228,7 +266,6 @@ export function isAnimeCompletedInSeason(
   if (!earliestFirstEpisodeAiringDate) return false;
 
   // 4. Must have a valid finish date
-  const finishDate = parseDateToComparable(listStatus.finish_date);
   if (!finishDate) return false;
 
   // 5. finish_date must be on or after the earliest first-episode airing date boundary (inclusive)
@@ -256,7 +293,7 @@ export function isAnimeCompletedInSeason(
  */
 export function isCompletedDuringSummer2026(
   item: any,
-  earliestFirstEpisodeAiringDate: string | null,
+  earliestFirstEpisodeAiringDate: string | null = null,
   summerIds?: Set<number>,
   springIds?: Set<number>
 ): boolean {
@@ -267,6 +304,25 @@ export function isCompletedDuringSummer2026(
     earliestFirstEpisodeAiringDate,
     summerIds,
     springIds
+  );
+}
+
+/**
+ * Convenience wrapper for Spring 2026 completed anime check
+ */
+export function isCompletedDuringSpring2026(
+  item: any,
+  earliestFirstEpisodeAiringDate: string | null = null,
+  springIds?: Set<number>,
+  winterIds?: Set<number>
+): boolean {
+  return isAnimeCompletedInSeason(
+    item,
+    2026,
+    'spring',
+    earliestFirstEpisodeAiringDate,
+    springIds,
+    winterIds
   );
 }
 
@@ -353,5 +409,76 @@ export async function fetchCalendarSeasonReleases(
     console.warn('Could not fetch calendar seasonal releases fallback:', err);
     return [];
   }
+}
+
+/**
+ * Generic, single-source-of-truth compiler for an anime season dataset.
+ * Respects strict season membership:
+ * - Season membership is based on the anime's MAL start_season matching the selected year and season.
+ * - An anime that originally started in Spring 2026 but continued airing during Summer 2026 remains a Spring 2026 anime.
+ * - Debut anime of the target season across all statuses (watching, completed, PTW, on hold, dropped) are included.
+ * - Completed anime belonging to the target season are included without cross-season leakage.
+ */
+export function getAnimeForSelectedSeason<T = any>({
+  malList,
+  year = 2026,
+  season = 'summer',
+  watchingItems = [],
+  completedItems = [],
+  seasonCatalogueIds,
+  userMalMap,
+}: {
+  malList: T[];
+  year?: number;
+  season?: string;
+  watchingItems?: Array<{ node?: any; list_status?: any } | any>;
+  completedItems?: Array<{ node?: any; list_status?: any } | any>;
+  seasonCatalogueIds?: Set<number>;
+  userMalMap?: Map<number, T>;
+}): T[] {
+  const items: T[] = [];
+  const seenIds = new Set<number>();
+  const normSeason = (season || 'summer').trim().toLowerCase();
+
+  // 1. Watching items that strictly belong to this season
+  for (const item of watchingItems) {
+    const node = item?.node || item;
+    if (!node?.id) continue;
+    if (isAnimeInSeason(node, year, normSeason, seasonCatalogueIds)) {
+      if (!seenIds.has(node.id)) {
+        seenIds.add(node.id);
+        const original = userMalMap ? userMalMap.get(node.id) : null;
+        items.push(original || (item as T));
+      }
+    }
+  }
+
+  // 2. Completed items belonging to or completed during this season
+  for (const item of completedItems) {
+    const node = item?.node || item;
+    if (!node?.id) continue;
+    // Strict boundary checks between seasons to avoid leakage
+    if (normSeason === 'summer' && isAnimeSpring2026(node)) continue;
+    if (normSeason === 'spring' && isAnimeSummer2026(node)) continue;
+    if (!seenIds.has(node.id)) {
+      seenIds.add(node.id);
+      const original = userMalMap ? userMalMap.get(node.id) : null;
+      items.push(original || (item as T));
+    }
+  }
+
+  // 3. All other items in the user's MAL list whose start_season matches the target season (PTW, On Hold, Dropped, etc.)
+  for (const rawItem of malList) {
+    const item = rawItem as any;
+    const node = item?.node || item;
+    if (!node?.id) continue;
+    if (seenIds.has(node.id)) continue;
+    if (isAnimeInSeason(node, year, normSeason, seasonCatalogueIds)) {
+      seenIds.add(node.id);
+      items.push(rawItem);
+    }
+  }
+
+  return items;
 }
 

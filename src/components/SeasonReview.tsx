@@ -29,9 +29,15 @@ import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
 
 export interface SeasonReviewProps {
   malList: MalListItem[];
-  summer2026List: MalListItem[];
+  summer2026List?: MalListItem[];
+  seasonalList?: MalListItem[];
   watchingSummer2026List?: Array<{ node?: any; list_status?: any }>;
+  watchingSeasonList?: Array<{ node?: any; list_status?: any }>;
   completedSummer2026List?: MalListItem[];
+  completedSeasonList?: MalListItem[];
+  currentSeasonName?: string;
+  selectedSeason?: 'spring' | 'summer';
+  onSeasonChange?: (season: 'spring' | 'summer') => void;
   customUserNotes?: Record<number, string>;
   malUser: MalUser | null;
   onSaveCustomNote?: (animeId: number, note: string) => void;
@@ -42,8 +48,14 @@ export interface SeasonReviewProps {
 export const SeasonReview: React.FC<SeasonReviewProps> = ({
   malList,
   summer2026List,
+  seasonalList,
   watchingSummer2026List = [],
+  watchingSeasonList = [],
   completedSummer2026List = [],
+  completedSeasonList = [],
+  currentSeasonName = 'SUMMER 2026',
+  selectedSeason = 'summer',
+  onSeasonChange,
   customUserNotes = {},
   malUser,
   onSaveCustomNote,
@@ -54,18 +66,19 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
   const isSakura = theme === 'sakura';
   const isLight = !isDark && !isSakura;
 
-  const [selectedSeason, setSelectedSeason] = useState<'summer-2026'>('summer-2026');
   const [selectedAnimeModal, setSelectedAnimeModal] = useState<AnimeDetailData | null>(null);
 
+  const activeSeasonalList = seasonalList || summer2026List || [];
+  const activeCompletedList = completedSeasonList || completedSummer2026List || [];
+
   // 1. Season Dataset Compilation
-  // We prioritize the Summer 2026 items. If the user only has a few Summer 2026 items,
-  // we combine them with user's active watching list so the review is full and rewarding.
+  // Respects the selected season as the single source of truth for all Season Review awards and analytics.
   const seasonAnime = useMemo(() => {
     const list: MalListItem[] = [];
     const seen = new Set<number>();
 
-    // Add all summer 2026 titles
-    for (const item of summer2026List) {
+    // Add all active season titles
+    for (const item of activeSeasonalList) {
       if (item?.node?.id && !seen.has(item.node.id)) {
         seen.add(item.node.id);
         list.push(item);
@@ -73,26 +86,15 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
     }
 
     // Add completed in season
-    for (const item of completedSummer2026List) {
+    for (const item of activeCompletedList) {
       if (item?.node?.id && !seen.has(item.node.id)) {
         seen.add(item.node.id);
         list.push(item);
       }
     }
 
-    // If summer 2026 items are less than 3, supplement with watching items from general list
-    if (list.length < 3) {
-      for (const item of malList) {
-        if (item?.node?.id && !seen.has(item.node.id) && (item.list_status?.status === 'watching' || item.list_status?.status === 'completed')) {
-          seen.add(item.node.id);
-          list.push(item);
-          if (list.length >= 8) break;
-        }
-      }
-    }
-
     return list;
-  }, [summer2026List, completedSummer2026List, malList]);
+  }, [activeSeasonalList, activeCompletedList]);
 
   // 2. High-level Season Metrics
   const metrics = useMemo(() => {
@@ -486,18 +488,64 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
         />
 
         <div className="relative z-10 flex flex-col items-center text-center space-y-6 max-w-3xl mx-auto">
-          {/* Seasonal Japanese Tag */}
-          <div
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase border transition-colors ${
-              isDark
-                ? 'bg-[#7567C7]/15 border-[#7567C7]/30 text-[#D8D2FF]'
-                : isSakura
-                ? 'bg-white/90 border-[#F2CDD9] text-[#A63A68] shadow-2xs'
-                : 'bg-white/90 border-[#E2DDD5] text-[#5B4EAE] shadow-2xs'
-            }`}
-          >
-            <Trophy className="h-3.5 w-3.5 text-[#E5B869]" />
-            <span>SUMMER 2026 • 2026年 夏アニメ総括</span>
+          {/* Seasonal Tag and Switcher */}
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            <div
+              className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase border transition-colors ${
+                isDark
+                  ? 'bg-[#7567C7]/15 border-[#7567C7]/30 text-[#D8D2FF]'
+                  : isSakura
+                  ? 'bg-white/90 border-[#F2CDD9] text-[#A63A68] shadow-2xs'
+                  : 'bg-white/90 border-[#E2DDD5] text-[#5B4EAE] shadow-2xs'
+              }`}
+            >
+              <Trophy className="h-3.5 w-3.5 text-[#E5B869]" />
+              <span>{currentSeasonName} • 2026年 {selectedSeason === 'spring' ? '春' : '夏'}アニメ総括</span>
+            </div>
+
+            {onSeasonChange && (
+              <div
+                id="review-hero-season-selector"
+                className={`inline-flex items-center gap-1 p-0.5 rounded-lg border ${
+                  isDark
+                    ? 'bg-[#181628] border-[#2D2A4A]'
+                    : isSakura
+                    ? 'bg-white/90 border-[#F2CDD9]'
+                    : 'bg-[#F7F5F2] border-[#E7E3DF]'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSeasonChange('spring')}
+                  className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    selectedSeason === 'spring'
+                      ? isDark
+                        ? 'bg-[#2A2744] text-white shadow-2xs'
+                        : 'bg-white text-[#7567C7] shadow-2xs'
+                      : isDark
+                      ? 'text-[#AEA8C9] hover:text-white'
+                      : 'text-[#77747D] hover:text-[#25242A]'
+                  }`}
+                >
+                  Spring 2026
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSeasonChange('summer')}
+                  className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    selectedSeason === 'summer'
+                      ? isDark
+                        ? 'bg-[#2A2744] text-white shadow-2xs'
+                        : 'bg-white text-[#7567C7] shadow-2xs'
+                      : isDark
+                      ? 'text-[#AEA8C9] hover:text-white'
+                      : 'text-[#77747D] hover:text-[#25242A]'
+                  }`}
+                >
+                  Summer 2026
+                </button>
+              </div>
+            )}
           </div>
 
           <h1
@@ -513,7 +561,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
               isDark ? 'text-[#AEA8C9]' : isSakura ? 'text-[#7A617A]' : 'text-[#6B6675]'
             }`}
           >
-            A personal yearbook celebrating what you watched, loved, dropped, and rated throughout Summer 2026.
+            A personal yearbook celebrating what you watched, loved, dropped, and rated throughout {currentSeasonName}.
           </p>
 
           {/* Metric Badges Introduction Grid */}
@@ -793,7 +841,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                         <span>GOLD LAUREL WINNER</span>
                       </span>
                       <span className="text-[11px] font-semibold opacity-80 tracking-wider uppercase">
-                        Summer 2026 Champion
+                        {currentSeasonName} Champion
                       </span>
                     </div>
                   </motion.div>
@@ -1347,7 +1395,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                 isDark ? 'text-[#AEA8C9]' : isSakura ? 'text-[#8C6D8C]' : 'text-[#77747D]'
               }`}
             >
-              You did not assign any low scores or drop any anime this season. Either Summer 2026 was consistently high quality or your curation was immaculate!
+              You did not assign any low scores or drop any anime this season. Either {currentSeasonName} was consistently high quality or your curation was immaculate!
             </p>
           </div>
         )}
@@ -1512,7 +1560,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
               isDark ? 'text-[#AEA8C9]' : isSakura ? 'text-[#8C6D8C]' : 'text-[#77747D]'
             }`}
           >
-            A thematic portrait of your Summer 2026 journey
+            A thematic portrait of your {currentSeasonName} journey
           </span>
         </div>
 
@@ -1811,7 +1859,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
             }`}
           >
             <Trophy className="h-4 w-4" />
-            <span>SUMMER 2026 • FINAL VERDICT</span>
+            <span>{currentSeasonName} • FINAL VERDICT</span>
           </div>
           <h2
             className={`text-3xl sm:text-5xl font-black tracking-tight uppercase ${
@@ -1974,36 +2022,44 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
         }`}
       >
         <button
-          disabled
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-not-allowed opacity-60 ${
-            isDark
-              ? 'bg-[#181628] border-[#2D2A4A] text-[#636077]'
-              : isSakura
-              ? 'bg-white/60 border-[#F2D0DB] text-[#A88BA8]'
-              : 'bg-[#F5F2EB] border-[#E7E3DF] text-[#9B97A2]'
+          type="button"
+          onClick={() => onSeasonChange?.('spring')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${
+            selectedSeason === 'spring'
+              ? isDark
+                ? 'bg-[#1E1B33] border-[#E5B869]/50 text-white font-bold'
+                : 'bg-white border-[#C69A55] text-[#25242A] shadow-2xs font-bold'
+              : isDark
+              ? 'bg-[#181628] border-[#2D2A4A] text-[#AEA8C9] hover:bg-[#201D36]'
+              : 'bg-[#F7F5F2] border-[#E7E3DF] text-[#77747D] hover:bg-[#EAE6DF]'
           }`}
-          title="Past seasons will be available in future updates"
         >
           <ChevronLeft className="h-4 w-4" />
-          <span>SPRING 2026 (Archive)</span>
+          <span>SPRING 2026 {selectedSeason === 'spring' ? '(ACTIVE)' : ''}</span>
         </button>
 
-        <div
-          className={`flex items-center gap-2 border px-4 py-2 rounded-xl font-bold ${
-            isDark
-              ? 'bg-[#1E1B33] border-[#E5B869]/50 text-white'
-              : isSakura
-              ? 'bg-white border-[#D49E50] text-[#3B2D3B] shadow-2xs'
-              : 'bg-white border-[#C69A55] text-[#25242A] shadow-2xs'
+        <button
+          type="button"
+          onClick={() => onSeasonChange?.('summer')}
+          className={`flex items-center gap-2 border px-4 py-2 rounded-xl transition-all cursor-pointer ${
+            selectedSeason === 'summer'
+              ? isDark
+                ? 'bg-[#1E1B33] border-[#E5B869]/50 text-white font-bold'
+                : 'bg-white border-[#C69A55] text-[#25242A] shadow-2xs font-bold'
+              : isDark
+              ? 'bg-[#181628] border-[#2D2A4A] text-[#AEA8C9] hover:bg-[#201D36]'
+              : 'bg-[#F7F5F2] border-[#E7E3DF] text-[#77747D] hover:bg-[#EAE6DF]'
           }`}
         >
           <span
-            className={`w-2 h-2 rounded-full animate-pulse ${
+            className={`w-2 h-2 rounded-full ${
+              selectedSeason === 'summer' ? 'animate-pulse' : ''
+            } ${
               isDark ? 'bg-[#E5B869]' : isSakura ? 'bg-[#D49E50]' : 'bg-[#C69A55]'
             }`}
           />
-          <span>SUMMER 2026 (ACTIVE)</span>
-        </div>
+          <span>SUMMER 2026 {selectedSeason === 'summer' ? '(ACTIVE)' : ''}</span>
+        </button>
 
         <button
           disabled

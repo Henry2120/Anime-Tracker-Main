@@ -22,6 +22,7 @@ import {
   Search,
   X,
   BookOpen,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload, MalAnimeNode } from './types';
 import { AppTheme } from './types/theme';
@@ -34,6 +35,7 @@ import { GeminiInsightsView } from './components/GeminiInsightsView';
 import { SeasonReview } from './components/SeasonReview';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
+import { ExcelExportModal } from './components/ExcelExportModal';
 import { EditMalEntryModal, EditableAnimeData } from './components/EditMalEntryModal';
 import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal';
 import { AppearanceSelector } from './components/AppearanceSelector';
@@ -44,8 +46,12 @@ import {
   fetchJikanAnimeInfo,
   fetchCalendarSeasonReleases,
   isAnimeSummer2026,
+  isAnimeSpring2026,
+  isAnimeInSeason,
   isCompletedDuringSummer2026,
+  isCompletedDuringSpring2026,
   getEarliestFirstEpisodeAiringDate,
+  getAnimeForSelectedSeason,
   JikanSeasonalAnime,
 } from './utils/seasonUtils';
 
@@ -53,6 +59,7 @@ export default function App() {
   // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
   const [activeTab, setActiveTab] = useState<'home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review'>('season');
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [isExcelExportModalOpen, setIsExcelExportModalOpen] = useState(false);
 
   // Appearance / Theme State ('light' | 'dark' | 'sakura')
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -152,10 +159,18 @@ export default function App() {
   const [seasonalLoading, setSeasonalLoading] = useState<boolean>(false);
   const [seasonalError, setSeasonalError] = useState<string | null>(null);
 
+  // Selected Season state for MY SEASON view ('spring' | 'summer', default 'summer')
+  const [selectedSeason, setSelectedSeason] = useState<'spring' | 'summer'>('summer');
+
   // Jikan Summer 2026 Seasonal State (Authoritative source of truth for MY SEASON)
   const [jikanSummer2026List, setJikanSummer2026List] = useState<JikanSeasonalAnime[]>([]);
   const [jikanSeasonLoading, setJikanSeasonLoading] = useState<boolean>(false);
   const [fallbackSummer2026Ids, setFallbackSummer2026Ids] = useState<Set<number>>(new Set());
+
+  // Jikan Spring 2026 Seasonal State
+  const [jikanSpring2026List, setJikanSpring2026List] = useState<JikanSeasonalAnime[]>([]);
+  const [jikanSpringLoading, setJikanSpringLoading] = useState<boolean>(false);
+  const [fallbackSpring2026Ids, setFallbackSpring2026Ids] = useState<Set<number>>(new Set());
 
   // Release Calendar Summer 2026 Fallback State
   const [calendarSummer2026Ids, setCalendarSummer2026Ids] = useState<Set<number>>(new Set());
@@ -623,6 +638,26 @@ export default function App() {
     return combined;
   }, [jikanSummer2026Ids, fallbackSummer2026Ids]);
 
+  // Primary Set of MAL IDs from Jikan Spring 2026 seasonal catalogue
+  const jikanSpring2026Ids = useMemo(() => {
+    const ids = new Set<number>();
+    for (const item of jikanSpring2026List) {
+      if (item?.mal_id) {
+        ids.add(item.mal_id);
+      }
+    }
+    return ids;
+  }, [jikanSpring2026List]);
+
+  // Combined Set of verified Spring 2026 IDs
+  const allSpring2026Ids = useMemo(() => {
+    const combined = new Set<number>(jikanSpring2026Ids);
+    for (const id of fallbackSpring2026Ids) {
+      combined.add(id);
+    }
+    return combined;
+  }, [jikanSpring2026Ids, fallbackSpring2026Ids]);
+
   // Step 1: Currently Watching items (Summer 2026 debuts + active ongoing carryovers)
   // An anime is included in Currently Watching when:
   // 1. MAL list_status.status === 'watching'
@@ -662,6 +697,42 @@ export default function App() {
     return items;
   }, [malList, allSummer2026Ids, calendarSummer2026Ids]);
 
+  // Spring 2026 Currently Watching items
+  // An anime is included in Spring 2026 Currently Watching when:
+  // 1. MAL list_status.status === 'watching'
+  // 2. Belongs to Spring 2026 (via MAL start_season, seasonal catalogue, or fallback)
+  // 3. Strict boundary: Summer 2026 anime MUST NOT leak into Spring 2026
+  const currentlyWatchingSpring2026Items = useMemo(() => {
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
+    const seenIds = new Set<number>();
+
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      if (item.list_status?.status !== 'watching') continue;
+
+      // Must be a Spring 2026 anime
+      const isSpringAnime = isAnimeSpring2026(item.node, allSpring2026Ids);
+      if (!isSpringAnime) continue;
+
+      // Future season leakage prevention
+      const isSummerAnime = isAnimeSummer2026(item.node, allSummer2026Ids);
+      if (isSummerAnime) continue;
+
+      if (!seenIds.has(item.node.id)) {
+        seenIds.add(item.node.id);
+        items.push({
+          node: item.node,
+          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+        });
+      }
+    }
+
+    return items;
+  }, [malList, allSpring2026Ids, allSummer2026Ids]);
+
   // Step 2: Seasonal start boundary for Summer 2026:
   // Earliest first-episode airing date among the user's currently-watching Summer 2026 anime.
   // Uses actual broadcast/airing start date (node.start_date) of Summer 2026 anime, NOT personal MAL list_status.start_date.
@@ -672,6 +743,14 @@ export default function App() {
     );
     return getEarliestFirstEpisodeAiringDate(summer2026WatchingItems);
   }, [malList, allSummer2026Ids]);
+
+  // Spring 2026 Earliest First Episode Airing Date
+  const earliestSpring2026AiringDate = useMemo(() => {
+    const spring2026WatchingItems = malList.filter(
+      (item) => item.list_status?.status === 'watching' && isAnimeSpring2026(item.node, allSpring2026Ids)
+    );
+    return getEarliestFirstEpisodeAiringDate(spring2026WatchingItems);
+  }, [malList, allSpring2026Ids]);
 
   // Step 3: Anime completed during Summer 2026:
   // 1. MAL status === 'completed'
@@ -715,43 +794,101 @@ export default function App() {
     return items;
   }, [malList, earliestSummer2026AiringDate, allSummer2026Ids]);
 
-  // Complete list of MAL anime classified as Summer 2026 across all statuses (for STATUS seasonal dashboard)
-  // Combines currently watching seasonal anime + anime completed in season + other Summer 2026 titles without duplicates
-  const summer2026MalList = useMemo(() => {
-    const items: MalListItem[] = [];
+  // Anime completed during Spring 2026:
+  // 1. MAL status === 'completed'
+  // 2. finish_date between 2026-04-01 and 2026-06-30 (inclusive) or Spring 2026 debut
+  // 3. Allows Winter 2026 / backlog completions in May/Spring
+  // 4. Excludes Summer 2026 anime and completions outside Spring window
+  const completedSpring2026Items = useMemo(() => {
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
     const seenIds = new Set<number>();
 
-    // 1. Add all currently watching items
-    for (const item of currentlyWatchingItems) {
-      if (item?.node?.id && !seenIds.has(item.node.id)) {
-        seenIds.add(item.node.id);
-        const original = userMalMap.get(item.node.id);
-        items.push(original || (item as MalListItem));
-      }
-    }
-
-    // 2. Add all completed items during the season
-    for (const item of completedSummer2026Items) {
-      if (item?.node?.id && !seenIds.has(item.node.id)) {
-        seenIds.add(item.node.id);
-        const original = userMalMap.get(item.node.id);
-        items.push(original || (item as MalListItem));
-      }
-    }
-
-    // 3. Include any other Summer 2026 anime in the user's MAL list (e.g. plan to watch, on hold, dropped)
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      if (seenIds.has(item.node.id)) continue;
-      const isSummer = isAnimeSummer2026(item.node, allSummer2026Ids);
-      if (isSummer) {
-        seenIds.add(item.node.id);
-        items.push(item);
+      if (isCompletedDuringSpring2026(item, earliestSpring2026AiringDate, allSpring2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'completed', score: 0, num_episodes_watched: 0 },
+          });
+        }
       }
     }
 
+    // Sort by finish date descending (most recently completed first)
+    items.sort((a, b) => {
+      const dateA = a.list_status?.finish_date || '';
+      const dateB = b.list_status?.finish_date || '';
+      if (dateB !== dateA) {
+        return dateB.localeCompare(dateA);
+      }
+      return (b.list_status?.score || 0) - (a.list_status?.score || 0);
+    });
+
     return items;
-  }, [malList, currentlyWatchingItems, completedSummer2026Items, allSummer2026Ids, userMalMap]);
+  }, [malList, earliestSpring2026AiringDate, allSpring2026Ids]);
+
+  // Active season calculations for MY SEASON tab
+  const activeWatchingItems = selectedSeason === 'spring' ? currentlyWatchingSpring2026Items : currentlyWatchingItems;
+  const activeCompletedItems = selectedSeason === 'spring' ? completedSpring2026Items : completedSummer2026Items;
+  const activeSeasonLabel = selectedSeason === 'spring' ? 'SPRING 2026' : 'SUMMER 2026';
+  const activeSeasonTotalReleases = selectedSeason === 'spring' ? allSpring2026Ids.size : allSummer2026Ids.size;
+
+  // Single Source of Truth for Season-Aware Insights:
+  // 1. Watching list strictly belonging to the currently selected season (excludes cross-season carryovers)
+  const activeSeasonWatchingList = useMemo(() => {
+    const catalogueIds = selectedSeason === 'spring' ? allSpring2026Ids : allSummer2026Ids;
+    return activeWatchingItems.filter((item) =>
+      isAnimeInSeason(item?.node || item, 2026, selectedSeason, catalogueIds)
+    );
+  }, [activeWatchingItems, selectedSeason, allSpring2026Ids, allSummer2026Ids]);
+
+  // 2. Complete list of MAL anime for the currently selected season across all statuses
+  const activeSeasonMalList = useMemo(() => {
+    const catalogueIds = selectedSeason === 'spring' ? allSpring2026Ids : allSummer2026Ids;
+    return getAnimeForSelectedSeason<MalListItem>({
+      malList,
+      year: 2026,
+      season: selectedSeason,
+      watchingItems: activeSeasonWatchingList,
+      completedItems: activeCompletedItems,
+      seasonCatalogueIds: catalogueIds,
+      userMalMap,
+    });
+  }, [
+    malList,
+    selectedSeason,
+    activeSeasonWatchingList,
+    activeCompletedItems,
+    allSpring2026Ids,
+    allSummer2026Ids,
+    userMalMap,
+  ]);
+
+  // 3. Earliest first episode broadcast date for the selected season
+  const activeSeasonEarliestAiringDate = useMemo(() => {
+    return selectedSeason === 'spring'
+      ? earliestSpring2026AiringDate
+      : earliestSummer2026AiringDate;
+  }, [selectedSeason, earliestSpring2026AiringDate, earliestSummer2026AiringDate]);
+
+  // Complete list of MAL anime classified as Summer 2026 across all statuses (for backward compatibility)
+  const summer2026MalList = useMemo(() => {
+    if (selectedSeason === 'summer') return activeSeasonMalList;
+    return getAnimeForSelectedSeason<MalListItem>({
+      malList,
+      year: 2026,
+      season: 'summer',
+      watchingItems: currentlyWatchingItems.filter((i) => isAnimeSummer2026(i?.node || i, allSummer2026Ids)),
+      completedItems: completedSummer2026Items,
+      seasonCatalogueIds: allSummer2026Ids,
+      userMalMap,
+    });
+  }, [selectedSeason, activeSeasonMalList, malList, currentlyWatchingItems, completedSummer2026Items, allSummer2026Ids, userMalMap]);
 
   // Fetch Jikan Summer 2026 seasonal catalogue
   const loadJikanSeasonalCatalogue = async () => {
@@ -763,6 +900,19 @@ export default function App() {
       console.error('Error fetching Jikan Summer 2026 seasonal catalogue:', err);
     } finally {
       setJikanSeasonLoading(false);
+    }
+  };
+
+  // Fetch Jikan Spring 2026 seasonal catalogue
+  const loadJikanSpringCatalogue = async () => {
+    setJikanSpringLoading(true);
+    try {
+      const data = await fetchJikanSeasonCatalogue(2026, 'spring');
+      setJikanSpring2026List(data);
+    } catch (err) {
+      console.error('Error fetching Jikan Spring 2026 seasonal catalogue:', err);
+    } finally {
+      setJikanSpringLoading(false);
     }
   };
 
@@ -802,7 +952,7 @@ export default function App() {
   // query individual Jikan metadata (/v4/anime/{mal_id}) to verify seasonal placement
   useEffect(() => {
     if (!malList || malList.length === 0) return;
-    if (jikanSeasonLoading) return;
+    if (jikanSeasonLoading || jikanSpringLoading) return;
 
     const itemsNeedingLookup = malList.filter((item) => {
       const animeId = item.node?.id;
@@ -813,8 +963,8 @@ export default function App() {
         const season = item.node.start_season.season;
         if (!isNaN(year) && season) return false;
       }
-      if (jikanSummer2026Ids.has(animeId)) return false;
-      if (fallbackSummer2026Ids.has(animeId)) return false;
+      if (jikanSummer2026Ids.has(animeId) || jikanSpring2026Ids.has(animeId)) return false;
+      if (fallbackSummer2026Ids.has(animeId) || fallbackSpring2026Ids.has(animeId)) return false;
       return true;
     });
 
@@ -826,12 +976,20 @@ export default function App() {
         if (!isMounted) break;
         const animeId = item.node.id;
         const info = await fetchJikanAnimeInfo(animeId);
-        if (info && info.is_summer_2026 && isMounted) {
-          setFallbackSummer2026Ids((prev) => {
-            const next = new Set(prev);
-            next.add(animeId);
-            return next;
-          });
+        if (info && isMounted) {
+          if (info.is_summer_2026 || (info.year === 2026 && info.season?.toLowerCase() === 'summer')) {
+            setFallbackSummer2026Ids((prev) => {
+              const next = new Set(prev);
+              next.add(animeId);
+              return next;
+            });
+          } else if (info.year === 2026 && info.season?.toLowerCase() === 'spring') {
+            setFallbackSpring2026Ids((prev) => {
+              const next = new Set(prev);
+              next.add(animeId);
+              return next;
+            });
+          }
         }
         await new Promise((r) => setTimeout(r, 300));
       }
@@ -841,13 +999,22 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [malList, jikanSummer2026Ids, fallbackSummer2026Ids, jikanSeasonLoading]);
+  }, [
+    malList,
+    jikanSummer2026Ids,
+    jikanSpring2026Ids,
+    fallbackSummer2026Ids,
+    fallbackSpring2026Ids,
+    jikanSeasonLoading,
+    jikanSpringLoading,
+  ]);
 
   // Check MAL Auth Status and load catalogues on Mount
   useEffect(() => {
     checkMalConfig();
     checkMalAuth();
     loadJikanSeasonalCatalogue();
+    loadJikanSpringCatalogue();
     fetchSeasonalList(2026, 'summer');
     loadCalendarSeasonalReleases();
 
@@ -1455,6 +1622,19 @@ export default function App() {
               <span className="hidden sm:inline">About</span>
             </button>
 
+            {malUser && (
+              <button
+                id="excel-export-header-button"
+                type="button"
+                onClick={() => setIsExcelExportModalOpen(true)}
+                title="Export Anime Data to Excel (.xlsx)"
+                className="px-2.5 py-1.5 rounded-xl text-[#77747D] hover:text-[#7567C7] hover:bg-[#F0EDFA]/60 border border-transparent hover:border-[#E7E3DF] dark:hover:border-[#2E2C37] transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-[#7567C7]" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+            )}
+
             {malUser ? (
               <div className="relative" ref={profileMenuRef}>
                 <button
@@ -1534,6 +1714,18 @@ export default function App() {
                       >
                         <Tv className="h-4 w-4 text-[#7567C7]" />
                         <span>My Anime List</span>
+                      </button>
+
+                      <button
+                        id="profile-export-excel-button"
+                        onClick={() => {
+                          setIsProfileOpen(false);
+                          setIsExcelExportModalOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-[#77747D] dark:text-[#AEA8C9] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D] hover:text-[#25242A] dark:hover:text-white transition-colors cursor-pointer flex items-center gap-2.5"
+                      >
+                        <FileSpreadsheet className="h-4 w-4 text-[#7567C7]" />
+                        <span>Export to Excel (.xlsx)</span>
                       </button>
 
                       <a
@@ -1855,57 +2047,115 @@ export default function App() {
         {malUser && activeTab === 'season' && (
           <div className="space-y-8">
             {/* Header Banner */}
-            <div className="bg-white border border-[#E7E3DF] rounded-2xl p-6 sm:p-8 shadow-2xs space-y-4">
+            <div className="bg-white dark:bg-[#1C1A24] border border-[#E7E3DF] dark:border-[#2E2C37] rounded-2xl p-6 sm:p-8 shadow-2xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] text-[#7567C7] text-xs font-bold tracking-widest uppercase mb-2">
-                    <Sun className="h-3.5 w-3.5 text-[#C69A55]" />
-                    <span>SUMMER 2026</span>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] text-xs font-bold tracking-widest uppercase">
+                      {selectedSeason === 'spring' ? (
+                        <Sparkles className="h-3.5 w-3.5 text-[#6D9B7C]" />
+                      ) : (
+                        <Sun className="h-3.5 w-3.5 text-[#C69A55]" />
+                      )}
+                      <span>{activeSeasonLabel}</span>
+                    </div>
+
+                    {/* Minimal Season Selector */}
+                    <div
+                      id="season-selector-control"
+                      className="inline-flex items-center gap-1 bg-[#F7F5F2] dark:bg-[#25232F] p-1 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37]"
+                    >
+                      <button
+                        id="season-btn-spring-2026"
+                        type="button"
+                        onClick={() => {
+                          setSelectedSeason('spring');
+                          if (jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                            loadJikanSpringCatalogue();
+                          }
+                        }}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          selectedSeason === 'spring'
+                            ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
+                            : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
+                        }`}
+                      >
+                        Spring 2026
+                      </button>
+                      <button
+                        id="season-btn-summer-2026"
+                        type="button"
+                        onClick={() => setSelectedSeason('summer')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          selectedSeason === 'summer'
+                            ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
+                            : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
+                        }`}
+                      >
+                        Summer 2026
+                      </button>
+                    </div>
                   </div>
-                  <h2 className="text-3xl font-bold text-[#25242A]">
+
+                  <h2 className="text-3xl font-bold text-[#25242A] dark:text-[#EAE8F0]">
                     Your season, at a glance.
                   </h2>
-                  <p className="text-sm text-[#77747D] mt-1">
+                  <p className="text-sm text-[#77747D] dark:text-[#A4A1AA] mt-1">
                     Everything you're watching and completing this season.
                   </p>
                 </div>
 
-                <button
-                  onClick={() => {
-                    if (malUser) fetchMalList();
-                    loadJikanSeasonalCatalogue();
-                    fetchSeasonalList(2026, 'summer');
-                    loadCalendarSeasonalReleases();
-                  }}
-                  disabled={seasonalLoading || malLoading || jikanSeasonLoading}
-                  className="px-4 py-2 rounded-xl bg-white border border-[#E7E3DF] hover:bg-slate-50 text-[#25242A] font-medium text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${seasonalLoading || malLoading || jikanSeasonLoading ? 'animate-spin' : ''}`} />
-                  <span>Refresh Data</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    id="season-export-excel-button"
+                    type="button"
+                    onClick={() => setIsExcelExportModalOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-white dark:bg-[#25232F] hover:bg-[#F0EDFA] dark:hover:bg-[#2E2C37] text-[#7567C7] border border-[#E7E3DF] dark:border-[#2E2C37] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title={`Export ${activeSeasonLabel} to Excel`}
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-[#7567C7]" />
+                    <span>Export Season</span>
+                  </button>
+
+                  <button
+                    id="season-refresh-data-button"
+                    onClick={() => {
+                      if (malUser) fetchMalList();
+                      loadJikanSeasonalCatalogue();
+                      loadJikanSpringCatalogue();
+                      fetchSeasonalList(2026, selectedSeason);
+                      loadCalendarSeasonalReleases();
+                    }}
+                    disabled={seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading}
+                    className="px-4 py-2 rounded-xl bg-white dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] hover:bg-slate-50 dark:hover:bg-[#2E2C37] text-[#25242A] dark:text-[#EAE8F0] font-medium text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh Data</span>
+                  </button>
+                </div>
               </div>
 
               {/* Quick Metrics Bar */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#E7E3DF]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#E7E3DF] dark:border-[#2E2C37]">
                 <div>
-                  <div className="text-2xl font-bold text-[#25242A]">{currentlyWatchingItems.length}</div>
-                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">WATCHING</div>
+                  <div className="text-2xl font-bold text-[#25242A] dark:text-[#EAE8F0]">{activeWatchingItems.length}</div>
+                  <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">WATCHING</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-[#25242A]">{completedSummer2026Items.length}</div>
-                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">COMPLETED</div>
+                  <div className="text-2xl font-bold text-[#25242A] dark:text-[#EAE8F0]">{activeCompletedItems.length}</div>
+                  <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">COMPLETED</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-[#25242A]">
+                  <div className="text-2xl font-bold text-[#25242A] dark:text-[#EAE8F0]">
                     {malList.length > 0
                       ? (malList.reduce((acc, curr) => acc + (curr.list_status?.score || 0), 0) / (malList.filter(i => i.list_status?.score > 0).length || 1)).toFixed(1)
                       : '—'}
                   </div>
-                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">AVG SCORE</div>
+                  <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">AVG SCORE</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-[#25242A]">{allSummer2026Ids.size}</div>
-                  <div className="text-xs font-semibold text-[#77747D] uppercase tracking-wider">SEASON RELEASES</div>
+                  <div className="text-2xl font-bold text-[#25242A] dark:text-[#EAE8F0]">{activeSeasonTotalReleases}</div>
+                  <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">SEASON RELEASES</div>
                 </div>
               </div>
             </div>
@@ -1913,9 +2163,13 @@ export default function App() {
             {/* CURRENTLY WATCHING */}
             <SeasonTable
               title="Currently Watching"
-              subtitle="Anime from your MyAnimeList account that are airing in Summer 2026."
+              subtitle={
+                selectedSeason === 'spring'
+                  ? 'Anime from your MyAnimeList account that aired in Spring 2026.'
+                  : 'Anime from your MyAnimeList account that are airing in Summer 2026.'
+              }
               icon={<PlayCircle className="h-5 w-5 text-[#6D9B7C]" />}
-              items={currentlyWatchingItems}
+              items={activeWatchingItems}
               badgeText="Watching"
               badgeBg="bg-[#F0EDFA]"
               badgeTextClass="text-[#7567C7]"
@@ -1926,12 +2180,20 @@ export default function App() {
               onQuickIncrement={handleQuickIncrement}
             />
 
-            {/* COMPLETED DURING SUMMER 2026 */}
+            {/* COMPLETED DURING SEASON */}
             <SeasonTable
-              title="Completed During Summer 2026"
-              subtitle="Anime completed during the Summer 2026 season."
+              title={
+                selectedSeason === 'spring'
+                  ? 'Completed During Spring 2026'
+                  : 'Completed During Summer 2026'
+              }
+              subtitle={
+                selectedSeason === 'spring'
+                  ? 'Anime completed during the Spring 2026 season (Apr 1 – Jun 30, 2026).'
+                  : 'Anime completed during the Summer 2026 season.'
+              }
               icon={<CheckCircle2 className="h-5 w-5 text-[#7567C7]" />}
-              items={completedSummer2026Items}
+              items={activeCompletedItems}
               badgeText="Completed in Season"
               badgeBg="bg-[#F0EDFA]"
               badgeTextClass="text-[#7567C7]"
@@ -1961,15 +2223,25 @@ export default function App() {
           <div>
             <StatusDashboard
               malList={malList}
-              summer2026List={summer2026MalList}
-              watchingSummer2026List={currentlyWatchingItems}
-              currentSeasonName="SUMMER 2026"
-              earliestAiringDate={earliestSummer2026AiringDate}
+              seasonalList={activeSeasonMalList}
+              summer2026List={activeSeasonMalList}
+              watchingSeasonList={activeSeasonWatchingList}
+              watchingSummer2026List={activeSeasonWatchingList}
+              currentSeasonName={activeSeasonLabel}
+              selectedSeason={selectedSeason}
+              onSeasonChange={(s) => {
+                setSelectedSeason(s);
+                if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                  loadJikanSpringCatalogue();
+                }
+              }}
+              earliestAiringDate={activeSeasonEarliestAiringDate}
               malUser={malUser}
               malLoading={malLoading}
               malError={malError}
               onConnectMal={handleConnectMal}
               onRefreshMal={fetchMalList}
+              onExportExcel={() => setIsExcelExportModalOpen(true)}
             />
           </div>
         )}
@@ -1979,9 +2251,18 @@ export default function App() {
           <div>
             <GeminiInsightsView
               malList={malList}
-              summer2026List={summer2026MalList}
-              watchingSummer2026List={currentlyWatchingItems}
-              currentSeasonName="SUMMER 2026"
+              seasonalList={activeSeasonMalList}
+              summer2026List={activeSeasonMalList}
+              watchingSeasonList={activeSeasonWatchingList}
+              watchingSummer2026List={activeSeasonWatchingList}
+              currentSeasonName={activeSeasonLabel}
+              selectedSeason={selectedSeason}
+              onSeasonChange={(s) => {
+                setSelectedSeason(s);
+                if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                  loadJikanSpringCatalogue();
+                }
+              }}
               malUser={malUser}
               malLoading={malLoading}
               onConnectMal={handleConnectMal}
@@ -1994,9 +2275,20 @@ export default function App() {
           <div>
             <SeasonReview
               malList={malList}
-              summer2026List={summer2026MalList}
-              watchingSummer2026List={currentlyWatchingItems}
-              completedSummer2026List={completedSummer2026Items}
+              seasonalList={activeSeasonMalList}
+              summer2026List={activeSeasonMalList}
+              watchingSeasonList={activeSeasonWatchingList}
+              watchingSummer2026List={activeSeasonWatchingList}
+              completedSeasonList={activeCompletedItems}
+              completedSummer2026List={activeCompletedItems}
+              currentSeasonName={activeSeasonLabel}
+              selectedSeason={selectedSeason}
+              onSeasonChange={(s) => {
+                setSelectedSeason(s);
+                if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                  loadJikanSpringCatalogue();
+                }
+              }}
               customUserNotes={customUserNotes}
               malUser={malUser}
               onSaveCustomNote={handleSaveCustomNote}
@@ -2030,6 +2322,25 @@ export default function App() {
       <AboutModal
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
+      />
+
+      {/* PROFESSIONAL EXCEL EXPORT MODAL */}
+      <ExcelExportModal
+        isOpen={isExcelExportModalOpen}
+        onClose={() => setIsExcelExportModalOpen(false)}
+        year={2026}
+        season={selectedSeason}
+        onSeasonChange={(newSeason) => {
+          setSelectedSeason(newSeason);
+          if (newSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+            loadJikanSpringCatalogue();
+          }
+        }}
+        malList={malList}
+        seasonAnimeList={activeSeasonMalList}
+        customUserNotes={customUserNotes}
+        malUser={malUser}
+        onSuccessToast={(msg) => showSyncToast(msg, 'success')}
       />
 
       {/* TWO-WAY MAL ENTRY EDIT MODAL */}
