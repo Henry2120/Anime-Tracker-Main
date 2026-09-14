@@ -164,3 +164,21 @@ export interface DaySchedule {
   })[];
 }
 
+export type AnimeAiringState = 'airing' | 'completed' | 'delayed' | 'returning' | 'unknown';
+
+export interface AnimeCompletionInfo {
+  state: AnimeAiringState;
+  stateLabel: string;
+  isCompleted: boolean;
+  isReadyToSummarize: boolean;
+  userProgressComplete: boolean;
+  episodesAired: number | null;
+  totalEpisodes: number | null;
+  userWatchedEpisodes: number;
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+  dotColor: string;
+  reason?: string;
+}
+

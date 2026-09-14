@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { MalListItem, ReleaseCalendarItem } from '../types';
+import { setCachedCalendarItems } from '../utils/completionUtils';
 import { ReleaseCalendarFilters } from './ReleaseCalendarFilters';
 import { TodayReleaseView } from './TodayReleaseView';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
@@ -118,6 +119,7 @@ export function ReleaseCalendar({
 
       if (!bypassCache && scheduleCacheRef.current.has(cacheKey)) {
         const cachedItems = scheduleCacheRef.current.get(cacheKey)!;
+        setCachedCalendarItems(cachedItems);
         setRawItems(cachedItems);
         setLoading(false);
         setError(null);
@@ -142,6 +144,7 @@ export function ReleaseCalendar({
         const data = await res.json();
         const items: ReleaseCalendarItem[] = Array.isArray(data.data) ? data.data : [];
         scheduleCacheRef.current.set(cacheKey, items);
+        setCachedCalendarItems(items);
         setRawItems(items);
 
         // Only notify summer season tracker if items actually fall within Summer 2026 (July 1 - Sep 30, 2026)

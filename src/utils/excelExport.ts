@@ -513,7 +513,7 @@ function buildWelcomeSheet(
     },
     {
       tab: '📊 Statistics',
-      desc: 'Visual analytics dashboard with native Excel charts (Score & Status distributions, Top Genres doughnut chart, Genre Breakdown table, and Supporting Data Matrices).',
+      desc: 'Visual analytics dashboard with native Excel charts (Score rating distribution, Genre Breakdown table, and Supporting Data Matrices).',
     },
   ];
 
@@ -870,11 +870,11 @@ function buildStatisticsSheet(
   ws.getRow(8).height = 16;
 
   // ═════════════════════════════════════════════════════════════════════
-  // SECTION 2: SCORE & WATCH STATUS DISTRIBUTIONS (NATIVE CHARTS)
+  // SECTION 2: SCORE RATING DISTRIBUTION (NATIVE CHART)
   // ═════════════════════════════════════════════════════════════════════
   ws.mergeCells('B9:P9');
   const sec2 = ws.getCell('B9');
-  sec2.value = '2. SCORE & WATCH STATUS DISTRIBUTIONS';
+  sec2.value = '2. SCORE RATING DISTRIBUTION';
   sec2.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FF3D3560' } };
   sec2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBE6F7' } };
   sec2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -887,9 +887,7 @@ function buildStatisticsSheet(
   // Spacer row 10
   ws.getRow(10).height = 10;
 
-  // Chart 1 (Score Distribution) occupies Cols B to H, Rows 11 to 28
-  // Chart 2 (Watch Status Distribution) occupies Cols J to P, Rows 11 to 28
-  // (Col I is the separator between them)
+  // Chart 1 (Score Distribution) occupies Cols B to P, Rows 11 to 28
   for (let r = 11; r <= 28; r++) {
     ws.getRow(r).height = 20;
   }
@@ -898,11 +896,11 @@ function buildStatisticsSheet(
   ws.getRow(29).height = 18;
 
   // ═════════════════════════════════════════════════════════════════════
-  // SECTION 3: GENRE DISTRIBUTION & BREAKDOWN
+  // SECTION 3: GENRE BREAKDOWN
   // ═════════════════════════════════════════════════════════════════════
   ws.mergeCells('B30:P30');
   const sec3 = ws.getCell('B30');
-  sec3.value = '3. GENRE DISTRIBUTION & BREAKDOWN';
+  sec3.value = '3. GENRE BREAKDOWN';
   sec3.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FF3D3560' } };
   sec3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBE6F7' } };
   sec3.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -1287,70 +1285,6 @@ function makeOpenXmlBarChart(opts: {
 }
 
 /**
- * OpenXML Doughnut/Pie Chart XML Generator
- */
-function makeOpenXmlDoughnutChart(opts: {
-  title: string;
-  seriesName: string;
-  catRef: string;
-  catValues: (string | number)[];
-  valRef: string;
-  valValues: number[];
-}): string {
-  const catItems = opts.catValues.length > 0 ? opts.catValues : ['No Data'];
-  const valItems = opts.valValues.length > 0 ? opts.valValues : [1];
-
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <c:lang val="en-US"/>
-  <c:chart>
-    <c:title>
-      <c:tx>
-        <c:rich>
-          <a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr b="1" sz="1100"/></a:pPr><a:r><a:rPr b="1" sz="1100"/><a:t>${opts.title}</a:t></a:r></a:p>
-        </c:rich>
-      </c:tx>
-      <c:layout/>
-    </c:title>
-    <c:plotArea>
-      <c:layout/>
-      <c:doughnutChart>
-        <c:varyColors val="1"/>
-        <c:ser>
-          <c:idx val="0"/>
-          <c:order val="0"/>
-          <c:tx><c:v>${opts.seriesName}</c:v></c:tx>
-          <c:cat>
-            <c:strRef>
-              <c:f>${opts.catRef}</c:f>
-              <c:strCache>
-                <c:ptCount val="${catItems.length}"/>
-                ${catItems.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('')}
-              </c:strCache>
-            </c:strRef>
-          </c:cat>
-          <c:val>
-            <c:numRef>
-              <c:f>${opts.valRef}</c:f>
-              <c:numCache>
-                <c:formatCode>General</c:formatCode>
-                <c:ptCount val="${valItems.length}"/>
-                ${valItems.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('')}
-              </c:numCache>
-            </c:numRef>
-          </c:val>
-        </c:ser>
-        <c:holeSize val="55"/>
-      </c:doughnutChart>
-    </c:plotArea>
-    <c:legend><c:legendPos val="r"/><c:layout/></c:legend>
-    <c:plotVisOnly val="1"/>
-  </c:chart>
-  <c:printSettings><c:headerFooter/><c:pageMargins b="0.75" l="0.7" r="0.7" t="0.75" header="0.3" footer="0.3"/><c:pageSetup/></c:printSettings>
-</c:chartSpace>`;
-}
-
-/**
  * Injects genuine OpenXML charts and drawings into the .xlsx zip container for 📊 Statistics
  */
 async function injectNativeExcelCharts(
@@ -1404,14 +1338,10 @@ async function injectNativeExcelCharts(
 </Relationships>`;
   zip.file(sheetRelsPath, sheetRelsXml);
 
-  // 4. Create drawing1.xml containing twoCellAnchor frames for the 3 charts:
-  // - Chart 1: Score Distribution (Cols B to H, Rows 11 to 28) -> col 1 to 8, row 10 to 28
-  // - Chart 2: Watch Status Distribution (Cols J to P, Rows 11 to 28) -> col 9 to 16, row 10 to 28
-  // - Chart 3: Top Genres Distribution (Cols B to I, Rows 32 to 50) -> col 1 to 8, row 31 to 50
+  // 4. Create drawing1.xml containing twoCellAnchor frame for Chart 1 (Score Distribution):
+  // - Chart 1: Score Distribution (Cols B to P, Rows 11 to 28) -> col 1 to 16, row 10 to 28
   const chartAnchors = [
-    { id: 1, colFrom: 1, rowFrom: 10, colTo: 8, rowTo: 28 },
-    { id: 2, colFrom: 9, rowFrom: 10, colTo: 16, rowTo: 28 },
-    { id: 3, colFrom: 1, rowFrom: 31, colTo: 8, rowTo: 50 },
+    { id: 1, colFrom: 1, rowFrom: 10, colTo: 16, rowTo: 28 },
   ];
 
   const drawingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1433,16 +1363,14 @@ ${chartAnchors.map((a) => `  <xdr:twoCellAnchor>
 </xdr:wsDr>`;
   zip.file('xl/drawings/drawing1.xml', drawingXml);
 
-  // 5. Create drawing rels connecting drawing1 to chart1..chart3
+  // 5. Create drawing rels connecting drawing1 to chart1
   const drawingRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart2.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart3.xml"/>
 </Relationships>`;
   zip.file('xl/drawings/_rels/drawing1.xml.rels', drawingRelsXml);
 
-  // 6. Build Chart 1: Score Distribution (Column Chart)
+  // 6. Build Chart 1: Score Rating Distribution (Column Chart)
   // Data source: Table A in Rows 56 to 65 (Cols B & D)
   const scoreCatValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => `${s}★`);
   const scoreValValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(
@@ -1459,51 +1387,12 @@ ${chartAnchors.map((a) => `  <xdr:twoCellAnchor>
     colorHex: '56499E',
   }));
 
-  // 7. Build Chart 2: Watch Status Distribution (Column Chart)
-  // Data source: Table B in Rows 56 to 60 (Cols H & K)
-  const statusLabels = ['Completed', 'Watching', 'Plan to Watch', 'On Hold', 'Dropped'];
-  const statusCounts = [
-    stats.completedCount,
-    stats.watchingCount,
-    stats.ptwCount,
-    stats.onHoldCount,
-    stats.droppedCount,
-  ];
-  zip.file('xl/charts/chart2.xml', makeOpenXmlBarChart({
-    title: 'Watch Status Distribution',
-    seriesName: 'Anime Count',
-    yTitle: 'Number of Anime',
-    catRef: "'📊 Statistics'!$H$56:$H$60",
-    catValues: statusLabels,
-    valRef: "'📊 Statistics'!$K$56:$K$60",
-    valValues: statusCounts,
-    colorHex: '7567C7',
-  }));
-
-  // 8. Build Chart 3: Genre Distribution (Doughnut Chart)
-  // Data source: Genre Breakdown Table in Rows 33 to lastGenreRow (Cols J & M)
-  const topGenres = (stats.genreChartData || []).slice(0, 14);
-  const genreLabels = topGenres.length > 0 ? topGenres.map((g) => g.name) : ['No Genres'];
-  const genreCounts = topGenres.length > 0 ? topGenres.map((g) => g.count) : [0];
-  const lastGenreRow = Math.max(33, 32 + (topGenres.length || 1));
-
-  zip.file('xl/charts/chart3.xml', makeOpenXmlDoughnutChart({
-    title: 'Top Genres Distribution',
-    seriesName: 'Anime Count',
-    catRef: `'📊 Statistics'!$J$33:$J$${lastGenreRow}`,
-    catValues: genreLabels,
-    valRef: `'📊 Statistics'!$M$33:$M$${lastGenreRow}`,
-    valValues: genreCounts,
-  }));
-
-  // 9. Register drawing & chart parts in [Content_Types].xml
+  // 7. Register drawing & chart parts in [Content_Types].xml
   let ctXml = await zip.file('[Content_Types].xml')?.async('text');
   if (ctXml) {
     const ctOverrides = [
       '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>',
       '<Override PartName="/xl/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
-      '<Override PartName="/xl/charts/chart2.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
-      '<Override PartName="/xl/charts/chart3.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
     ].join('');
     if (!ctXml.includes('drawing1.xml')) {
       ctXml = ctXml.replace('</Types>', `${ctOverrides}</Types>`);

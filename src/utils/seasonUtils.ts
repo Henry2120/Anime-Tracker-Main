@@ -1,3 +1,6 @@
+import type { ReleaseCalendarItem } from '../types';
+import { setCachedCalendarItems } from './completionUtils';
+
 export interface JikanSeasonalAnime {
   mal_id: number;
   title: string;
@@ -368,16 +371,14 @@ export async function fetchJikanAnimeInfo(malId: number): Promise<JikanAnimeResp
 }
 
 /**
- * Fetches release calendar data and extracts all MAL IDs airing during the target season window.
- * This serves as an additional fallback for seasonal detection in MY SEASON when MAL/Jikan metadata is missing or vague.
+ * Fetches release calendar items for the seasonal window and caches them in memory.
  */
-export async function fetchCalendarSeasonReleases(
+export async function fetchCalendarSeasonItems(
   startSec?: number,
   endSec?: number
-): Promise<number[]> {
+): Promise<ReleaseCalendarItem[]> {
   try {
     const nowSec = Math.floor(Date.now() / 1000);
-    // Broad window covering Summer 2026 / active season schedules
     const s = startSec ?? Math.min(nowSec - 30 * 86400, 1782864000);
     const e = endSec ?? Math.max(nowSec + 30 * 86400, 1790812800);
 
@@ -386,17 +387,37 @@ export async function fetchCalendarSeasonReleases(
       const fallbackRes = await fetch(`/api/release-calendar`);
       if (!fallbackRes.ok) return [];
       const fallbackData = await fallbackRes.json();
-      if (!Array.isArray(fallbackData.data)) return [];
-      return fallbackData.data
-        .map((item: any) => (item.malId ? Number(item.malId) : null))
-        .filter((id: any): id is number => typeof id === 'number' && !isNaN(id));
+      const items: ReleaseCalendarItem[] = Array.isArray(fallbackData.data) ? fallbackData.data : [];
+      if (items.length > 0) {
+        setCachedCalendarItems(items);
+      }
+      return items;
     }
 
     const data = await res.json();
-    if (!Array.isArray(data.data)) return [];
+    const items: ReleaseCalendarItem[] = Array.isArray(data.data) ? data.data : [];
+    if (items.length > 0) {
+      setCachedCalendarItems(items);
+    }
+    return items;
+  } catch (err) {
+    console.warn('Could not fetch calendar seasonal items:', err);
+    return [];
+  }
+}
 
+/**
+ * Fetches release calendar data and extracts all MAL IDs airing during the target season window.
+ * This serves as an additional fallback for seasonal detection in MY SEASON when MAL/Jikan metadata is missing or vague.
+ */
+export async function fetchCalendarSeasonReleases(
+  startSec?: number,
+  endSec?: number
+): Promise<number[]> {
+  try {
+    const items = await fetchCalendarSeasonItems(startSec, endSec);
     const malIds: number[] = [];
-    for (const item of data.data) {
+    for (const item of items) {
       if (item.malId) {
         const parsed = Number(item.malId);
         if (!isNaN(parsed) && parsed > 0) {
@@ -481,4 +502,32 @@ export function getAnimeForSelectedSeason<T = any>({
 
   return items;
 }
+
+export interface AppSeason {
+  id: 'spring' | 'summer';
+  season: 'spring' | 'summer';
+  year: number;
+  label: string;
+  shortLabel: string;
+  seasonLabelJa: string;
+}
+
+export const SUPPORTED_SEASONS: AppSeason[] = [
+  {
+    id: 'spring',
+    season: 'spring',
+    year: 2026,
+    label: 'Spring 2026',
+    shortLabel: 'Spring 26',
+    seasonLabelJa: '春',
+  },
+  {
+    id: 'summer',
+    season: 'summer',
+    year: 2026,
+    label: 'Summer 2026',
+    shortLabel: 'Summer 26',
+    seasonLabelJa: '夏',
+  },
+];
 

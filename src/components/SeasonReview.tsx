@@ -22,10 +22,12 @@ import {
   AlertCircle,
   ExternalLink,
 } from 'lucide-react';
-import { MalListItem, MalUser } from '../types';
+import { MalListItem, MalUser, ReleaseCalendarItem } from '../types';
 import { AppTheme } from '../types/theme';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
+import { getAnimeAiringState, getSeasonCompletionStats } from '../utils/completionUtils';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
+import { SeasonSelector } from './SeasonSelector';
 
 export interface SeasonReviewProps {
   malList: MalListItem[];
@@ -43,6 +45,7 @@ export interface SeasonReviewProps {
   onSaveCustomNote?: (animeId: number, note: string) => void;
   onConnectMal?: () => void;
   theme?: AppTheme;
+  calendarItems?: ReleaseCalendarItem[];
 }
 
 export const SeasonReview: React.FC<SeasonReviewProps> = ({
@@ -61,6 +64,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
   onSaveCustomNote,
   onConnectMal,
   theme = 'light',
+  calendarItems,
 }) => {
   const isDark = theme === 'dark';
   const isSakura = theme === 'sakura';
@@ -125,15 +129,20 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
         : seasonAnime.reduce((acc, curr) => acc + (curr.node?.mean || 0), 0) /
             (seasonAnime.filter((i) => (i.node?.mean || 0) > 0).length || 1);
 
+    const completionStats = getSeasonCompletionStats(seasonAnime, calendarItems);
+
     return {
       animeWatched: watchedItems.length || seasonAnime.length,
       episodesWatched: totalEpisodes,
       completedCount: completedItems.length,
+      finishedAiringCount: completionStats.finishedCount,
+      readyToSummarizeCount: completionStats.readyToSummarizeCount,
+      airingCount: completionStats.airingCount,
       averageScore: avgScore > 0 ? avgScore.toFixed(1) : '8.0',
       hasScoredItems: scoredItems.length > 0,
       scoredCount: scoredItems.length,
     };
-  }, [seasonAnime]);
+  }, [seasonAnime, calendarItems]);
 
   // 3. Podium Ranking (#1, #2, #3 Anime of the Season)
   const podium = useMemo(() => {
@@ -504,47 +513,12 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
             </div>
 
             {onSeasonChange && (
-              <div
-                id="review-hero-season-selector"
-                className={`inline-flex items-center gap-1 p-0.5 rounded-lg border ${
-                  isDark
-                    ? 'bg-[#181628] border-[#2D2A4A]'
-                    : isSakura
-                    ? 'bg-white/90 border-[#F2CDD9]'
-                    : 'bg-[#F7F5F2] border-[#E7E3DF]'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSeasonChange('spring')}
-                  className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    selectedSeason === 'spring'
-                      ? isDark
-                        ? 'bg-[#2A2744] text-white shadow-2xs'
-                        : 'bg-white text-[#7567C7] shadow-2xs'
-                      : isDark
-                      ? 'text-[#AEA8C9] hover:text-white'
-                      : 'text-[#77747D] hover:text-[#25242A]'
-                  }`}
-                >
-                  Spring 2026
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSeasonChange('summer')}
-                  className={`px-2.5 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    selectedSeason === 'summer'
-                      ? isDark
-                        ? 'bg-[#2A2744] text-white shadow-2xs'
-                        : 'bg-white text-[#7567C7] shadow-2xs'
-                      : isDark
-                      ? 'text-[#AEA8C9] hover:text-white'
-                      : 'text-[#77747D] hover:text-[#25242A]'
-                  }`}
-                >
-                  Summer 2026
-                </button>
-              </div>
+              <SeasonSelector
+                variant="review"
+                idPrefix="review-hero-season-selector"
+                selectedSeason={selectedSeason}
+                onSelectSeason={(s) => onSeasonChange(s)}
+              />
             )}
           </div>
 
@@ -643,6 +617,14 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
               >
                 Completed
               </span>
+              {metrics.finishedAiringCount > 0 && (
+                <span
+                  className="text-[10px] font-semibold mt-1 text-[#7567C7] dark:text-[#C5BEF7]"
+                  title={`${metrics.finishedAiringCount} seasonal anime broadcast run finished, ${metrics.readyToSummarizeCount} ready to summarize`}
+                >
+                  {metrics.finishedAiringCount} broadcast finished
+                </span>
+              )}
             </div>
 
             <div
@@ -797,17 +779,22 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                         {podium.first.list_status?.num_episodes_watched || 0} episodes logged
                       </span>
                       <span
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-xl ${
-                          isDark
-                            ? 'text-[#D8D2FF] bg-[#7567C7]/20'
-                            : isSakura
-                            ? 'text-[#E06D9B] bg-[#E06D9B]/10'
-                            : 'text-[#7567C7] bg-[#7567C7]/10'
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
+                          getAnimeAiringState(podium.first, calendarItems).badgeBg
+                        } ${getAnimeAiringState(podium.first, calendarItems).badgeText} border ${
+                          getAnimeAiringState(podium.first, calendarItems).badgeBorder
                         }`}
+                        title={getAnimeAiringState(podium.first, calendarItems).reason}
                       >
-                        {podium.first.list_status?.status === 'completed'
-                          ? '✓ Finished Season'
-                          : 'Currently Watching'}
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            getAnimeAiringState(podium.first, calendarItems).dotColor
+                          }`}
+                        />
+                        <span>{getAnimeAiringState(podium.first, calendarItems).stateLabel}</span>
+                        {getAnimeAiringState(podium.first, calendarItems).isReadyToSummarize && (
+                          <span className="text-[10px] font-bold opacity-90">• Ready</span>
+                        )}
                       </span>
                     </div>
 
@@ -902,6 +889,16 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                       >
                         {podium.second.list_status?.num_episodes_watched || 0} eps
                       </span>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                          getAnimeAiringState(podium.second, calendarItems).badgeBg
+                        } ${getAnimeAiringState(podium.second, calendarItems).badgeText} ${
+                          getAnimeAiringState(podium.second, calendarItems).badgeBorder
+                        }`}
+                        title={getAnimeAiringState(podium.second, calendarItems).reason}
+                      >
+                        {getAnimeAiringState(podium.second, calendarItems).stateLabel}
+                      </span>
                     </div>
 
                     {/* Silver Plaque Accent */}
@@ -978,6 +975,16 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                         }`}
                       >
                         {podium.third.list_status?.num_episodes_watched || 0} eps
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                          getAnimeAiringState(podium.third, calendarItems).badgeBg
+                        } ${getAnimeAiringState(podium.third, calendarItems).badgeText} ${
+                          getAnimeAiringState(podium.third, calendarItems).badgeBorder
+                        }`}
+                        title={getAnimeAiringState(podium.third, calendarItems).reason}
+                      >
+                        {getAnimeAiringState(podium.third, calendarItems).stateLabel}
                       </span>
                     </div>
 
@@ -2021,60 +2028,22 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
             : 'border-[#E7E3DF] text-[#77747D]'
         }`}
       >
-        <button
-          type="button"
-          onClick={() => onSeasonChange?.('spring')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${
-            selectedSeason === 'spring'
-              ? isDark
-                ? 'bg-[#1E1B33] border-[#E5B869]/50 text-white font-bold'
-                : 'bg-white border-[#C69A55] text-[#25242A] shadow-2xs font-bold'
-              : isDark
-              ? 'bg-[#181628] border-[#2D2A4A] text-[#AEA8C9] hover:bg-[#201D36]'
-              : 'bg-[#F7F5F2] border-[#E7E3DF] text-[#77747D] hover:bg-[#EAE6DF]'
-          }`}
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span>SPRING 2026 {selectedSeason === 'spring' ? '(ACTIVE)' : ''}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-[#E5B869]" />
+          <span className="uppercase tracking-wider font-bold">Season Review Navigation</span>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => onSeasonChange?.('summer')}
-          className={`flex items-center gap-2 border px-4 py-2 rounded-xl transition-all cursor-pointer ${
-            selectedSeason === 'summer'
-              ? isDark
-                ? 'bg-[#1E1B33] border-[#E5B869]/50 text-white font-bold'
-                : 'bg-white border-[#C69A55] text-[#25242A] shadow-2xs font-bold'
-              : isDark
-              ? 'bg-[#181628] border-[#2D2A4A] text-[#AEA8C9] hover:bg-[#201D36]'
-              : 'bg-[#F7F5F2] border-[#E7E3DF] text-[#77747D] hover:bg-[#EAE6DF]'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              selectedSeason === 'summer' ? 'animate-pulse' : ''
-            } ${
-              isDark ? 'bg-[#E5B869]' : isSakura ? 'bg-[#D49E50]' : 'bg-[#C69A55]'
-            }`}
-          />
-          <span>SUMMER 2026 {selectedSeason === 'summer' ? '(ACTIVE)' : ''}</span>
-        </button>
-
-        <button
-          disabled
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-not-allowed opacity-60 ${
-            isDark
-              ? 'bg-[#181628] border-[#2D2A4A] text-[#636077]'
-              : isSakura
-              ? 'bg-white/60 border-[#F2D0DB] text-[#A88BA8]'
-              : 'bg-[#F5F2EB] border-[#E7E3DF] text-[#9B97A2]'
-          }`}
-          title="Upcoming seasons will unlock upon release"
-        >
-          <span>FALL 2026 (Upcoming)</span>
-          <ChevronRight className="h-4 w-4" />
-        </button>
+        {onSeasonChange && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#77747D] dark:text-[#AEA8C9]">Switch Season:</span>
+            <SeasonSelector
+              variant="review"
+              idPrefix="review-bottom-season-selector"
+              selectedSeason={selectedSeason}
+              onSelectSeason={(s) => onSeasonChange(s)}
+            />
+          </div>
+        )}
       </div>
 
       {/* ANIME DETAIL MODAL */}

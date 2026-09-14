@@ -24,7 +24,7 @@ import {
   BookOpen,
   FileSpreadsheet,
 } from 'lucide-react';
-import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload, MalAnimeNode } from './types';
+import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload, MalAnimeNode, ReleaseCalendarItem } from './types';
 import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { MalCatalogueSearchResults } from './components/MalCatalogueSearchResults';
@@ -33,6 +33,7 @@ import { ReleaseCalendar } from './components/ReleaseCalendar';
 import { StatusDashboard } from './components/StatusDashboard';
 import { GeminiInsightsView } from './components/GeminiInsightsView';
 import { SeasonReview } from './components/SeasonReview';
+import { SeasonSelector } from './components/SeasonSelector';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
 import { ExcelExportModal } from './components/ExcelExportModal';
@@ -41,10 +42,12 @@ import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { APP_VERSION_INFO } from './config/version';
+import { getSeasonCompletionStats } from './utils/completionUtils';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
   fetchCalendarSeasonReleases,
+  fetchCalendarSeasonItems,
   isAnimeSummer2026,
   isAnimeSpring2026,
   isAnimeInSeason,
@@ -174,6 +177,7 @@ export default function App() {
 
   // Release Calendar Summer 2026 Fallback State
   const [calendarSummer2026Ids, setCalendarSummer2026Ids] = useState<Set<number>>(new Set());
+  const [seasonalCalendarItems, setSeasonalCalendarItems] = useState<ReleaseCalendarItem[]>([]);
 
   // Local user notes stored in localStorage
   const [customUserNotes, setCustomUserNotes] = useState<Record<number, string>>(() => {
@@ -876,6 +880,12 @@ export default function App() {
       : earliestSummer2026AiringDate;
   }, [selectedSeason, earliestSpring2026AiringDate, earliestSummer2026AiringDate]);
 
+  // 4. Season Completion Stats for active season
+  const seasonCompletionStats = useMemo(() => {
+    const allActiveItems = [...activeWatchingItems, ...activeCompletedItems];
+    return getSeasonCompletionStats(allActiveItems, seasonalCalendarItems);
+  }, [activeWatchingItems, activeCompletedItems, seasonalCalendarItems]);
+
   // Complete list of MAL anime classified as Summer 2026 across all statuses (for backward compatibility)
   const summer2026MalList = useMemo(() => {
     if (selectedSeason === 'summer') return activeSeasonMalList;
@@ -919,13 +929,23 @@ export default function App() {
   // Fetch Release Calendar releases for Summer 2026 season window
   const loadCalendarSeasonalReleases = async () => {
     try {
-      const malIds = await fetchCalendarSeasonReleases();
-      if (malIds.length > 0) {
-        setCalendarSummer2026Ids((prev) => {
-          const next = new Set(prev);
-          for (const id of malIds) next.add(id);
-          return next;
-        });
+      const items = await fetchCalendarSeasonItems();
+      if (items.length > 0) {
+        setSeasonalCalendarItems(items);
+        const malIds: number[] = [];
+        for (const item of items) {
+          if (item.malId) {
+            const parsed = Number(item.malId);
+            if (!isNaN(parsed) && parsed > 0) malIds.push(parsed);
+          }
+        }
+        if (malIds.length > 0) {
+          setCalendarSummer2026Ids((prev) => {
+            const next = new Set(prev);
+            for (const id of malIds) next.add(id);
+            return next;
+          });
+        }
       }
     } catch (err) {
       console.error('Error fetching calendar seasonal releases fallback:', err);
@@ -2060,41 +2080,17 @@ export default function App() {
                       <span>{activeSeasonLabel}</span>
                     </div>
 
-                    {/* Minimal Season Selector */}
-                    <div
-                      id="season-selector-control"
-                      className="inline-flex items-center gap-1 bg-[#F7F5F2] dark:bg-[#25232F] p-1 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37]"
-                    >
-                      <button
-                        id="season-btn-spring-2026"
-                        type="button"
-                        onClick={() => {
-                          setSelectedSeason('spring');
-                          if (jikanSpring2026List.length === 0 && !jikanSpringLoading) {
-                            loadJikanSpringCatalogue();
-                          }
-                        }}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          selectedSeason === 'spring'
-                            ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
-                            : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
-                        }`}
-                      >
-                        Spring 2026
-                      </button>
-                      <button
-                        id="season-btn-summer-2026"
-                        type="button"
-                        onClick={() => setSelectedSeason('summer')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          selectedSeason === 'summer'
-                            ? 'bg-white dark:bg-[#1C1A24] text-[#7567C7] shadow-2xs'
-                            : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-[#EAE8F0]'
-                        }`}
-                      >
-                        Summer 2026
-                      </button>
-                    </div>
+                    {/* Scalable Season Selector */}
+                    <SeasonSelector
+                      idPrefix="season-selector-control"
+                      selectedSeason={selectedSeason}
+                      onSelectSeason={(s) => {
+                        setSelectedSeason(s);
+                        if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                          loadJikanSpringCatalogue();
+                        }
+                      }}
+                    />
                   </div>
 
                   <h2 className="text-3xl font-bold text-[#25242A] dark:text-[#EAE8F0]">
@@ -2158,6 +2154,33 @@ export default function App() {
                   <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">SEASON RELEASES</div>
                 </div>
               </div>
+
+              {/* Completion Radar */}
+              <div className="mt-4 pt-3 border-t border-[#E7E3DF]/70 dark:border-[#2E2C37]/70 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-[#7567C7]" />
+                  <span className="font-bold text-[#25242A] dark:text-[#EAE8F0]">Season Completion:</span>
+                  <span className="text-[#77747D] dark:text-[#9E9AA6]">
+                    <strong className="text-[#25242A] dark:text-[#EAE8F0]">{seasonCompletionStats.finishedCount}</strong> finished broadcast
+                    {seasonCompletionStats.readyToSummarizeCount > 0 && (
+                      <> • <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{seasonCompletionStats.readyToSummarizeCount}</strong> ready to summarize</>
+                    )}
+                  </span>
+                </div>
+                {seasonCompletionStats.airingCount > 0 && (
+                  <div className="text-[11px] text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>{seasonCompletionStats.airingCount} still airing</span>
+                    {seasonCompletionStats.delayedCount > 0 && (
+                      <>
+                        <span className="mx-1">•</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        <span>{seasonCompletionStats.delayedCount} delayed</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* CURRENTLY WATCHING */}
@@ -2178,6 +2201,7 @@ export default function App() {
               onSelectAnime={handleOpenDetailModal}
               onEditAnime={handleOpenEditModal}
               onQuickIncrement={handleQuickIncrement}
+              calendarItems={seasonalCalendarItems}
             />
 
             {/* COMPLETED DURING SEASON */}
@@ -2202,6 +2226,7 @@ export default function App() {
               onSelectAnime={handleOpenDetailModal}
               onEditAnime={handleOpenEditModal}
               onQuickIncrement={handleQuickIncrement}
+              calendarItems={seasonalCalendarItems}
             />
           </div>
         )}
@@ -2294,6 +2319,7 @@ export default function App() {
               onSaveCustomNote={handleSaveCustomNote}
               onConnectMal={handleConnectMal}
               theme={theme}
+              calendarItems={seasonalCalendarItems}
             />
           </div>
         )}

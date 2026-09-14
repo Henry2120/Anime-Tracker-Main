@@ -8,8 +8,11 @@ import {
   Check,
   X,
   Plus,
+  Sparkles,
 } from 'lucide-react';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
+import { getAnimeAiringState } from '../utils/completionUtils';
+import type { ReleaseCalendarItem } from '../types';
 
 export interface SeasonTableItem {
   node: {
@@ -40,6 +43,9 @@ export interface SeasonTableItem {
     num_episodes_watched?: number;
     comments?: string;
     tags?: string[];
+    priority?: number;
+    num_times_rewatched?: number;
+    rewatch_value?: number;
   };
 }
 
@@ -56,6 +62,7 @@ interface SeasonTableProps {
   onSelectAnime?: (item: SeasonTableItem) => void;
   onEditAnime?: (item: SeasonTableItem) => void;
   onQuickIncrement?: (item: SeasonTableItem) => void;
+  calendarItems?: ReleaseCalendarItem[];
 }
 
 export const SeasonTable: React.FC<SeasonTableProps> = ({
@@ -71,6 +78,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   onSelectAnime,
   onEditAnime,
   onQuickIncrement,
+  calendarItems,
 }) => {
   const [activeNoteModal, setActiveNoteModal] = useState<{
     animeId: number;
@@ -161,6 +169,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                 const localNote = customUserNotes[animeId]?.trim();
                 const displayNote = localNote || malComment || '';
                 const truncatedNote = displayNote.length > 50 ? `${displayNote.slice(0, 50)}...` : displayNote;
+                const airingInfo = getAnimeAiringState(item, calendarItems);
 
                 return (
                   <tr
@@ -223,6 +232,39 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
                           {item.node.alternative_titles.en}
                         </span>
                       )}
+
+                      {/* Airing / Completion Status Indicator */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${airingInfo.badgeBg} ${airingInfo.badgeText} ${airingInfo.badgeBorder}`}
+                          title={airingInfo.reason || `Broadcast status: ${airingInfo.stateLabel}`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${airingInfo.dotColor} ${
+                              airingInfo.state === 'airing' ? 'animate-pulse' : ''
+                            }`}
+                          />
+                          <span>{airingInfo.stateLabel}</span>
+                        </span>
+
+                        {/* Ready to Summarize badge or remaining episodes indicator */}
+                        {airingInfo.isReadyToSummarize ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#C5BEF7] border border-[#7567C7]/30"
+                            title="All available episodes watched for this completed broadcast season. Ready to summarize!"
+                          >
+                            <Sparkles className="h-2.5 w-2.5" />
+                            <span>Ready to Summarize</span>
+                          </span>
+                        ) : airingInfo.isCompleted && totalEps !== null && watchedEps < totalEps ? (
+                          <span
+                            className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6]"
+                            title={`Broadcast finished, but you have ${totalEps - watchedEps} episode(s) remaining`}
+                          >
+                            ({totalEps - watchedEps} ep{totalEps - watchedEps === 1 ? '' : 's'} left)
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
 
                     {/* Score */}

@@ -14,9 +14,62 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION_INFO: AppVersionInfo = {
-  currentVersion: 'v3.1',
+  currentVersion: 'v4.4',
   tagline: 'Your anime. Your season. Your story.',
   history: [
+    {
+      version: 'v4.4',
+      title: 'Anime Completion Detection',
+      date: 'September 2026',
+      description:
+        'Intelligent broadcast completion detection for seasonal anime. AniVerse now distinguishes between user watch progress and whether an anime’s broadcast run has actually finished airing, accounting for split cours, delays, and non-standard run lengths.',
+      changes: [
+        'Added broadcast completion detection without arbitrary 12-episode assumptions.',
+        'Integrated broadcast airing states (Airing, Finished, Delayed, Returning, Unknown) into MY SEASON and Season Review.',
+        'Introduced "Ready to Summarize" indicator when an anime’s broadcast run has finished and all available episodes have been watched.',
+        'Added Season Completion radar to MY SEASON metrics overview.',
+      ],
+      easterEgg:
+        'AniVerse now knows when an anime has actually ended, even when production committees try to keep it a secret.',
+    },
+    {
+      version: 'v4.3',
+      title: 'Season Navigation & Data Polish',
+      date: 'September 2026',
+      description:
+        'Improved Excel chart output and introduced streamlined season selection across MY SEASON and Season Review.',
+      changes: [
+        'Removed unnecessary Number of Anime and Top Genre Distribution charts from the Excel export.',
+        'Added scalable season selection to MY SEASON.',
+        'Added the same streamlined season selection experience to Season Review.',
+      ],
+      easterEgg:
+        'There are now enough seasons that clicking \'next\' started to feel like a full-time job.',
+    },
+    {
+      version: 'v4.2',
+      title: 'Personal Data Export',
+      date: 'September 2026',
+      description:
+        'Added the Excel export capability. AniVerse can now export the user\'s anime-tracking data into spreadsheet format so the information can be kept, analyzed, or used outside AniVerse.',
+      easterEgg: 'Finally, your anime addiction can be opened in Excel.',
+    },
+    {
+      version: 'v4.1',
+      title: 'Seasonal Archive & Historical Viewing',
+      date: 'September 2026',
+      description:
+        'Expanded seasonal tracking so users can move between supported 2026 seasons and view the anime associated with the selected season. Includes historical season selection, viewing anime from the selected season, currently-watching and completed anime for that season, keeping season-specific data separated so anime from another season do not incorrectly appear, and historical release-calendar viewing for older periods.',
+      easterEgg: 'Time travel is finally supported, but only for anime release dates.',
+    },
+    {
+      version: 'v4.0',
+      title: 'Anime Details & Discovery',
+      date: 'September 2026',
+      description:
+        'Enhanced anime information and discovery. Users can open anime details from relevant anime views to see title information, images, scores, episode progress, status, dates, synopsis, genres, season information, studio/source information when available, and personal notes/comments when available. Also adds the ability to discover/search anime from the MyAnimeList catalogue and add titles to the user\'s list.',
+      easterEgg: 'AniVerse now knows more about the anime than the person watching it.',
+    },
     {
       version: 'v3.3',
       title: 'MAL Sync & Reliability',
