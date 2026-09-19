@@ -63,6 +63,80 @@ export function ReleaseCalendar({
   const [hideLongRunning, setHideLongRunning] = useState<boolean>(true);
   const [showOnlyToday, setShowOnlyToday] = useState<boolean>(false);
 
+  // Card Display Visibility States (Defaults: Time = ON, Title = ON, Studio = OFF)
+  // Persisted in localStorage so user preferences are retained across refreshes and navigation
+  const [showTime, setShowTime] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aniverse_calendar_show_time');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [showTitle, setShowTitle] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aniverse_calendar_show_title');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [showEpisode, setShowEpisode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aniverse_calendar_show_episode');
+      return saved !== null ? saved === 'true' : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const [showStudio, setShowStudio] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aniverse_calendar_show_studio');
+      return saved !== null ? saved === 'true' : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleShowTime = (val: boolean) => {
+    setShowTime(val);
+    try {
+      localStorage.setItem('aniverse_calendar_show_time', String(val));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const handleToggleShowTitle = (val: boolean) => {
+    setShowTitle(val);
+    try {
+      localStorage.setItem('aniverse_calendar_show_title', String(val));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const handleToggleShowEpisode = (val: boolean) => {
+    setShowEpisode(val);
+    try {
+      localStorage.setItem('aniverse_calendar_show_episode', String(val));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const handleToggleShowStudio = (val: boolean) => {
+    setShowStudio(val);
+    try {
+      localStorage.setItem('aniverse_calendar_show_studio', String(val));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
   // Modal State
   const [selectedAnimeForModal, setSelectedAnimeForModal] = useState<AnimeDetailData | null>(null);
 
@@ -661,6 +735,14 @@ export function ReleaseCalendar({
         onToggleHideLongRunning={(val) => setHideLongRunning(val)}
         showOnlyToday={showOnlyToday}
         onToggleShowOnlyToday={(val) => setShowOnlyToday(val)}
+        showTime={showTime}
+        onToggleShowTime={handleToggleShowTime}
+        showTitle={showTitle}
+        onToggleShowTitle={handleToggleShowTitle}
+        showEpisode={showEpisode}
+        onToggleShowEpisode={handleToggleShowEpisode}
+        showStudio={showStudio}
+        onToggleShowStudio={handleToggleShowStudio}
         totalReleases={activeReleasesCount}
         watchingCount={activeWatchingCount}
         filteredCount={activeFilteredCount}
@@ -713,23 +795,23 @@ export function ReleaseCalendar({
           />
         ) : (
           <div className="w-full overflow-x-auto pb-4">
-            <div className="min-w-[1050px] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37] bg-white dark:bg-[#1E1D24] overflow-hidden shadow-2xs">
+            <div className="w-full min-w-[1050px] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37] bg-white dark:bg-[#1E1D24] overflow-hidden shadow-2xs">
               {/* 1. Day Column Headers: Seamless horizontal row */}
-              <div className="grid grid-cols-7 divide-x divide-[#E7E3DF] dark:divide-[#2E2C37] bg-[#F7F5F2] dark:bg-[#26252F] border-b border-[#E7E3DF] dark:border-[#2E2C37]">
+              <div className="grid grid-cols-7 w-full divide-x divide-[#E7E3DF] dark:divide-[#2E2C37] bg-[#F7F5F2] dark:bg-[#26252F] border-b border-[#E7E3DF] dark:border-[#2E2C37]">
                 {displayedDaysWithUpcoming.map((day) => {
                   const isToday = day.dateKey === todayDateKey;
                   return (
                     <div
                       key={day.dateKey}
-                      className={`px-2.5 py-2.5 text-center flex flex-col justify-center transition-colors ${
+                      className={`px-3 sm:px-4 py-3 sm:py-3.5 text-center flex flex-col justify-center transition-colors ${
                         isToday
                           ? 'bg-[#F0EDFA] dark:bg-[#2A2542] text-[#25242A] dark:text-[#F4F2F7]'
                           : 'bg-[#F7F5F2] dark:bg-[#26252F] text-[#25242A] dark:text-[#F4F2F7]'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <div className="flex items-center justify-between gap-1 mb-1">
                         <span
-                          className={`text-[11px] font-bold tracking-wider uppercase ${
+                          className={`text-xs sm:text-[13px] font-bold tracking-wider uppercase ${
                             isToday ? 'text-[#C69A55]' : 'text-[#7567C7]'
                           }`}
                         >
@@ -737,13 +819,13 @@ export function ReleaseCalendar({
                         </span>
 
                         {isToday && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-[#C69A55]/20 text-[#C69A55] border border-[#C69A55]/30 text-[9px] font-bold tracking-wider uppercase">
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#C69A55]/20 text-[#C69A55] border border-[#C69A55]/30 text-[9px] sm:text-[10px] font-bold tracking-wider uppercase">
                             TODAY
                           </span>
                         )}
 
                         <span
-                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                          className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md ${
                             isToday
                               ? 'bg-[#7567C7] text-white'
                               : 'bg-white dark:bg-[#1E1D24] text-[#77747D] dark:text-[#9E9AA6] border border-[#E7E3DF] dark:border-[#2E2C37]'
@@ -754,10 +836,10 @@ export function ReleaseCalendar({
                       </div>
 
                       <div className="flex items-baseline justify-center gap-1.5">
-                        <span className="text-base font-bold leading-none text-[#25242A] tracking-tight">
+                        <span className="text-lg sm:text-xl font-bold leading-none text-[#25242A] dark:text-[#F4F2F7] tracking-tight">
                           {day.dayNum}
                         </span>
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#77747D]">
+                        <span className="text-xs sm:text-[12px] font-semibold uppercase tracking-wide text-[#77747D] dark:text-[#9E9AA6]">
                           {day.monthName}
                         </span>
                       </div>
@@ -793,7 +875,7 @@ export function ReleaseCalendar({
                   {rowIndices.map((rowIndex) => (
                     <div
                       key={`row-${rowIndex}`}
-                      className="grid grid-cols-7 gap-0 p-0 m-0"
+                      className="grid grid-cols-7 w-full gap-0 p-0 m-0"
                     >
                       {displayedDaysWithUpcoming.map((day, dayIndex) => {
                         const item = day.items[rowIndex];
@@ -807,7 +889,7 @@ export function ReleaseCalendar({
                           return (
                             <div
                               key={`empty-${day.dateKey}-${rowIndex}`}
-                              className={`w-full aspect-[3/4.2] ${
+                              className={`w-full aspect-[3/4.5] ${
                                 isToday
                                   ? 'bg-[#211F2F]/80'
                                   : 'bg-[#14131C]/90'
@@ -832,7 +914,7 @@ export function ReleaseCalendar({
                                     ease: [0.25, 0.1, 0.25, 1.0],
                                   }
                             }
-                            className={`relative group w-full aspect-[3/4.2] overflow-hidden bg-slate-900 flex flex-col justify-between transition-all duration-200 cursor-pointer ${
+                            className={`relative group w-full aspect-[3/4.5] overflow-hidden bg-slate-900 transition-all duration-200 cursor-pointer select-none ${
                               item.isWatching
                                 ? 'ring-2 ring-inset ring-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.35)] z-10'
                                 : 'hover:z-10 hover:ring-1 hover:ring-inset hover:ring-indigo-400/80'
@@ -852,57 +934,65 @@ export function ReleaseCalendar({
                               </div>
                             )}
 
-                            {/* Release Time Pill + UPCOMING Badge (Top Overlay) */}
-                            <div className="relative z-10 p-1.5 sm:p-2 flex flex-wrap items-center justify-between gap-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/85 text-white text-[10px] sm:text-[11px] font-black tracking-tight backdrop-blur-xs shadow-md border border-white/10">
-                                <Clock className="h-2.5 w-2.5 text-indigo-400" />
-                                {item.formattedTime}
-                              </span>
+                            {/* Release Time Pill + UPCOMING Badge (Top Overlay - independently positioned) */}
+                            <div className="absolute top-0 inset-x-0 z-10 p-2 sm:p-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
+                              {showTime && (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/85 text-white text-[11px] sm:text-xs font-black tracking-tight backdrop-blur-xs shadow-md border border-white/10">
+                                  <Clock className="h-3 w-3 text-indigo-400" />
+                                  {item.formattedTime}
+                                </span>
+                              )}
 
                               {item.isUpcoming && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-400 text-indigo-950 text-[9px] sm:text-[10px] font-black uppercase tracking-wider shadow-md backdrop-blur-xs border border-amber-300">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-400 text-indigo-950 text-[10px] sm:text-[11px] font-black uppercase tracking-wider shadow-md backdrop-blur-xs border border-amber-300 ml-auto">
                                   UPCOMING
                                 </span>
                               )}
                             </div>
 
-                            {/* Gradient Overlay & Metadata (Lower Portion) */}
+                            {/* Gradient Overlay & Metadata (Lower Portion - independently anchored to bottom) */}
                             <div
-                              className={`relative z-10 pt-12 pb-2.5 px-2.5 bg-gradient-to-t ${
+                              className={`absolute bottom-0 inset-x-0 z-10 pt-16 pb-3 sm:pb-3.5 px-3 sm:px-3.5 bg-gradient-to-t ${
                                 item.isWatching
                                   ? 'from-black via-black/90 via-55%'
                                   : 'from-black via-black/85 via-50%'
-                              } to-transparent flex flex-col justify-end`}
+                              } to-transparent flex flex-col justify-end pointer-events-none`}
                             >
                               {/* Title: English when available, Japanese/Native fallback, Large, Bold, White */}
-                              <h4
-                                title={titleToDisplay}
-                                className={`text-xs sm:text-[13px] font-black leading-snug line-clamp-3 mb-1 drop-shadow-md transition-colors ${
-                                  item.isWatching
-                                    ? 'text-white group-hover:text-emerald-300'
-                                    : 'text-white group-hover:text-indigo-300'
-                                }`}
-                              >
-                                {titleToDisplay}
-                              </h4>
+                              {showTitle && (
+                                <h4
+                                  title={titleToDisplay}
+                                  className={`text-xs sm:text-[13.5px] md:text-sm font-black leading-snug line-clamp-2 mb-1.5 drop-shadow-md transition-colors ${
+                                    item.isWatching
+                                      ? 'text-white group-hover:text-emerald-300'
+                                      : 'text-white group-hover:text-indigo-300'
+                                  }`}
+                                >
+                                  {titleToDisplay}
+                                </h4>
+                              )}
 
                               {/* Episode Info + Optional Countdown */}
-                              <div className="text-[10px] sm:text-[11px] font-extrabold leading-tight flex items-center justify-between gap-1">
-                                <span className={item.isWatching ? 'text-emerald-300' : 'text-indigo-300'}>
-                                  {item.episode !== null ? `Episode ${item.episode}` : 'New Episode'}
-                                </span>
-                                {item.isUpcoming && item.countdown && (
-                                  <span className="text-[9px] font-bold text-amber-300/90 truncate">
-                                    {item.countdown}
-                                  </span>
-                                )}
-                              </div>
+                              {(showEpisode || (item.isUpcoming && item.countdown)) && (
+                                <div className="text-[11px] sm:text-xs font-extrabold leading-tight flex items-center justify-between gap-1">
+                                  {showEpisode && (
+                                    <span className={item.isWatching ? 'text-emerald-300' : 'text-indigo-300'}>
+                                      {item.episode !== null ? `Episode ${item.episode}` : 'New Episode'}
+                                    </span>
+                                  )}
+                                  {item.isUpcoming && item.countdown && (
+                                    <span className="text-[10px] sm:text-[11px] font-bold text-amber-300/90 truncate ml-auto">
+                                      {item.countdown}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
                               {/* Studio Info (Subtle) */}
-                              {item.studio && (
+                              {showStudio && item.studio && (
                                 <div
                                   title={`Studio: ${item.studio}`}
-                                  className="text-[9px] sm:text-[10px] text-slate-400 font-medium truncate mt-0.5"
+                                  className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate mt-0.5"
                                 >
                                   {item.studio}
                                 </div>

@@ -133,7 +133,7 @@ export function TodayReleaseView({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((item, index) => {
             const titleToDisplay = item.displayTitle || getAnimeDisplayTitle(item.title);
             const secondaryTitle =

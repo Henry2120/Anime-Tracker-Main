@@ -164,7 +164,16 @@ export interface DaySchedule {
   })[];
 }
 
-export type AnimeAiringState = 'airing' | 'completed' | 'delayed' | 'returning' | 'unknown';
+export type AnimeAiringState =
+  | 'unknown'
+  | 'scheduled'
+  | 'airing'
+  | 'ongoing'
+  | 'final_episode'
+  | 'final_episode_today'
+  | 'completed'
+  | 'delayed'
+  | 'returning';
 
 export interface AnimeCompletionInfo {
   state: AnimeAiringState;
@@ -175,6 +184,12 @@ export interface AnimeCompletionInfo {
   episodesAired: number | null;
   totalEpisodes: number | null;
   userWatchedEpisodes: number;
+  nextEpisodeNumber?: number | null;
+  nextEpisodeAiringAt?: number | null;
+  isFinalEpisode?: boolean;
+  isFinalEpisodeToday?: boolean;
+  formattedNextAirDate?: string | null;
+  formattedNextAirTime?: string | null;
   badgeBg: string;
   badgeText: string;
   badgeBorder: string;

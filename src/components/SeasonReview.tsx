@@ -137,7 +137,10 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
       completedCount: completedItems.length,
       finishedAiringCount: completionStats.finishedCount,
       readyToSummarizeCount: completionStats.readyToSummarizeCount,
+      finalEpisodesUpcomingCount: completionStats.finalEpisodeUpcomingCount,
+      finalEpisodesTodayCount: completionStats.finalEpisodeTodayCount,
       airingCount: completionStats.airingCount,
+      scheduledCount: completionStats.scheduledCount,
       averageScore: avgScore > 0 ? avgScore.toFixed(1) : '8.0',
       hasScoredItems: scoredItems.length > 0,
       scoredCount: scoredItems.length,
@@ -663,6 +666,41 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Seasonal Completion & Airing Intelligence */}
+          {(metrics.readyToSummarizeCount > 0 || metrics.finalEpisodesUpcomingCount > 0 || metrics.finalEpisodesTodayCount > 0) && (
+            <div
+              className={`mt-3.5 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs border ${
+                isDark
+                  ? 'bg-[#1A1829]/60 border-[#2D2A4A] text-[#AEA8C9]'
+                  : isSakura
+                  ? 'bg-[#FFF5F8] border-[#F2CDD9] text-[#8C6D8C]'
+                  : 'bg-[#FAF8F5] border-[#E2DDD5] text-[#77747D]'
+              }`}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <Sparkles className="h-3.5 w-3.5 text-[#7567C7] dark:text-[#C5BEF7]" />
+                <span>
+                  <strong className="text-[#25242A] dark:text-white font-semibold">
+                    {metrics.readyToSummarizeCount} anime {metrics.readyToSummarizeCount === 1 ? 'is' : 'are'} ready to summarize
+                  </strong>
+                  {metrics.finishedAiringCount > 0 && ` (${metrics.finishedAiringCount} completed broadcast)`}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                {metrics.finalEpisodesTodayCount > 0 && (
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    • {metrics.finalEpisodesTodayCount} final episode{metrics.finalEpisodesTodayCount === 1 ? '' : 's'} today
+                  </span>
+                )}
+                {metrics.finalEpisodesUpcomingCount > 0 && (
+                  <span className="font-semibold text-[#7567C7] dark:text-[#C5BEF7]">
+                    • {metrics.finalEpisodesUpcomingCount} final episode{metrics.finalEpisodesUpcomingCount === 1 ? '' : 's'} upcoming
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </motion.section>
 

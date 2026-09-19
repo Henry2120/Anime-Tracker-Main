@@ -1422,8 +1422,12 @@ export default function App() {
       {isEffectiveSakura && <SakuraPetalsCanvas />}
 
       {/* MINIMAL TOP NAVIGATION BAR */}
-      <header className="w-full sticky top-0 z-40 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs px-4 sm:px-8 py-3">
-        <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
+      <header className={`w-full sticky top-0 z-40 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs ${
+        activeTab === 'calendar' ? 'px-4 sm:px-6 md:px-8 lg:px-12' : 'px-4 sm:px-8'
+      } py-3`}>
+        <div className={`${
+          activeTab === 'calendar' ? 'max-w-[1920px]' : 'max-w-7xl'
+        } w-full mx-auto flex items-center justify-between gap-4`}>
           {/* BRAND */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <span className="text-[#7567C7] text-lg font-bold">✦</span>
@@ -1863,7 +1867,9 @@ export default function App() {
       </header>
 
       {/* MAIN CONTENT CONTAINER */}
-      <main className="max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 flex-1">
+      <main className={`${
+        activeTab === 'calendar' ? 'max-w-[1920px] px-4 sm:px-6 md:px-8 lg:px-12' : 'max-w-7xl px-4 sm:px-8'
+      } w-full mx-auto py-8 flex-1`}>
         {/* LOGGED OUT EXPERIENCE: WELCOME PAGE */}
         {!malUser && (
           <WelcomePage
@@ -2157,7 +2163,7 @@ export default function App() {
 
               {/* Completion Radar */}
               <div className="mt-4 pt-3 border-t border-[#E7E3DF]/70 dark:border-[#2E2C37]/70 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <div className="w-2 h-2 rounded-full bg-[#7567C7]" />
                   <span className="font-bold text-[#25242A] dark:text-[#EAE8F0]">Season Completion:</span>
                   <span className="text-[#77747D] dark:text-[#9E9AA6]">
@@ -2167,19 +2173,48 @@ export default function App() {
                     )}
                   </span>
                 </div>
-                {seasonCompletionStats.airingCount > 0 && (
-                  <div className="text-[11px] text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span>{seasonCompletionStats.airingCount} still airing</span>
-                    {seasonCompletionStats.delayedCount > 0 && (
-                      <>
-                        <span className="mx-1">•</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                        <span>{seasonCompletionStats.delayedCount} delayed</span>
-                      </>
-                    )}
-                  </div>
-                )}
+                <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                  {seasonCompletionStats.finalEpisodeTodayCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      {seasonCompletionStats.finalEpisodeTodayCount} final episode{seasonCompletionStats.finalEpisodeTodayCount === 1 ? '' : 's'} today
+                    </span>
+                  )}
+                  {seasonCompletionStats.finalEpisodeUpcomingCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#7567C7]/15 text-[#7567C7] dark:text-[#C5BEF7] font-semibold border border-[#7567C7]/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#7567C7]" />
+                      {seasonCompletionStats.finalEpisodeUpcomingCount} final episode{seasonCompletionStats.finalEpisodeUpcomingCount === 1 ? '' : 's'} upcoming
+                    </span>
+                  )}
+                  {seasonCompletionStats.airingCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {seasonCompletionStats.airingCount} airing now
+                    </span>
+                  )}
+                  {seasonCompletionStats.scheduledCount > 0 && (
+                    <span className="text-[#77747D] dark:text-[#9E9AA6]">
+                      {seasonCompletionStats.scheduledCount} scheduled
+                    </span>
+                  )}
+                  {seasonCompletionStats.ongoingCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 font-semibold border border-blue-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      {seasonCompletionStats.ongoingCount} ongoing
+                    </span>
+                  )}
+                  {seasonCompletionStats.returningCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-semibold border border-cyan-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
+                      {seasonCompletionStats.returningCount} returning
+                    </span>
+                  )}
+                  {seasonCompletionStats.delayedCount > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      • {seasonCompletionStats.delayedCount} delayed
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

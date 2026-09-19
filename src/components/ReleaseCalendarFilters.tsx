@@ -11,6 +11,10 @@ import {
   Calendar,
   Languages,
   Clock9,
+  Clock,
+  Type,
+  Tv,
+  Building2,
 } from 'lucide-react';
 
 interface ReleaseCalendarFiltersProps {
@@ -24,6 +28,14 @@ interface ReleaseCalendarFiltersProps {
   onToggleHideLongRunning: (hide: boolean) => void;
   showOnlyToday: boolean;
   onToggleShowOnlyToday: (showToday: boolean) => void;
+  showTime: boolean;
+  onToggleShowTime: (show: boolean) => void;
+  showTitle: boolean;
+  onToggleShowTitle: (show: boolean) => void;
+  showEpisode: boolean;
+  onToggleShowEpisode: (show: boolean) => void;
+  showStudio: boolean;
+  onToggleShowStudio: (show: boolean) => void;
   totalReleases: number;
   watchingCount: number;
   filteredCount: number;
@@ -41,6 +53,14 @@ export function ReleaseCalendarFilters({
   onToggleHideLongRunning,
   showOnlyToday,
   onToggleShowOnlyToday,
+  showTime,
+  onToggleShowTime,
+  showTitle,
+  onToggleShowTitle,
+  showEpisode,
+  onToggleShowEpisode,
+  showStudio,
+  onToggleShowStudio,
   totalReleases,
   watchingCount,
   filteredCount,
@@ -58,11 +78,16 @@ export function ReleaseCalendarFilters({
 
   const hasUserActiveFilters = userActiveFiltersCount > 0;
 
-  // Determine if filter settings differ from default configuration
+  // Determine if filter or display settings differ from default configuration
+  // Defaults: hideWithoutEnglishTitle: true, hideLongRunning: true, showTime: true, showTitle: true, showEpisode: false, showStudio: false
   const isModifiedFromDefault =
     hasUserActiveFilters ||
     !hideWithoutEnglishTitle ||
-    !hideLongRunning;
+    !hideLongRunning ||
+    !showTime ||
+    !showTitle ||
+    showEpisode ||
+    showStudio;
 
   // Handle clicking outside to close
   useEffect(() => {
@@ -106,6 +131,10 @@ export function ReleaseCalendarFilters({
     onToggleHideWithoutEnglishTitle(true);
     onToggleHideLongRunning(true);
     onToggleShowOnlyToday(false);
+    onToggleShowTime(true);
+    onToggleShowTitle(true);
+    onToggleShowEpisode(false);
+    onToggleShowStudio(false);
   };
 
   return (
@@ -399,7 +428,123 @@ export function ReleaseCalendarFilters({
               Display
             </span>
 
-            {/* Option: Show Only Today */}
+            {/* Display Option: Time */}
+            <button
+              id="filter-opt-display-time"
+              type="button"
+              onClick={() => onToggleShowTime(!showTime)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
+                showTime
+                  ? 'bg-[#F0EDFA] text-[#7567C7] font-semibold border border-[#7567C7]/20'
+                  : 'text-[#77747D] hover:bg-[#F7F5F2] hover:text-[#25242A]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`h-4 w-4 rounded flex items-center justify-center border transition-all ${
+                    showTime
+                      ? 'border-[#7567C7] bg-[#7567C7] text-white'
+                      : 'border-[#E7E3DF] bg-white'
+                  }`}
+                >
+                  {showTime && <Check className="h-3 w-3 stroke-[3]" />}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Clock className={`h-3.5 w-3.5 ${showTime ? 'text-[#7567C7]' : 'text-[#77747D]'}`} />
+                  <span>Time</span>
+                </div>
+              </div>
+            </button>
+
+            {/* Display Option: Title */}
+            <button
+              id="filter-opt-display-title"
+              type="button"
+              onClick={() => onToggleShowTitle(!showTitle)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
+                showTitle
+                  ? 'bg-[#F0EDFA] text-[#7567C7] font-semibold border border-[#7567C7]/20'
+                  : 'text-[#77747D] hover:bg-[#F7F5F2] hover:text-[#25242A]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`h-4 w-4 rounded flex items-center justify-center border transition-all ${
+                    showTitle
+                      ? 'border-[#7567C7] bg-[#7567C7] text-white'
+                      : 'border-[#E7E3DF] bg-white'
+                  }`}
+                >
+                  {showTitle && <Check className="h-3 w-3 stroke-[3]" />}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Type className={`h-3.5 w-3.5 ${showTitle ? 'text-[#7567C7]' : 'text-[#77747D]'}`} />
+                  <span>Title</span>
+                </div>
+              </div>
+            </button>
+
+            {/* Display Option: Episode */}
+            <button
+              id="filter-opt-display-episode"
+              type="button"
+              onClick={() => onToggleShowEpisode(!showEpisode)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
+                showEpisode
+                  ? 'bg-[#F0EDFA] text-[#7567C7] font-semibold border border-[#7567C7]/20'
+                  : 'text-[#77747D] hover:bg-[#F7F5F2] hover:text-[#25242A]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`h-4 w-4 rounded flex items-center justify-center border transition-all ${
+                    showEpisode
+                      ? 'border-[#7567C7] bg-[#7567C7] text-white'
+                      : 'border-[#E7E3DF] bg-white'
+                  }`}
+                >
+                  {showEpisode && <Check className="h-3 w-3 stroke-[3]" />}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Tv className={`h-3.5 w-3.5 ${showEpisode ? 'text-[#7567C7]' : 'text-[#77747D]'}`} />
+                  <span>Episode</span>
+                </div>
+              </div>
+            </button>
+
+            {/* Display Option: Studio */}
+            <button
+              id="filter-opt-display-studio"
+              type="button"
+              onClick={() => onToggleShowStudio(!showStudio)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
+                showStudio
+                  ? 'bg-[#F0EDFA] text-[#7567C7] font-semibold border border-[#7567C7]/20'
+                  : 'text-[#77747D] hover:bg-[#F7F5F2] hover:text-[#25242A]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={`h-4 w-4 rounded flex items-center justify-center border transition-all ${
+                    showStudio
+                      ? 'border-[#7567C7] bg-[#7567C7] text-white'
+                      : 'border-[#E7E3DF] bg-white'
+                  }`}
+                >
+                  {showStudio && <Check className="h-3 w-3 stroke-[3]" />}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Building2 className={`h-3.5 w-3.5 ${showStudio ? 'text-[#7567C7]' : 'text-[#77747D]'}`} />
+                  <span>Studio</span>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div className="h-px bg-[#E7E3DF] mb-3" />
+
+          {/* Option: Show Only Today */}
+          <div className="mb-3">
             <button
               id="filter-opt-show-today"
               type="button"

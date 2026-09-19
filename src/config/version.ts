@@ -14,23 +14,41 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION_INFO: AppVersionInfo = {
-  currentVersion: 'v4.4',
+  currentVersion: 'v4.5',
   tagline: 'Your anime. Your season. Your story.',
   history: [
+    {
+      version: 'v4.5',
+      title: 'Expanded Release Calendar & Card Display Toggles',
+      date: 'September 2026',
+      description:
+        'Substantially expanded the Release Calendar layout into a spacious, full-width weekly dashboard with larger 7-day columns, taller poster proportions (aspect-[3/4.5]), and dedicated Card Display toggles (Time, Title, Episode, Studio) inside the Filter menu.',
+      changes: [
+        'Expanded calendar container to use available desktop viewport with streamlined 40–60px outer margins.',
+        'Widened 7-day schedule columns naturally using responsive repeat(7, minmax(0, 1fr)) grid layout.',
+        'Slightly extended anime poster cards vertically to an elegant aspect-[3/4.5] ratio while maintaining balanced artwork framing.',
+        'Added dedicated Display toggles in the Filter menu for Time (default ON), Title (default ON), Episode (default OFF), and Studio (default OFF) with local preference persistence.',
+        'Engineered structurally stable anime card positioning where Time, Title, Episode, and Studio toggles preserve exact card geometry, row heights, and separator alignment without layout jumps.',
+        'Preserved existing mobile and tablet responsive layouts without horizontal overflow.',
+      ],
+      easterEgg: 'More space for more anime. Exactly how it should be.',
+    },
     {
       version: 'v4.4',
       title: 'Anime Completion Detection',
       date: 'September 2026',
       description:
-        'Intelligent broadcast completion detection for seasonal anime. AniVerse now distinguishes between user watch progress and whether an anime’s broadcast run has actually finished airing, accounting for split cours, delays, and non-standard run lengths.',
+        'Added intelligent anime airing-status detection so AniVerse can identify upcoming final episodes and completed seasonal anime, distinguishing between live broadcasts, scheduled episodes, ongoing runs, and returning split-cours.',
       changes: [
-        'Added broadcast completion detection without arbitrary 12-episode assumptions.',
-        'Integrated broadcast airing states (Airing, Finished, Delayed, Returning, Unknown) into MY SEASON and Season Review.',
-        'Introduced "Ready to Summarize" indicator when an anime’s broadcast run has finished and all available episodes have been watched.',
-        'Added Season Completion radar to MY SEASON metrics overview.',
+        'Added reusable airing/completion-state detection with strict live "Airing Now" and "Scheduled" separation.',
+        'Replaced false "Delayed" fallbacks with a neutral "Ongoing" status when MAL confirms airing without an upcoming calendar date.',
+        'Added reliable final-episode detection when supported by available broadcast data.',
+        'Added Final Episode / Final Episode Today indicators with exact broadcast times when known.',
+        'Updated visual cues: bright blue for Ongoing and bright cyan for Returning continuation.',
+        'Kept broadcast completion separate from the user\'s personal watch progress.',
       ],
       easterEgg:
-        'AniVerse now knows when an anime has actually ended, even when production committees try to keep it a secret.',
+        '12 episodes? 13? 24? AniVerse has stopped guessing.',
     },
     {
       version: 'v4.3',
