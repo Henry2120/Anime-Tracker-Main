@@ -86,6 +86,37 @@ function formatTimeInTz(epochSec: number, tz: string): string {
 }
 
 /**
+ * Calculates the number of calendar days between two YYYY-MM-DD date keys in the same timezone.
+ * Uses UTC date values to prevent any daylight-saving-time fractional shifts.
+ */
+export function getCalendarDaysDifference(fromDateKey: string, toDateKey: string): number {
+  try {
+    const [y1, m1, d1] = fromDateKey.split('-').map(Number);
+    const [y2, m2, d2] = toDateKey.split('-').map(Number);
+    if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
+    const utc1 = Date.UTC(y1, m1 - 1, d1);
+    const utc2 = Date.UTC(y2, m2 - 1, d2);
+    return Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Formats the number of calendar days until the final episode for presentation.
+ * Returns null if days is null, undefined, or negative.
+ * Returns 'Today' for 0 days.
+ * Returns '1 day left' for 1 day.
+ * Returns 'X days left' for X > 1.
+ */
+export function formatDaysUntilFinal(days: number | null | undefined): string | null {
+  if (days === null || days === undefined || days < 0) return null;
+  if (days === 0) return 'Today';
+  if (days === 1) return '1 day left';
+  return `${days} days left`;
+}
+
+/**
  * Visual styling configuration for each airing state.
  */
 export function getBadgeStyles(state: AnimeAiringState): {
@@ -173,6 +204,296 @@ export function getBadgeStyles(state: AnimeAiringState): {
 }
 
 /**
+ * Strict title normalization for safe matching between MAL and Release Calendar datasets.
+ * Converts to NFKC, standardizes case, strips punctuation and non-alphanumeric symbols,
+ * and normalizes season/part ordinal numbers.
+ */
+export function normalizeTitleForMatching(title: string): string {
+  if (!title || typeof title !== 'string') return '';
+  return title
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[【】\[\]\(\)「」『』]/g, ' ')
+    .replace(/[:\-–—_·/\\|~]/g, ' ')
+    .replace(/['"`!?,.*+^$#@]/g, '')
+    .replace(/\bpart\s+ii\b/g, 'part 2')
+    .replace(/\bpart\s+iii\b/g, 'part 3')
+    .replace(/\bpart\s+iv\b/g, 'part 4')
+    .replace(/\bpart\s+i\b/g, 'part 1')
+    .replace(/\bseason\s+ii\b/g, 'season 2')
+    .replace(/\bseason\s+iii\b/g, 'season 3')
+    .replace(/\bseason\s+iv\b/g, 'season 4')
+    .replace(/\bseason\s+i\b/g, 'season 1')
+    .replace(/\b1st\s+season\b/g, 'season 1')
+    .replace(/\b2nd\s+season\b/g, 'season 2')
+    .replace(/\b3rd\s+season\b/g, 'season 3')
+    .replace(/\b4th\s+season\b/g, 'season 4')
+    .replace(/\b5th\s+season\b/g, 'season 5')
+    .replace(/\b2nd\s+cour\b/g, 'cour 2')
+    .replace(/\b1st\s+cour\b/g, 'cour 1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface SeasonPartDescriptor {
+  season: number | null;
+  part: number | null;
+  cour: number | null;
+  isFinal: boolean;
+}
+
+export function extractSeasonPartDescriptor(normalizedTitle: string): SeasonPartDescriptor {
+  const sMatch =
+    normalizedTitle.match(/\bseason\s*([0-9]+)\b/) ||
+    normalizedTitle.match(/\bs([0-9]+)\b/);
+  const pMatch = normalizedTitle.match(/\bpart\s*([0-9]+)\b/);
+  const cMatch = normalizedTitle.match(/\bcour\s*([0-9]+)\b/);
+  const isFinal = /\b(final\s+season|the\s+final\s+season|kanketsu\s*hen)\b/.test(
+    normalizedTitle
+  );
+
+  return {
+    season: sMatch ? parseInt(sMatch[1], 10) : null,
+    part: pMatch ? parseInt(pMatch[1], 10) : null,
+    cour: cMatch ? parseInt(cMatch[1], 10) : null,
+    isFinal,
+  };
+}
+
+export function areSeasonDescriptorsCompatible(
+  d1: SeasonPartDescriptor,
+  d2: SeasonPartDescriptor
+): boolean {
+  if (d1.season !== d2.season) return false;
+  if (d1.part !== d2.part) return false;
+  if (d1.cour !== d2.cour) return false;
+  if (d1.isFinal !== d2.isFinal) return false;
+  return true;
+}
+
+export interface ResolvedCalendarEpisodesResult {
+  episodes: ReleaseCalendarItem[];
+  method: 'malId' | 'externalId' | 'title' | 'none';
+}
+
+/**
+ * Resolves calendar episodes for an anime:
+ * 1. Exact MAL-ID matching (FIRST/PREFERRED method)
+ * 2. External ID fallback (e.g. AniList ID if available on node/item)
+ * 3. Safe title matching against grouped calendar records with season/part verification
+ * Returns ALL episodes of the resolved anime.
+ */
+export function resolveAnimeCalendarEpisodes(
+  node: MalAnimeNode,
+  effectiveCalendar: ReleaseCalendarItem[],
+  itemRaw?: any
+): ResolvedCalendarEpisodesResult {
+  if (!node) return { episodes: [], method: 'none' };
+
+  // 1. Primary / Preferred: Exact MAL-ID match
+  if (typeof node.id === 'number' && node.id > 0) {
+    const malMatches = effectiveCalendar.filter(
+      (c) => c.malId !== null && c.malId !== undefined && Number(c.malId) === node.id
+    );
+    if (malMatches.length > 0) {
+      return {
+        episodes: malMatches.sort((a, b) => a.airingAt - b.airingAt),
+        method: 'malId',
+      };
+    }
+  }
+
+  // 2. Safe Fallback: External ID (e.g. AniList ID)
+  const candidateAnilistId =
+    (node as any)?.anilistId ??
+    (node as any)?.anilist_id ??
+    (node as any)?.idAniList ??
+    itemRaw?.anilistId ??
+    itemRaw?.anilist_id;
+
+  if (typeof candidateAnilistId === 'number' && candidateAnilistId > 0) {
+    const anilistMatches = effectiveCalendar.filter(
+      (c) => c.anilistId && Number(c.anilistId) === candidateAnilistId
+    );
+    if (anilistMatches.length > 0) {
+      return {
+        episodes: anilistMatches.sort((a, b) => a.airingAt - b.airingAt),
+        method: 'externalId',
+      };
+    }
+  }
+
+  // 3. Safe Fallback: Title matching against grouped calendar anime
+  interface CalendarAnimeGroup {
+    anilistId: number | null;
+    malId: number | null;
+    items: ReleaseCalendarItem[];
+    rawTitles: Set<string>;
+  }
+
+  const groupsMap = new Map<string, CalendarAnimeGroup>();
+  for (const c of effectiveCalendar) {
+    const groupKey = c.anilistId
+      ? `anilist_${c.anilistId}`
+      : c.malId
+      ? `mal_${c.malId}`
+      : `title_${normalizeTitleForMatching(c.title?.romaji || c.title?.english || c.displayTitle || '')}`;
+
+    let group = groupsMap.get(groupKey);
+    if (!group) {
+      group = {
+        anilistId: c.anilistId || null,
+        malId: c.malId || null,
+        items: [],
+        rawTitles: new Set<string>(),
+      };
+      groupsMap.set(groupKey, group);
+    }
+    group.items.push(c);
+    if (c.title?.romaji) group.rawTitles.add(c.title.romaji);
+    if (c.title?.english) group.rawTitles.add(c.title.english);
+    if (c.title?.native) group.rawTitles.add(c.title.native);
+    if (c.title?.userPreferred) group.rawTitles.add(c.title.userPreferred);
+    if (c.titleEnglish) group.rawTitles.add(c.titleEnglish);
+    if (c.titleRomaji) group.rawTitles.add(c.titleRomaji);
+    if (c.titleNative) group.rawTitles.add(c.titleNative);
+    if (c.displayTitle) group.rawTitles.add(c.displayTitle);
+  }
+
+  // Candidate titles for node
+  const nodeRawTitles = new Set<string>();
+  if (node.title) nodeRawTitles.add(node.title);
+  if (node.alternative_titles?.en) nodeRawTitles.add(node.alternative_titles.en);
+  if (node.alternative_titles?.ja) nodeRawTitles.add(node.alternative_titles.ja);
+  if (Array.isArray(node.alternative_titles?.synonyms)) {
+    for (const syn of node.alternative_titles.synonyms) {
+      if (syn && typeof syn === 'string') nodeRawTitles.add(syn);
+    }
+  }
+  if (itemRaw?.title && typeof itemRaw.title === 'string') nodeRawTitles.add(itemRaw.title);
+
+  // Pass 1: Exact Normalized Title Match
+  const pass1Matches: CalendarAnimeGroup[] = [];
+  for (const group of groupsMap.values()) {
+    let matched = false;
+    for (const rawNodeTitle of nodeRawTitles) {
+      const normNode = normalizeTitleForMatching(rawNodeTitle);
+      if (normNode.length < 3) continue;
+      const descNode = extractSeasonPartDescriptor(normNode);
+
+      for (const rawCalTitle of group.rawTitles) {
+        const normCal = normalizeTitleForMatching(rawCalTitle);
+        if (normCal.length < 3) continue;
+        const descCal = extractSeasonPartDescriptor(normCal);
+
+        if (areSeasonDescriptorsCompatible(descNode, descCal) && normNode === normCal) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+    if (matched) {
+      pass1Matches.push(group);
+    }
+  }
+
+  if (pass1Matches.length === 1) {
+    return {
+      episodes: pass1Matches[0].items.sort((a, b) => a.airingAt - b.airingAt),
+      method: 'title',
+    };
+  }
+
+  // Pass 2: Strict Subtitle Segment Equality (e.g., "Makeine: Too Many Losing Heroines!" vs "Too Many Losing Heroines!")
+  if (pass1Matches.length === 0) {
+    const pass2Matches: CalendarAnimeGroup[] = [];
+    for (const group of groupsMap.values()) {
+      let matched = false;
+      for (const rawNodeTitle of nodeRawTitles) {
+        const nodeSegments = rawNodeTitle
+          .split(/[:\-–—~]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length >= 8 && s.split(/\s+/).length >= 2);
+
+        for (const rawCalTitle of group.rawTitles) {
+          const calSegments = rawCalTitle
+            .split(/[:\-–—~]/)
+            .map((s) => s.trim())
+            .filter((s) => s.length >= 8 && s.split(/\s+/).length >= 2);
+
+          const normCal = normalizeTitleForMatching(rawCalTitle);
+          const descCal = extractSeasonPartDescriptor(normCal);
+          for (const seg of nodeSegments) {
+            const normSeg = normalizeTitleForMatching(seg);
+            const descSeg = extractSeasonPartDescriptor(normSeg);
+            if (
+              areSeasonDescriptorsCompatible(descSeg, descCal) &&
+              normSeg.length >= 8 &&
+              normSeg === normCal
+            ) {
+              matched = true;
+              break;
+            }
+          }
+          if (matched) break;
+
+          const normNode = normalizeTitleForMatching(rawNodeTitle);
+          const descNode = extractSeasonPartDescriptor(normNode);
+          for (const seg of calSegments) {
+            const normSeg = normalizeTitleForMatching(seg);
+            const descSeg = extractSeasonPartDescriptor(normSeg);
+            if (
+              areSeasonDescriptorsCompatible(descNode, descSeg) &&
+              normSeg.length >= 8 &&
+              normSeg === normNode
+            ) {
+              matched = true;
+              break;
+            }
+          }
+          if (matched) break;
+        }
+        if (matched) break;
+      }
+      if (matched) {
+        pass2Matches.push(group);
+      }
+    }
+
+    if (pass2Matches.length === 1) {
+      return {
+        episodes: pass2Matches[0].items.sort((a, b) => a.airingAt - b.airingAt),
+        method: 'title',
+      };
+    }
+  }
+
+  return { episodes: [], method: 'none' };
+}
+
+/**
+ * Diagnostic logger for development / debugging (behind __ANIVERSE_DEBUG__ or DEBUG_COMPLETION flag)
+ */
+function logCompletionDiagnostic(
+  node: MalAnimeNode,
+  matchMethod: 'malId' | 'externalId' | 'title' | 'none',
+  animeCalendar: ReleaseCalendarItem[],
+  futureCalendarEps: ReleaseCalendarItem[],
+  nextEp: ReleaseCalendarItem | null,
+  totalEpisodes: number | null
+): void {
+  if (
+    typeof window !== 'undefined' &&
+    Boolean((window as any).__ANIVERSE_DEBUG__ || (window as any).DEBUG_COMPLETION)
+  ) {
+    console.debug(
+      `[AniVerse AiringState] Anime: ${node.title} | MAL ID: ${node.id} | Calendar match method: ${matchMethod} | Calendar episodes found: ${animeCalendar.length} | Future episodes found: ${futureCalendarEps.length} | Next episode: ${nextEp?.episode ?? 'none'} | Total episodes: ${totalEpisodes ?? 'unknown'} | MAL airing status: ${node.status}`
+    );
+  }
+}
+
+/**
  * Single source of truth function for determining an anime's broadcast airing & completion state.
  *
  * Reuses existing MAL metadata and Release Calendar schedules without introducing any secondary
@@ -210,6 +531,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt: null,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
       reason: 'No anime item provided',
@@ -234,6 +556,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt: null,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
       reason: 'Missing anime node metadata',
@@ -244,12 +567,17 @@ export function getAnimeAiringState(
   const userTz = getResolvedTimezone('local');
   const todayDateKey = getDateKeyInTz(nowSec, userTz);
 
-  // Match calendar items for this anime
+  // Match calendar items for this anime:
+  // 1. Exact MAL-ID matching (FIRST/PREFERRED method)
+  // 2. Safe external ID fallback (e.g. AniList ID)
+  // 3. Safe title matching against grouped calendar records with season/part verification
   const effectiveCalendar =
     calendarItems && calendarItems.length > 0 ? calendarItems : getCachedCalendarItems();
-  const animeCalendar = effectiveCalendar
-    .filter((c) => c.malId === node.id)
-    .sort((a, b) => a.airingAt - b.airingAt);
+  const { episodes: animeCalendar, method: matchMethod } = resolveAnimeCalendarEpisodes(
+    node,
+    effectiveCalendar,
+    item
+  );
 
   // Derive total episodes: MAL node or calendar metadata
   let totalEpisodes: number | null =
@@ -283,6 +611,16 @@ export function getAnimeAiringState(
     ? futureCalendarEps[0]
     : null;
 
+  // Diagnostics logging hook for development / testing
+  logCompletionDiagnostic(
+    node,
+    matchMethod,
+    animeCalendar,
+    futureCalendarEps,
+    nextEp,
+    totalEpisodes
+  );
+
   const maxAiredCalendarEp =
     pastCalendarEps.length > 0 ? Math.max(...pastCalendarEps.map((c) => c.episode || 0)) : null;
 
@@ -296,6 +634,8 @@ export function getAnimeAiringState(
   const nextEpisodeAiringAt = nextEp?.airingAt ?? null;
   const nextEpDateKey = nextEp ? getDateKeyInTz(nextEp.airingAt, userTz) : null;
   const isNextEpToday = Boolean(nextEp && nextEpDateKey === todayDateKey);
+  const daysUntilNextEpisode =
+    nextEpDateKey && todayDateKey ? getCalendarDaysDifference(todayDateKey, nextEpDateKey) : null;
   const formattedNextAirDate = nextEp ? formatShortDateInTz(nextEp.airingAt, userTz) : null;
   const formattedNextAirTime = nextEp ? formatTimeInTz(nextEp.airingAt, userTz) : null;
 
@@ -357,6 +697,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
       reason: 'Scheduled to return in a future broadcast cour',
@@ -415,6 +756,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt: null,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
       reason: isMalFinished
@@ -449,6 +791,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
       reason: 'Finished initial cour; returning in an upcoming cour',
@@ -473,6 +816,7 @@ export function getAnimeAiringState(
         nextEpisodeAiringAt,
         isFinalEpisode: true,
         isFinalEpisodeToday: true,
+        daysUntilFinalEpisode: 0,
         formattedNextAirDate,
         formattedNextAirTime,
         reason: 'Final episode is currently broadcasting live',
@@ -498,6 +842,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: true,
       isFinalEpisodeToday: true,
+      daysUntilFinalEpisode: 0,
       formattedNextAirDate,
       formattedNextAirTime,
       reason: 'Final episode scheduled for broadcast today',
@@ -506,9 +851,21 @@ export function getAnimeAiringState(
 
   // 5. Final Episode (Scheduled on an upcoming date after today)
   if (isFinalEpisode && !isNextEpToday) {
+    const daysUntilFinalEpisode =
+      typeof daysUntilNextEpisode === 'number' && daysUntilNextEpisode > 0
+        ? daysUntilNextEpisode
+        : null;
+
+    let daysText = '';
+    if (daysUntilFinalEpisode !== null) {
+      daysText = ` · ${daysUntilFinalEpisode} ${daysUntilFinalEpisode === 1 ? 'day' : 'days'} left`;
+    }
+
     const styles = getBadgeStyles('final_episode');
     const stateLabel = formattedNextAirDate
-      ? `Final Episode — ${formattedNextAirDate}`
+      ? `Final Episode — ${formattedNextAirDate}${daysText}`
+      : daysText
+      ? `Final Episode${daysText}`
       : 'Final Episode';
 
     return {
@@ -525,9 +882,14 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: true,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode,
       formattedNextAirDate,
       formattedNextAirTime,
-      reason: `Final episode scheduled for ${formattedNextAirDate || 'upcoming date'}`,
+      reason: `Final episode scheduled for ${formattedNextAirDate || 'upcoming date'}${
+        daysUntilFinalEpisode !== null
+          ? ` (${daysUntilFinalEpisode} ${daysUntilFinalEpisode === 1 ? 'day' : 'days'} left)`
+          : ''
+      }`,
     };
   }
 
@@ -548,6 +910,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
       reason: 'Episode is currently within its scheduled broadcast window',
@@ -579,6 +942,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
       reason: `Upcoming episode scheduled on ${formattedNextAirDate || 'release calendar'}`,
@@ -602,6 +966,7 @@ export function getAnimeAiringState(
       nextEpisodeAiringAt: null,
       isFinalEpisode: false,
       isFinalEpisodeToday: false,
+      daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
       reason: 'MAL confirms anime is currently airing, but no confirmed upcoming calendar episode',
@@ -629,6 +994,7 @@ export function getAnimeAiringState(
     nextEpisodeAiringAt: null,
     isFinalEpisode: false,
     isFinalEpisodeToday: false,
+    daysUntilFinalEpisode: null,
     formattedNextAirDate: null,
     formattedNextAirTime: null,
     reason: 'Airing status cannot be determined reliably from available data',

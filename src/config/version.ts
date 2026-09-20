@@ -29,6 +29,7 @@ export const APP_VERSION_INFO: AppVersionInfo = {
         'Slightly extended anime poster cards vertically to an elegant aspect-[3/4.5] ratio while maintaining balanced artwork framing.',
         'Added dedicated Display toggles in the Filter menu for Time (default ON), Title (default ON), Episode (default OFF), and Studio (default OFF) with local preference persistence.',
         'Engineered structurally stable anime card positioning where Time, Title, Episode, and Studio toggles preserve exact card geometry, row heights, and separator alignment without layout jumps.',
+        'Added days-remaining countdown for confirmed upcoming final episodes in MY SEASON (e.g., "Final Episode — Sep 26 · 7 days left") based on scheduled broadcast timestamps regardless of user watch progress.',
         'Preserved existing mobile and tablet responsive layouts without horizontal overflow.',
       ],
       easterEgg: 'More space for more anime. Exactly how it should be.',

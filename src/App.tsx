@@ -42,7 +42,7 @@ import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { APP_VERSION_INFO } from './config/version';
-import { getSeasonCompletionStats } from './utils/completionUtils';
+import { getSeasonCompletionStats, getCachedCalendarItems } from './utils/completionUtils';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -955,6 +955,12 @@ export default function App() {
   // Callback to merge IDs whenever the ReleaseCalendar loads/updates schedule data
   const handleCalendarItemsLoaded = (malIds: number[]) => {
     if (!Array.isArray(malIds) || malIds.length === 0) return;
+    const cached = getCachedCalendarItems();
+    if (cached && cached.length > 0) {
+      setSeasonalCalendarItems((prev) =>
+        prev.length === 0 || cached.length > prev.length ? cached : prev
+      );
+    }
     setCalendarSummer2026Ids((prev) => {
       let changed = false;
       const next = new Set(prev);
@@ -967,6 +973,20 @@ export default function App() {
       return changed ? next : prev;
     });
   };
+
+  // Keep MY SEASON calendar schedule data fresh on tab revisit or season change without aggressive polling
+  useEffect(() => {
+    if (activeTab === 'season') {
+      const cached = getCachedCalendarItems();
+      if (cached && cached.length > 0) {
+        setSeasonalCalendarItems((prev) =>
+          prev.length === 0 || cached.length > prev.length ? cached : prev
+        );
+      } else {
+        loadCalendarSeasonalReleases();
+      }
+    }
+  }, [activeTab, selectedSeason]);
 
   // Targeted Fallback: For anime without clear start_season in MAL metadata,
   // query individual Jikan metadata (/v4/anime/{mal_id}) to verify seasonal placement

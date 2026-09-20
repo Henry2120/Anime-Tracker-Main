@@ -188,6 +188,7 @@ export interface AnimeCompletionInfo {
   nextEpisodeAiringAt?: number | null;
   isFinalEpisode?: boolean;
   isFinalEpisodeToday?: boolean;
+  daysUntilFinalEpisode?: number | null;
   formattedNextAirDate?: string | null;
   formattedNextAirTime?: string | null;
   badgeBg: string;
