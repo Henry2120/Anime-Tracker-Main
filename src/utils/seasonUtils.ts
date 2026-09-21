@@ -379,8 +379,10 @@ export async function fetchCalendarSeasonItems(
 ): Promise<ReleaseCalendarItem[]> {
   try {
     const nowSec = Math.floor(Date.now() / 1000);
-    const s = startSec ?? Math.min(nowSec - 30 * 86400, 1782864000);
-    const e = endSec ?? Math.max(nowSec + 30 * 86400, 1790812800);
+    // Request a focused 7-week window around the current date: 3 weeks in the past to catch recently aired episodes,
+    // and 4 weeks in the future to catch upcoming and final episodes without pagination truncation.
+    const s = startSec ?? (nowSec - 21 * 86400);
+    const e = endSec ?? (nowSec + 28 * 86400);
 
     const res = await fetch(`/api/release-calendar?start=${s}&end=${e}`);
     if (!res.ok) {

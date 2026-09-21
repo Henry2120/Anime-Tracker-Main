@@ -36,7 +36,7 @@ import {
 interface ReleaseCalendarProps {
   malList: MalListItem[];
   malLoading: boolean;
-  onCalendarItemsLoaded?: (malIds: number[]) => void;
+  onCalendarItemsLoaded?: (malIds: number[], calendarItems?: ReleaseCalendarItem[]) => void;
   customUserNotes?: Record<number, string>;
   onSaveCustomNote?: (animeId: number, note: string) => void;
   onOpenMalEditor?: (anime: AnimeDetailData) => void;
@@ -197,6 +197,12 @@ export function ReleaseCalendar({
         setRawItems(cachedItems);
         setLoading(false);
         setError(null);
+        if (onCalendarItemsLoaded && cachedItems.length > 0) {
+          const malIds = cachedItems
+            .map((i) => (i.malId ? Number(i.malId) : null))
+            .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
+          onCalendarItemsLoaded(malIds, cachedItems);
+        }
         return;
       }
 
@@ -229,9 +235,7 @@ export function ReleaseCalendar({
           const malIds = summerItems
             .map((i) => (i.malId ? Number(i.malId) : null))
             .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
-          if (malIds.length > 0) {
-            onCalendarItemsLoaded(malIds);
-          }
+          onCalendarItemsLoaded(malIds, items);
         }
       } catch (err: any) {
         console.error('Failed to load release calendar:', err);

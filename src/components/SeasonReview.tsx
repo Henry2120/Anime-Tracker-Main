@@ -694,7 +694,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
                   </span>
                 )}
                 {metrics.finalEpisodesUpcomingCount > 0 && (
-                  <span className="font-semibold text-[#7567C7] dark:text-[#C5BEF7]">
+                  <span className="font-semibold text-sky-600 dark:text-sky-400">
                     • {metrics.finalEpisodesUpcomingCount} final episode{metrics.finalEpisodesUpcomingCount === 1 ? '' : 's'} upcoming
                   </span>
                 )}

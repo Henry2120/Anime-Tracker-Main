@@ -1714,7 +1714,7 @@ app.get("/api/release-calendar", async (req, res) => {
     let page = 1;
     let hasNextPage = true;
     const allSchedules: any[] = [];
-    const maxPages = 12;
+    const maxPages = 16;
 
     while (hasNextPage && page <= maxPages) {
       const anilistResponse = await fetch("https://graphql.anilist.co", {

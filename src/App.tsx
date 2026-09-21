@@ -42,7 +42,7 @@ import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { APP_VERSION_INFO } from './config/version';
-import { getSeasonCompletionStats, getCachedCalendarItems } from './utils/completionUtils';
+import { getSeasonCompletionStats, getCachedCalendarItems, mergeCalendarItems } from './utils/completionUtils';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -926,12 +926,12 @@ export default function App() {
     }
   };
 
-  // Fetch Release Calendar releases for Summer 2026 season window
+  // Fetch Release Calendar releases for season window
   const loadCalendarSeasonalReleases = async () => {
     try {
       const items = await fetchCalendarSeasonItems();
       if (items.length > 0) {
-        setSeasonalCalendarItems(items);
+        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, items));
         const malIds: number[] = [];
         for (const item of items) {
           if (item.malId) {
@@ -952,15 +952,17 @@ export default function App() {
     }
   };
 
-  // Callback to merge IDs whenever the ReleaseCalendar loads/updates schedule data
-  const handleCalendarItemsLoaded = (malIds: number[]) => {
-    if (!Array.isArray(malIds) || malIds.length === 0) return;
-    const cached = getCachedCalendarItems();
-    if (cached && cached.length > 0) {
-      setSeasonalCalendarItems((prev) =>
-        prev.length === 0 || cached.length > prev.length ? cached : prev
-      );
+  // Callback to merge IDs and calendar items whenever the ReleaseCalendar loads/updates schedule data
+  const handleCalendarItemsLoaded = (malIds: number[], calendarItems?: ReleaseCalendarItem[]) => {
+    if (calendarItems && calendarItems.length > 0) {
+      setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, calendarItems));
+    } else {
+      const cached = getCachedCalendarItems();
+      if (cached && cached.length > 0) {
+        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
+      }
     }
+    if (!Array.isArray(malIds) || malIds.length === 0) return;
     setCalendarSummer2026Ids((prev) => {
       let changed = false;
       const next = new Set(prev);
@@ -979,9 +981,7 @@ export default function App() {
     if (activeTab === 'season') {
       const cached = getCachedCalendarItems();
       if (cached && cached.length > 0) {
-        setSeasonalCalendarItems((prev) =>
-          prev.length === 0 || cached.length > prev.length ? cached : prev
-        );
+        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
       } else {
         loadCalendarSeasonalReleases();
       }
@@ -2201,8 +2201,8 @@ export default function App() {
                     </span>
                   )}
                   {seasonCompletionStats.finalEpisodeUpcomingCount > 0 && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#7567C7]/15 text-[#7567C7] dark:text-[#C5BEF7] font-semibold border border-[#7567C7]/30">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#7567C7]" />
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-600 dark:text-sky-400 font-semibold border border-sky-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
                       {seasonCompletionStats.finalEpisodeUpcomingCount} final episode{seasonCompletionStats.finalEpisodeUpcomingCount === 1 ? '' : 's'} upcoming
                     </span>
                   )}
