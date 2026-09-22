@@ -41,6 +41,7 @@ import { EditMalEntryModal, EditableAnimeData } from './components/EditMalEntryM
 import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
+import { Top500EasterEgg } from './components/Top500EasterEgg';
 import { APP_VERSION_INFO } from './config/version';
 import { getSeasonCompletionStats, getCachedCalendarItems, mergeCalendarItems } from './utils/completionUtils';
 import {
@@ -57,6 +58,10 @@ import {
   getAnimeForSelectedSeason,
   JikanSeasonalAnime,
 } from './utils/seasonUtils';
+
+// Temporary AI Riser Vietnam 2026 Top 500 celebration Easter egg.
+// Set to false when the celebration period is over.
+const SHOW_TOP_500_EASTER_EGG = true;
 
 export default function App() {
   // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
@@ -2465,6 +2470,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* TEMPORARY TOP 500 EASTER EGG */}
+      {SHOW_TOP_500_EASTER_EGG && <Top500EasterEgg />}
     </div>
   );
 }
