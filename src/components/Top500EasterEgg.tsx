@@ -1,10 +1,35 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Phone, Delete, Trophy, Sparkles, Award, ArrowLeft, Volume2, ShieldCheck, Check } from 'lucide-react';
+import { Phone, Delete, Trophy, Sparkles, Award, ArrowLeft, Volume2, ShieldCheck, Check, HelpCircle, Contact } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Temporary AI Riser Vietnam 2026 Top 500 celebration Easter egg.
 // Set to false when the celebration period is over.
 export const SHOW_TOP_500_EASTER_EGG = true;
+
+// Future-proof simple contacts list structure
+export interface PhoneContact {
+  id: string;
+  name: string;
+  number: string;
+}
+
+const PHONE_CONTACTS: PhoneContact[] = [
+  {
+    id: 'manual',
+    name: 'The Manual',
+    number: '*0#',
+  },
+  {
+    id: 'milestone',
+    name: 'A Milestone',
+    number: '500',
+  },
+  {
+    id: 'about',
+    name: 'About AniVerse',
+    number: '11577',
+  },
+];
 
 // Keypad buttons layout matching requested specification:
 // 1: ABC | 2: DEF | 3: GHI
@@ -37,8 +62,13 @@ const CERTIFICATE_CANDIDATE_PATHS = [
   '/certificates/certificate.jpg',
 ];
 
-export const Top500EasterEgg: React.FC = () => {
+export interface Top500EasterEggProps {
+  onOpenAbout?: () => void;
+}
+
+export const Top500EasterEgg: React.FC<Top500EasterEggProps> = ({ onOpenAbout }) => {
   const [isDialerOpen, setIsDialerOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'dialer' | 'manual' | 'contacts'>('dialer');
   const [dialedNumber, setDialedNumber] = useState('');
   const [callState, setCallState] = useState<'idle' | 'calling' | 'connected' | 'rejected'>('idle');
   const [showCelebration, setShowCelebration] = useState(false);
@@ -49,6 +79,16 @@ export const Top500EasterEgg: React.FC = () => {
   const phoneModalRef = useRef<HTMLDivElement>(null);
   const celebrationRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const autoOpenAboutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up auto-open timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoOpenAboutTimeoutRef.current) {
+        clearTimeout(autoOpenAboutTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Respect prefers-reduced-motion
   useEffect(() => {
@@ -99,29 +139,82 @@ export const Top500EasterEgg: React.FC = () => {
     };
   }, []);
 
+  // Trigger opening About screen from 11577 shortcut
+  const handleOpenAboutScreen = useCallback(() => {
+    if (autoOpenAboutTimeoutRef.current) {
+      clearTimeout(autoOpenAboutTimeoutRef.current);
+      autoOpenAboutTimeoutRef.current = null;
+    }
+    setIsDialerOpen(false);
+    setViewMode('dialer');
+    setDialedNumber('');
+    setCallState('idle');
+    if (onOpenAbout) {
+      onOpenAbout();
+    }
+    window.dispatchEvent(new CustomEvent('aniverse:open-about'));
+  }, [onOpenAbout]);
+
   // Number input handlers
   const handleAddDigit = useCallback((char: string) => {
     if (callState !== 'idle') return;
     setDialedNumber((prev) => {
       if (prev.length >= 10) return prev;
-      return prev + char;
+      const next = prev + char;
+      if (next === '11577') {
+        if (autoOpenAboutTimeoutRef.current) {
+          clearTimeout(autoOpenAboutTimeoutRef.current);
+        }
+        autoOpenAboutTimeoutRef.current = setTimeout(() => {
+          handleOpenAboutScreen();
+        }, 500);
+      }
+      return next;
     });
-  }, [callState]);
+  }, [callState, handleOpenAboutScreen]);
 
   const handleDeleteDigit = useCallback(() => {
+    if (autoOpenAboutTimeoutRef.current) {
+      clearTimeout(autoOpenAboutTimeoutRef.current);
+      autoOpenAboutTimeoutRef.current = null;
+    }
     if (callState !== 'idle') return;
     setDialedNumber((prev) => (prev.length > 0 ? prev.slice(0, -1) : ''));
   }, [callState]);
 
   const handleCloseDialer = useCallback(() => {
+    if (autoOpenAboutTimeoutRef.current) {
+      clearTimeout(autoOpenAboutTimeoutRef.current);
+      autoOpenAboutTimeoutRef.current = null;
+    }
     setIsDialerOpen(false);
+    setViewMode('dialer');
     setDialedNumber('');
     setCallState('idle');
+  }, []);
+
+  const handleBackFromManual = useCallback(() => {
+    setViewMode('dialer');
+    setDialedNumber('');
+  }, []);
+
+  const handleBackToDialer = useCallback(() => {
+    setViewMode('dialer');
+  }, []);
+
+  const handleSelectContact = useCallback((contact: PhoneContact) => {
+    setDialedNumber(contact.number);
+    setViewMode('dialer');
   }, []);
 
   const handleCall = useCallback(() => {
     if (callState !== 'idle') return;
     if (!dialedNumber) return;
+
+    if (autoOpenAboutTimeoutRef.current) {
+      clearTimeout(autoOpenAboutTimeoutRef.current);
+      autoOpenAboutTimeoutRef.current = null;
+    }
 
     if (dialedNumber === '500') {
       // Phase 1: Calling
@@ -134,6 +227,7 @@ export const Top500EasterEgg: React.FC = () => {
         const timer2 = setTimeout(() => {
           // Phase 3: AniVerse transforms into celebration
           setIsDialerOpen(false);
+          setViewMode('dialer');
           setCallState('idle');
           setDialedNumber('');
           setShowCelebration(true);
@@ -143,6 +237,14 @@ export const Top500EasterEgg: React.FC = () => {
       }, 1500);
 
       return () => clearTimeout(timer1);
+    } else if (dialedNumber === '*0#') {
+      // Secret in-phone Quick Manual screen (does not trigger celebration)
+      setViewMode('manual');
+      setDialedNumber('');
+      setCallState('idle');
+    } else if (dialedNumber === '11577') {
+      // Secret in-phone shortcut to existing About page
+      handleOpenAboutScreen();
     } else {
       // Phase: Incorrect number feedback
       setCallState('rejected');
@@ -151,14 +253,30 @@ export const Top500EasterEgg: React.FC = () => {
       }, 1800);
       return () => clearTimeout(timer);
     }
-  }, [callState, dialedNumber]);
+  }, [callState, dialedNumber, handleOpenAboutScreen]);
 
-  // Physical keyboard support while dialer is open
+  // Physical keyboard support while dialer / manual / contacts is open
   useEffect(() => {
     if (!isDialerOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (showCelebration) return;
+
+      if (viewMode === 'manual') {
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+          e.preventDefault();
+          handleBackFromManual();
+        }
+        return;
+      }
+
+      if (viewMode === 'contacts') {
+        if (e.key === 'Escape' || e.key === 'Backspace') {
+          e.preventDefault();
+          handleBackToDialer();
+        }
+        return;
+      }
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -177,7 +295,7 @@ export const Top500EasterEgg: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDialerOpen, showCelebration, handleCloseDialer, handleDeleteDigit, handleCall, handleAddDigit]);
+  }, [isDialerOpen, showCelebration, viewMode, handleBackFromManual, handleBackToDialer, handleCloseDialer, handleDeleteDigit, handleCall, handleAddDigit]);
 
   // Celebration escape key listener
   useEffect(() => {
@@ -300,18 +418,52 @@ export const Top500EasterEgg: React.FC = () => {
     <>
       {/* 1. FLOATING PHONE ICON (Bottom-Right Corner) */}
       {!isDialerOpen && !showCelebration && (
-        <div className="fixed bottom-6 right-6 z-40">
-          <button
+        <div className="fixed bottom-6 right-6 z-40 group">
+          {/* Desktop Hover Hint Tooltip */}
+          <div className="hidden sm:block absolute right-full mr-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200 z-50 select-none whitespace-nowrap">
+            <div className="relative px-3.5 py-1.5 rounded-xl bg-[#1C1A24]/95 text-[#F0EDFA] text-xs font-medium tracking-wide shadow-xl border border-[#E78B90]/30 backdrop-blur-md">
+              Something is waiting...
+              {/* Arrow pointing to button */}
+              <span className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-2 bg-[#1C1A24] border-t border-r border-[#E78B90]/30 rotate-45" />
+            </div>
+          </div>
+
+          <motion.button
             id="aniverse-easter-egg-phone-btn"
             type="button"
             onClick={() => setIsDialerOpen(true)}
-            aria-label="Direct Phone Line"
-            title="Direct Line"
-            className="group relative w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-[#1C1A24]/90 hover:bg-[#252332] active:bg-[#15141c] text-[#F4D9DF] hover:text-white border border-[#E78B90]/40 hover:border-[#E78B90] shadow-lg shadow-[#1C1A24]/40 hover:shadow-[#E78B90]/25 transition-all duration-200 hover:-translate-y-0.5 active:scale-95 flex items-center justify-center cursor-pointer backdrop-blur-md"
+            aria-label="Open phone"
+            title="Open phone"
+            animate={
+              prefersReducedMotion
+                ? {}
+                : {
+                    boxShadow: [
+                      '0 0 0 0px rgba(231, 139, 144, 0)',
+                      '0 0 0 0px rgba(231, 139, 144, 0)',
+                      '0 0 0 6px rgba(231, 139, 144, 0.22)',
+                      '0 0 0 12px rgba(231, 139, 144, 0)',
+                      '0 0 0 0px rgba(231, 139, 144, 0)',
+                    ],
+                  }
+            }
+            transition={{
+              duration: 6,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              times: [0, 0.65, 0.78, 0.92, 1],
+            }}
+            className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-[#1C1A24]/90 hover:bg-[#252332] active:bg-[#15141c] text-[#F4D9DF] hover:text-white border border-[#E78B90]/40 hover:border-[#E78B90] shadow-lg shadow-[#1C1A24]/40 hover:shadow-[#E78B90]/25 transition-all duration-200 hover:-translate-y-0.5 active:scale-95 flex items-center justify-center cursor-pointer backdrop-blur-md"
           >
-            {/* Subtle Sakura Blossom Petal Badge Detail */}
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-[#E78B90] to-[#FFD1DC] border border-[#1C1A24] shadow-sm flex items-center justify-center opacity-90 group-hover:scale-110 transition-transform">
-              <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+            {/* Tiny discovery sparkle near the phone icon */}
+            <span
+              className="absolute -top-1 -right-1 pointer-events-none"
+              aria-hidden="true"
+            >
+              <span className="relative flex h-3.5 w-3.5 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-[#FFE29F]/30 opacity-75 animate-ping" />
+                <Sparkles className="w-3.5 h-3.5 text-[#FFE29F] drop-shadow-[0_0_6px_rgba(255,226,159,0.8)]" />
+              </span>
             </span>
 
             {/* Phone Icon */}
@@ -319,7 +471,7 @@ export const Top500EasterEgg: React.FC = () => {
 
             {/* Soft subtle glow halo on hover */}
             <span className="absolute inset-0 rounded-full bg-[#E78B90]/10 opacity-0 group-hover:opacity-100 transition-opacity blur-sm pointer-events-none" />
-          </button>
+          </motion.button>
         </div>
       )}
 
@@ -373,107 +525,279 @@ export const Top500EasterEgg: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Display Screen with Dialed Number */}
-                <div className="my-auto py-1.5 flex flex-col items-center justify-center text-center">
-                  <div className="min-h-[50px] flex items-center justify-center px-2">
-                    {dialedNumber ? (
-                      <span className="text-3xl sm:text-4xl font-mono font-bold tracking-widest text-white">
-                        {dialedNumber}
-                      </span>
-                    ) : (
-                      <span className="text-white/20 text-sm font-sans tracking-normal">
-                        Enter number...
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Call State Feedback */}
-                  <div className="h-6 flex items-center justify-center mt-1">
-                    {callState === 'calling' && (
-                      <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold animate-pulse">
-                        <Volume2 className="w-3.5 h-3.5 animate-bounce" />
-                        <span>Calling...</span>
-                      </div>
-                    )}
-                    {callState === 'connected' && (
-                      <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold tracking-wide">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                        <span>CONNECTED</span>
-                      </div>
-                    )}
-                    {callState === 'rejected' && (
-                      <motion.div
-                        initial={{ x: -5 }}
-                        animate={{ x: [-5, 5, -3, 3, 0] }}
-                        transition={{ duration: 0.3 }}
-                        className="text-rose-400 text-[11px] font-semibold tracking-wide"
+                {viewMode === 'contacts' ? (
+                  /* IN-PHONE CONTACTS SCREEN */
+                  <div className="flex-1 flex flex-col justify-between pt-2 pb-1 animate-in fade-in zoom-in-95 duration-200">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <button
+                        type="button"
+                        onClick={handleBackToDialer}
+                        aria-label="Back to keypad"
+                        className="inline-flex items-center gap-1 text-xs text-[#E78B90] hover:text-white transition-colors cursor-pointer py-1 px-2 -ml-1 rounded-lg hover:bg-white/5 active:scale-95"
                       >
-                        NUMBER NOT RECOGNIZED
-                      </motion.div>
-                    )}
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span className="font-semibold">Back</span>
+                      </button>
+
+                      <div className="flex items-center gap-1.5 text-xs font-bold tracking-wider uppercase text-[#F0EDFA]">
+                        <Contact className="w-3.5 h-3.5 text-[#E78B90]" />
+                        <span>Contacts</span>
+                      </div>
+
+                      <div className="w-10" />
+                    </div>
+
+                    {/* Contact List */}
+                    <div className="my-auto py-2 space-y-2.5 flex-1 flex flex-col justify-start overflow-y-auto max-h-[320px] pr-0.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-white/50 px-1 pt-1">
+                        All Contacts ({PHONE_CONTACTS.length})
+                      </div>
+
+                      <div className="space-y-2">
+                        {PHONE_CONTACTS.map((contact) => (
+                          <button
+                            key={contact.id}
+                            type="button"
+                            onClick={() => handleSelectContact(contact)}
+                            className="w-full p-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.12] active:bg-white/[0.18] border border-white/10 transition-all text-left flex items-center justify-between group cursor-pointer active:scale-98"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#E78B90]/25 via-[#FFE29F]/20 to-[#7567C7]/20 border border-[#E78B90]/30 flex items-center justify-center text-[#FFE29F] font-bold text-sm shadow-xs">
+                                {contact.name.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="font-semibold text-sm text-white group-hover:text-[#FFE29F] transition-colors">
+                                  {contact.name}
+                                </div>
+                                <div className="text-xs font-mono text-white/60 tracking-wider">
+                                  {contact.number}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="w-8 h-8 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-center text-emerald-400 transition-colors">
+                              <Phone className="w-3.5 h-3.5" />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Bottom Return Button */}
+                    <div className="pt-2 text-center">
+                      <button
+                        type="button"
+                        onClick={handleBackToDialer}
+                        className="w-full py-2.5 px-4 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 border border-white/15 text-white text-xs font-semibold tracking-wide transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Return to Keypad</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : viewMode === 'manual' ? (
+                  /* IN-PHONE QUICK MANUAL / HELP SCREEN */
+                  <div className="flex-1 flex flex-col justify-between pt-2 pb-1 animate-in fade-in zoom-in-95 duration-200">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <button
+                        type="button"
+                        onClick={handleBackFromManual}
+                        aria-label="Back to keypad"
+                        className="inline-flex items-center gap-1 text-xs text-[#E78B90] hover:text-white transition-colors cursor-pointer py-1 px-2 -ml-1 rounded-lg hover:bg-white/5 active:scale-95"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span className="font-semibold">Back</span>
+                      </button>
 
-                {/* Keypad Grid (3 columns x 4 rows) */}
-                <div className="grid grid-cols-3 gap-2.5 sm:gap-3 place-items-center my-1.5">
-                  {KEYPAD_BUTTONS.map(({ digit, letters }) => (
-                    <button
-                      key={digit}
-                      type="button"
-                      onClick={() => handleAddDigit(digit)}
-                      disabled={callState !== 'idle'}
-                      aria-label={`Digit ${digit} ${letters}`}
-                      className="w-14 h-14 sm:w-15 sm:h-15 rounded-full bg-white/[0.08] hover:bg-white/[0.16] active:bg-white/[0.24] border border-white/10 active:scale-95 transition-all flex flex-col items-center justify-center cursor-pointer select-none text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <span className="text-xl sm:text-2xl font-bold leading-none">{digit}</span>
-                      {letters ? (
-                        <span className="text-[8px] sm:text-[9px] text-white/50 font-semibold tracking-widest leading-none mt-0.5">
-                          {letters}
-                        </span>
-                      ) : (
-                        <span className="h-[9px]" />
-                      )}
-                    </button>
-                  ))}
-                </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold tracking-wider uppercase text-[#F0EDFA]">
+                        <HelpCircle className="w-3.5 h-3.5 text-[#E78B90]" />
+                        <span>Quick Manual</span>
+                      </div>
 
-                {/* Bottom Controls: DELETE, CALL, CANCEL */}
-                <div className="mt-3 flex flex-col items-center">
-                  <div className="w-full flex items-center justify-center gap-5 px-3">
-                    {/* DELETE button */}
-                    <button
-                      type="button"
-                      onClick={handleDeleteDigit}
-                      disabled={callState !== 'idle' || dialedNumber.length === 0}
-                      aria-label="Delete last digit"
-                      className="h-13 px-4 rounded-full flex items-center gap-1.5 text-white/70 hover:text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-95 cursor-pointer"
-                    >
-                      <Delete className="w-4 h-4" />
-                      <span className="text-[10px] font-bold tracking-wider uppercase">Delete</span>
-                    </button>
+                      <div className="w-10" />
+                    </div>
 
-                    {/* ☎ CALL button */}
-                    <button
-                      type="button"
-                      onClick={handleCall}
-                      disabled={callState !== 'idle' || dialedNumber.length === 0}
-                      aria-label="Call dialed number"
-                      className="h-13 px-6 rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white shadow-lg shadow-emerald-500/35 flex items-center gap-2 active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Phone className="w-4 h-4" />
-                      <span className="text-xs font-bold tracking-wider uppercase">Call</span>
-                    </button>
+                    {/* Manual Body */}
+                    <div className="my-auto py-2 space-y-3">
+                      {/* Section: Phone Controls */}
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-white/50 px-1">
+                          Phone Controls
+                        </div>
+                        <div className="bg-white/[0.04] border border-white/10 rounded-xl p-2.5 space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-white bg-white/10 px-2 py-0.5 rounded-md text-[11px]">
+                              0–9
+                            </span>
+                            <span className="text-white/75 font-medium">Enter numbers</span>
+                          </div>
+                          <div className="flex items-center justify-between border-t border-white/5 pt-1.5">
+                            <span className="font-mono font-bold text-white bg-white/10 px-2 py-0.5 rounded-md text-[11px]">
+                              * / #
+                            </span>
+                            <span className="text-white/75 font-medium">Special keys</span>
+                          </div>
+                          <div className="flex items-center justify-between border-t border-white/5 pt-1.5">
+                            <span className="font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1">
+                              <Phone className="w-2.5 h-2.5" /> Call
+                            </span>
+                            <span className="text-white/75 font-medium">Submit a sequence</span>
+                          </div>
+                          <div className="flex items-center justify-between border-t border-white/5 pt-1.5">
+                            <span className="font-mono font-bold text-rose-300 bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 rounded-md text-[11px]">
+                              ⌫
+                            </span>
+                            <span className="text-white/75 font-medium">Delete the last digit</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section: Subtle Hints */}
+                      <div className="space-y-2 pt-0.5">
+                        <div className="bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-transparent border border-amber-400/20 rounded-xl p-2.5 text-center">
+                          <p className="text-[11px] font-medium text-amber-200/90 leading-relaxed italic">
+                            "Some numbers have a story behind them."
+                          </p>
+                        </div>
+
+                        <div className="bg-white/[0.03] border border-white/5 rounded-xl p-2.5 text-center">
+                          <p className="text-[11px] font-medium text-white/75 leading-relaxed italic">
+                            "Try experimenting. You might receive an unexpected call."
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom Return Button */}
+                    <div className="pt-2 text-center">
+                      <button
+                        type="button"
+                        onClick={handleBackFromManual}
+                        className="w-full py-2.5 px-4 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 border border-white/15 text-white text-xs font-semibold tracking-wide transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Return to Keypad</span>
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  /* DIALER SCREEN */
+                  <>
+                    {/* Display Screen with Dialed Number */}
+                    <div className="my-auto py-1.5 flex flex-col items-center justify-center text-center">
+                      <div className="min-h-[46px] flex items-center justify-center px-2">
+                        {dialedNumber ? (
+                          <span className="text-3xl sm:text-4xl font-mono font-bold tracking-widest text-white">
+                            {dialedNumber}
+                          </span>
+                        ) : (
+                          <span className="text-white/20 text-sm font-sans tracking-normal">
+                            Enter number...
+                          </span>
+                        )}
+                      </div>
 
-                  {/* CANCEL button */}
-                  <button
-                    type="button"
-                    onClick={handleCloseDialer}
-                    className="mt-3.5 text-white/50 hover:text-white text-[11px] font-semibold py-1 px-4 tracking-widest uppercase transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                      {/* Call State Feedback */}
+                      <div className="h-6 flex items-center justify-center mt-1">
+                        {callState === 'calling' && (
+                          <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold animate-pulse">
+                            <Volume2 className="w-3.5 h-3.5 animate-bounce" />
+                            <span>Calling...</span>
+                          </div>
+                        )}
+                        {callState === 'connected' && (
+                          <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold tracking-wide">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                            <span>CONNECTED</span>
+                          </div>
+                        )}
+                        {callState === 'rejected' && (
+                          <motion.div
+                            initial={{ x: -5 }}
+                            animate={{ x: [-5, 5, -3, 3, 0] }}
+                            transition={{ duration: 0.3 }}
+                            className="text-rose-400 text-[11px] font-semibold tracking-wide"
+                          >
+                            NUMBER NOT RECOGNIZED
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Keypad Grid (3 columns x 4 rows) */}
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-3 place-items-center my-1">
+                      {KEYPAD_BUTTONS.map(({ digit, letters }) => (
+                        <button
+                          key={digit}
+                          type="button"
+                          onClick={() => handleAddDigit(digit)}
+                          disabled={callState !== 'idle'}
+                          aria-label={`Digit ${digit} ${letters}`}
+                          className="w-14 h-14 sm:w-15 sm:h-15 rounded-full bg-white/[0.08] hover:bg-white/[0.16] active:bg-white/[0.24] border border-white/10 active:scale-95 transition-all flex flex-col items-center justify-center cursor-pointer select-none text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span className="text-xl sm:text-2xl font-bold leading-none">{digit}</span>
+                          {letters ? (
+                            <span className="text-[8px] sm:text-[9px] text-white/50 font-semibold tracking-widest leading-none mt-0.5">
+                              {letters}
+                            </span>
+                          ) : (
+                            <span className="h-[9px]" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Bottom Controls: DELETE, CALL, CANCEL */}
+                    <div className="mt-2.5 flex flex-col items-center">
+                      <div className="w-full flex items-center justify-center gap-5 px-3">
+                        {/* DELETE button */}
+                        <button
+                          type="button"
+                          onClick={handleDeleteDigit}
+                          disabled={callState !== 'idle' || dialedNumber.length === 0}
+                          aria-label="Delete last digit"
+                          className="h-13 px-4 rounded-full flex items-center gap-1.5 text-white/70 hover:text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-95 cursor-pointer"
+                        >
+                          <Delete className="w-4 h-4" />
+                          <span className="text-[10px] font-bold tracking-wider uppercase">Delete</span>
+                        </button>
+
+                        {/* ☎ CALL button */}
+                        <button
+                          type="button"
+                          onClick={handleCall}
+                          disabled={callState !== 'idle' || dialedNumber.length === 0}
+                          aria-label="Call dialed number"
+                          className="h-13 px-6 rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white shadow-lg shadow-emerald-500/35 flex items-center gap-2 active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Phone className="w-4 h-4" />
+                          <span className="text-xs font-bold tracking-wider uppercase">Call</span>
+                        </button>
+                      </div>
+
+                      {/* Bottom Actions: Cancel & Contacts */}
+                      <div className="mt-3 flex items-center justify-between w-full px-5">
+                        <button
+                          type="button"
+                          onClick={handleCloseDialer}
+                          className="text-white/50 hover:text-white text-[11px] font-semibold py-1 tracking-widest uppercase transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('contacts')}
+                          aria-label="View Contacts"
+                          className="text-white/60 hover:text-white text-[11px] font-semibold py-1 flex items-center gap-1.5 tracking-wider uppercase transition-colors cursor-pointer"
+                        >
+                          <Contact className="w-3.5 h-3.5 text-[#E78B90]" />
+                          <span>Contacts</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>

@@ -15,7 +15,6 @@ import {
   BarChart3,
   CheckCircle2,
   Sparkles,
-  Info,
   Home,
   Trophy,
   User,
@@ -113,6 +112,13 @@ export default function App() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
+  }, []);
+
+  // Listen for keypad shortcut (11577) to open About modal
+  useEffect(() => {
+    const handleOpenAboutEvent = () => setIsAboutModalOpen(true);
+    window.addEventListener('aniverse:open-about', handleOpenAboutEvent);
+    return () => window.removeEventListener('aniverse:open-about', handleOpenAboutEvent);
   }, []);
 
   const handleThemeChange = (newTheme: AppTheme) => {
@@ -1662,15 +1668,6 @@ export default function App() {
               />
             )}
 
-            <button
-              onClick={() => setIsAboutModalOpen(true)}
-              title="About AniVerse & Version Info"
-              className="px-2.5 py-1.5 rounded-xl text-[#77747D] hover:text-[#7567C7] hover:bg-[#F0EDFA]/60 border border-transparent hover:border-[#E7E3DF] transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-            >
-              <Info className="h-4 w-4 text-[#7567C7]" />
-              <span className="hidden sm:inline">About</span>
-            </button>
-
             {malUser && (
               <button
                 id="excel-export-header-button"
@@ -2393,12 +2390,7 @@ export default function App() {
             <span>•</span>
             <span>Personal Japanese Editorial Tracker</span>
             <span>•</span>
-            <button
-              onClick={() => setIsAboutModalOpen(true)}
-              className="text-[#7567C7] hover:underline font-semibold cursor-pointer"
-            >
-              About {APP_VERSION_INFO.currentVersion}
-            </button>
+            <span>{APP_VERSION_INFO.currentVersion}</span>
           </div>
           <div>DATA SYNCED WITH MYANIMELIST & JIKAN API</div>
         </div>
@@ -2472,7 +2464,9 @@ export default function App() {
       )}
 
       {/* TEMPORARY TOP 500 EASTER EGG */}
-      {SHOW_TOP_500_EASTER_EGG && <Top500EasterEgg />}
+      {SHOW_TOP_500_EASTER_EGG && (
+        <Top500EasterEgg onOpenAbout={() => setIsAboutModalOpen(true)} />
+      )}
     </div>
   );
 }

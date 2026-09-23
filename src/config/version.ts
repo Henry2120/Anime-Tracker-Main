@@ -14,9 +14,26 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION_INFO: AppVersionInfo = {
-  currentVersion: 'v4.5',
+  currentVersion: 'v4.6',
   tagline: 'Your anime. Your season. Your story.',
   history: [
+    {
+      version: 'v4.6',
+      title: 'Top 500 Celebration Easter Egg',
+      date: 'September 2026',
+      description:
+        'Added a hidden interactive celebration Easter egg to commemorate AniVerse being selected in the Top 500 of the AI Riser Vietnam 2026 contest.',
+      changes: [
+        'Added a hidden smartphone-style dialer to the homepage as a temporary Easter egg.',
+        'Added a secret number sequence that triggers the Top 500 celebration experience.',
+        'Added a small in-phone manual/help system accessible through *0#, allowing users to discover how the dialer works without revealing the celebration number.',
+        'Added subtle hints to encourage visitors to experiment with the phone without explicitly revealing the secret sequence.',
+        'Added a full-screen celebratory transformation with Sakura-inspired visual effects and achievement messaging.',
+        'Added the AI Riser Vietnam 2026 Top 500 certificate as part of the celebration.',
+        'Kept the entire feature isolated behind the existing temporary frontend feature flag.',
+      ],
+      easterEgg: 'Some numbers have a story behind them.',
+    },
     {
       version: 'v4.5',
       title: 'Expanded Release Calendar & Card Display Toggles',
