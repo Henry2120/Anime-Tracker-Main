@@ -136,6 +136,7 @@ export interface ReleaseCalendarItem {
   imageUrl: string | null;
   studio: string | null;
   format?: string | null;
+  formattedTime?: string;
   isWatching?: boolean;
   isUpcoming?: boolean;
   countdown?: string | null;

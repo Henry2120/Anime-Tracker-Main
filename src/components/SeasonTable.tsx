@@ -65,7 +65,7 @@ interface SeasonTableProps {
   calendarItems?: ReleaseCalendarItem[];
 }
 
-export const SeasonTable: React.FC<SeasonTableProps> = ({
+export const SeasonTable = React.memo(function SeasonTable({
   title,
   subtitle,
   icon,
@@ -79,7 +79,7 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
   onEditAnime,
   onQuickIncrement,
   calendarItems,
-}) => {
+}: SeasonTableProps) {
   const [activeNoteModal, setActiveNoteModal] = useState<{
     animeId: number;
     title: string;
@@ -451,4 +451,4 @@ export const SeasonTable: React.FC<SeasonTableProps> = ({
       </AnimatePresence>
     </div>
   );
-};
+});

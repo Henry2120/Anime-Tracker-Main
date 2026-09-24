@@ -16,7 +16,7 @@ import {
   PieChart,
 } from 'lucide-react';
 import { MalListItem, MalUser } from '../types';
-import { computeAnimeStats } from './StatusDashboard';
+import { computeAnimeStats } from '../utils/statsUtils';
 
 interface GeminiInsightsViewProps {
   malList: MalListItem[];

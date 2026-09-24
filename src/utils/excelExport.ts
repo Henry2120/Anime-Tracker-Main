@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { MalListItem, MalUser } from '../types';
-import { computeAnimeStats } from '../components/StatusDashboard';
+import { computeAnimeStats } from './statsUtils';
 import { parseSeasonFromDate } from './seasonUtils';
 
 export type ExportMode = 'season' | 'all' | 'full';

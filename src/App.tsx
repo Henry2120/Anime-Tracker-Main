@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   AlertCircle,
   RefreshCw,
@@ -28,10 +28,29 @@ import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { MalCatalogueSearchResults } from './components/MalCatalogueSearchResults';
 import { SeasonTable } from './components/SeasonTable';
-import { ReleaseCalendar } from './components/ReleaseCalendar';
-import { StatusDashboard } from './components/StatusDashboard';
-import { GeminiInsightsView } from './components/GeminiInsightsView';
-import { SeasonReview } from './components/SeasonReview';
+
+// Lazy-loaded heavy tab views for AniVerse 4.0 Performance Foundation
+const ReleaseCalendar = lazy(() =>
+  import('./components/ReleaseCalendar').then((m) => ({ default: m.ReleaseCalendar }))
+);
+const StatusDashboard = lazy(() =>
+  import('./components/StatusDashboard').then((m) => ({ default: m.StatusDashboard }))
+);
+const GeminiInsightsView = lazy(() =>
+  import('./components/GeminiInsightsView').then((m) => ({ default: m.GeminiInsightsView }))
+);
+const SeasonReview = lazy(() =>
+  import('./components/SeasonReview').then((m) => ({ default: m.SeasonReview }))
+);
+
+const TabLoadingFallback: React.FC = () => (
+  <div className="py-24 flex flex-col items-center justify-center text-center space-y-3">
+    <div className="w-8 h-8 rounded-full border-2 border-[#7567C7]/20 border-t-[#7567C7] animate-spin" />
+    <span className="text-xs font-medium text-[#77747D] dark:text-[#A4A1AA] tracking-wide">
+      Loading view...
+    </span>
+  </div>
+);
 import { SeasonSelector } from './components/SeasonSelector';
 import { WelcomePage } from './components/WelcomePage';
 import { AboutModal } from './components/AboutModal';
@@ -190,6 +209,9 @@ export default function App() {
   const [calendarSummer2026Ids, setCalendarSummer2026Ids] = useState<Set<number>>(new Set());
   const [seasonalCalendarItems, setSeasonalCalendarItems] = useState<ReleaseCalendarItem[]>([]);
 
+  // Track already queried Jikan anime IDs to prevent repeated queries
+  const jikanLookedUpIdsRef = useRef<Set<number>>(new Set());
+
   // Local user notes stored in localStorage
   const [customUserNotes, setCustomUserNotes] = useState<Record<number, string>>(() => {
     try {
@@ -217,7 +239,7 @@ export default function App() {
     }, 4000);
   };
 
-  const handleSaveCustomNote = async (animeId: number, note: string) => {
+  const handleSaveCustomNote = useCallback(async (animeId: number, note: string) => {
     const trimmed = note.trim();
     // 1. Optimistic local update
     setCustomUserNotes((prev) => {
@@ -270,7 +292,7 @@ export default function App() {
         showSyncToast('Failed to save note to MyAnimeList', 'error');
       }
     }
-  };
+  }, [malUser, sessionToken]);
 
   // User MAL Map for quick lookup
   const userMalMap = useMemo(() => {
@@ -284,7 +306,7 @@ export default function App() {
   }, [malList]);
 
   // Open the Anime Detail modal
-  const handleOpenDetailModal = (target: any) => {
+  const handleOpenDetailModal = useCallback((target: any) => {
     if (!target) return;
     const rawId = target.id || target.malId || target.mal_id || target.node?.id;
     const animeId = rawId ? Number(rawId) : undefined;
@@ -328,10 +350,10 @@ export default function App() {
     };
 
     setSelectedDetailAnime(detailData);
-  };
+  }, [userMalMap, customUserNotes]);
 
   // Open the MAL Edit modal for any anime item (from List, Season, Calendar, or Detail modal)
-  const handleOpenEditModal = (target: any) => {
+  const handleOpenEditModal = useCallback((target: any) => {
     if (!target) return;
 
     const rawId = target.id || target.malId || target.mal_id || target.node?.id;
@@ -408,7 +430,7 @@ export default function App() {
 
     setEditingMalAnime(editableData);
     setIsEditModalOpen(true);
-  };
+  }, [userMalMap, customUserNotes]);
 
   // Real-time Save handler to update MyAnimeList entry
   const handleSaveMalStatus = async (animeId: number, payload: MalUpdateStatusPayload): Promise<{ success: boolean; error?: string }> => {
@@ -488,11 +510,6 @@ export default function App() {
 
       showSyncToast('✓ Synced with MyAnimeList', 'success');
 
-      // Refresh data from MAL in background
-      setTimeout(() => {
-        fetchMalList();
-      }, 500);
-
       return { success: true };
     } catch (err: any) {
       console.error('Error saving MAL status:', err);
@@ -521,10 +538,6 @@ export default function App() {
       // Optimistic removal
       setMalList((prev) => prev.filter((item) => item.node.id !== animeId));
       showSyncToast('✓ Removed from MyAnimeList', 'success');
-
-      setTimeout(() => {
-        fetchMalList();
-      }, 500);
 
       return { success: true };
     } catch (err: any) {
@@ -587,11 +600,6 @@ export default function App() {
       });
 
       showSyncToast(`✓ Added "${node.title}" to My List (Plan to Watch)`, 'success');
-
-      // Refresh in background
-      setTimeout(() => {
-        fetchMalList();
-      }, 500);
     } catch (err: any) {
       console.error('Error adding catalogue anime to MAL:', err);
       showSyncToast(err.message || 'Failed to add anime to MyAnimeList', 'error');
@@ -911,6 +919,15 @@ export default function App() {
     });
   }, [selectedSeason, activeSeasonMalList, malList, currentlyWatchingItems, completedSummer2026Items, allSummer2026Ids, userMalMap]);
 
+  // Memoized average score of user's scored anime (avoids re-reducing on every render)
+  const malAverageScore = useMemo(() => {
+    if (malList.length === 0) return '—';
+    const scoredItems = malList.filter((i) => (i.list_status?.score || 0) > 0);
+    if (scoredItems.length === 0) return '—';
+    const totalScore = scoredItems.reduce((acc, curr) => acc + (curr.list_status?.score || 0), 0);
+    return (totalScore / scoredItems.length).toFixed(1);
+  }, [malList]);
+
   // Fetch Jikan Summer 2026 seasonal catalogue
   const loadJikanSeasonalCatalogue = async () => {
     setJikanSeasonLoading(true);
@@ -964,7 +981,7 @@ export default function App() {
   };
 
   // Callback to merge IDs and calendar items whenever the ReleaseCalendar loads/updates schedule data
-  const handleCalendarItemsLoaded = (malIds: number[], calendarItems?: ReleaseCalendarItem[]) => {
+  const handleCalendarItemsLoaded = useCallback((malIds: number[], calendarItems?: ReleaseCalendarItem[]) => {
     if (calendarItems && calendarItems.length > 0) {
       setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, calendarItems));
     } else {
@@ -985,7 +1002,7 @@ export default function App() {
       }
       return changed ? next : prev;
     });
-  };
+  }, []);
 
   // Keep MY SEASON calendar schedule data fresh on tab revisit or season change without aggressive polling
   useEffect(() => {
@@ -1000,14 +1017,17 @@ export default function App() {
   }, [activeTab, selectedSeason]);
 
   // Targeted Fallback: For anime without clear start_season in MAL metadata,
-  // query individual Jikan metadata (/v4/anime/{mal_id}) to verify seasonal placement
+  // query individual Jikan metadata with bounded concurrency (3-5 concurrent requests) and session deduplication
   useEffect(() => {
+    if (activeTab !== 'season' && activeTab !== 'status' && activeTab !== 'review' && activeTab !== 'gemini') return;
     if (!malList || malList.length === 0) return;
     if (jikanSeasonLoading || jikanSpringLoading) return;
 
     const itemsNeedingLookup = malList.filter((item) => {
       const animeId = item.node?.id;
       if (!animeId) return false;
+      // Do not re-query already examined IDs
+      if (jikanLookedUpIdsRef.current.has(animeId)) return false;
       // If node.start_season is already defined on MAL, MAL is authoritative! No need to query Jikan.
       if (item.node?.start_season && typeof item.node.start_season === 'object') {
         const year = Number(item.node.start_season.year);
@@ -1021,28 +1041,59 @@ export default function App() {
 
     if (itemsNeedingLookup.length === 0) return;
 
+    // Immediately mark as tracked so concurrent effect evaluations don't duplicate work
+    for (const item of itemsNeedingLookup) {
+      jikanLookedUpIdsRef.current.add(item.node.id);
+    }
+
     let isMounted = true;
     const runFallbackLookups = async () => {
-      for (const item of itemsNeedingLookup) {
-        if (!isMounted) break;
-        const animeId = item.node.id;
-        const info = await fetchJikanAnimeInfo(animeId);
-        if (info && isMounted) {
-          if (info.is_summer_2026 || (info.year === 2026 && info.season?.toLowerCase() === 'summer')) {
-            setFallbackSummer2026Ids((prev) => {
-              const next = new Set(prev);
-              next.add(animeId);
-              return next;
-            });
-          } else if (info.year === 2026 && info.season?.toLowerCase() === 'spring') {
-            setFallbackSpring2026Ids((prev) => {
-              const next = new Set(prev);
-              next.add(animeId);
-              return next;
-            });
+      const CONCURRENCY = 4;
+      const summerFound: number[] = [];
+      const springFound: number[] = [];
+
+      let index = 0;
+      const worker = async () => {
+        while (index < itemsNeedingLookup.length && isMounted) {
+          const currentIndex = index++;
+          const item = itemsNeedingLookup[currentIndex];
+          if (!item?.node?.id) continue;
+          const animeId = item.node.id;
+          try {
+            const info = await fetchJikanAnimeInfo(animeId);
+            if (!isMounted || !info) continue;
+            if (info.is_summer_2026 || (info.year === 2026 && info.season?.toLowerCase() === 'summer')) {
+              summerFound.push(animeId);
+            } else if (info.year === 2026 && info.season?.toLowerCase() === 'spring') {
+              springFound.push(animeId);
+            }
+          } catch {
+            // Individual request failure does not abort other lookups
           }
         }
-        await new Promise((r) => setTimeout(r, 300));
+      };
+
+      const workers = Array.from(
+        { length: Math.min(CONCURRENCY, itemsNeedingLookup.length) },
+        () => worker()
+      );
+      await Promise.all(workers);
+
+      if (isMounted) {
+        if (summerFound.length > 0) {
+          setFallbackSummer2026Ids((prev) => {
+            const next = new Set(prev);
+            for (const id of summerFound) next.add(id);
+            return next;
+          });
+        }
+        if (springFound.length > 0) {
+          setFallbackSpring2026Ids((prev) => {
+            const next = new Set(prev);
+            for (const id of springFound) next.add(id);
+            return next;
+          });
+        }
       }
     };
 
@@ -1051,6 +1102,7 @@ export default function App() {
       isMounted = false;
     };
   }, [
+    activeTab,
     malList,
     jikanSummer2026Ids,
     jikanSpring2026Ids,
@@ -1060,14 +1112,10 @@ export default function App() {
     jikanSpringLoading,
   ]);
 
-  // Check MAL Auth Status and load catalogues on Mount
+  // Check MAL Auth Status and configuration on Mount
   useEffect(() => {
     checkMalConfig();
     checkMalAuth();
-    loadJikanSeasonalCatalogue();
-    loadJikanSpringCatalogue();
-    fetchSeasonalList(2026, 'summer');
-    loadCalendarSeasonalReleases();
 
     // Listen for OAuth success message with one-time ticket from popup window
     const handleMessage = (event: MessageEvent) => {
@@ -1096,12 +1144,39 @@ export default function App() {
     };
   }, []);
 
-  // Fetch seasonal list whenever season tab is selected if not already populated
+  // Secondary seasonal datasets loaded only when requested by active tabs
   useEffect(() => {
-    if (activeTab === 'season' && seasonalList.length === 0 && !seasonalLoading) {
-      fetchSeasonalList(2026, 'summer');
+    if (activeTab === 'season' || activeTab === 'status' || activeTab === 'review' || activeTab === 'gemini') {
+      if (jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
+        loadJikanSeasonalCatalogue();
+      }
+      if (seasonalCalendarItems.length === 0) {
+        const cached = getCachedCalendarItems();
+        if (cached && cached.length > 0) {
+          setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
+        } else {
+          loadCalendarSeasonalReleases();
+        }
+      }
+      if (activeTab === 'season' && seasonalList.length === 0 && !seasonalLoading) {
+        fetchSeasonalList(2026, 'summer');
+      }
     }
-  }, [activeTab, seasonalList.length, seasonalLoading]);
+  }, [
+    activeTab,
+    jikanSummer2026List.length,
+    jikanSeasonLoading,
+    seasonalCalendarItems.length,
+    seasonalList.length,
+    seasonalLoading,
+  ]);
+
+  // Spring secondary catalogue loaded only when spring season is selected
+  useEffect(() => {
+    if (selectedSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+      loadJikanSpringCatalogue();
+    }
+  }, [selectedSeason, jikanSpring2026List.length, jikanSpringLoading]);
 
   // Debounced MAL Catalogue Search
   useEffect(() => {
@@ -2171,9 +2246,7 @@ export default function App() {
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-[#25242A] dark:text-[#EAE8F0]">
-                    {malList.length > 0
-                      ? (malList.reduce((acc, curr) => acc + (curr.list_status?.score || 0), 0) / (malList.filter(i => i.list_status?.score > 0).length || 1)).toFixed(1)
-                      : '—'}
+                    {malAverageScore}
                   </div>
                   <div className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA] uppercase tracking-wider">AVG SCORE</div>
                 </div>
@@ -2290,19 +2363,19 @@ export default function App() {
 
         {/* LOGGED IN TAB 3: RELEASE CALENDAR */}
         {malUser && activeTab === 'calendar' && (
-          <div>
+          <Suspense fallback={<TabLoadingFallback />}>
             <ReleaseCalendar
               malList={malList}
               malLoading={malLoading}
               onCalendarItemsLoaded={handleCalendarItemsLoaded}
               onOpenMalEditor={handleOpenEditModal}
             />
-          </div>
+          </Suspense>
         )}
 
         {/* LOGGED IN TAB 4: STATISTICS */}
         {malUser && activeTab === 'status' && (
-          <div>
+          <Suspense fallback={<TabLoadingFallback />}>
             <StatusDashboard
               malList={malList}
               seasonalList={activeSeasonMalList}
@@ -2325,12 +2398,12 @@ export default function App() {
               onRefreshMal={fetchMalList}
               onExportExcel={() => setIsExcelExportModalOpen(true)}
             />
-          </div>
+          </Suspense>
         )}
 
         {/* LOGGED IN TAB 5: AI INSIGHTS */}
         {malUser && activeTab === 'gemini' && (
-          <div>
+          <Suspense fallback={<TabLoadingFallback />}>
             <GeminiInsightsView
               malList={malList}
               seasonalList={activeSeasonMalList}
@@ -2349,12 +2422,12 @@ export default function App() {
               malLoading={malLoading}
               onConnectMal={handleConnectMal}
             />
-          </div>
+          </Suspense>
         )}
 
         {/* LOGGED IN TAB 6: SEASON REVIEW */}
         {malUser && activeTab === 'review' && (
-          <div>
+          <Suspense fallback={<TabLoadingFallback />}>
             <SeasonReview
               malList={malList}
               seasonalList={activeSeasonMalList}
@@ -2378,7 +2451,7 @@ export default function App() {
               theme={theme}
               calendarItems={seasonalCalendarItems}
             />
-          </div>
+          </Suspense>
         )}
       </main>
 

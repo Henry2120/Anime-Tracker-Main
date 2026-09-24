@@ -1659,6 +1659,7 @@ query ($page: Int, $perPage: Int, $airingAt_greater: Int, $airingAt_lesser: Int)
     pageInfo {
       hasNextPage
       total
+      lastPage
     }
     airingSchedules(airingAt_greater: $airingAt_greater, airingAt_lesser: $airingAt_lesser, sort: TIME) {
       id
@@ -1693,6 +1694,40 @@ query ($page: Int, $perPage: Int, $airingAt_greater: Int, $airingAt_lesser: Int)
 }
 `;
 
+async function fetchAniListPage(page: number, startSec: number, endSec: number): Promise<any> {
+  const anilistResponse = await fetch("https://graphql.anilist.co", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
+      Origin: "https://anilist.co",
+      Referer: "https://anilist.co/",
+    },
+    body: JSON.stringify({
+      query: ANILIST_SCHEDULE_QUERY,
+      variables: {
+        page,
+        perPage: 50,
+        airingAt_greater: startSec,
+        airingAt_lesser: endSec,
+      },
+    }),
+    signal: AbortSignal.timeout(6000),
+  });
+
+  if (!anilistResponse.ok) {
+    throw new Error(`AniList returned HTTP ${anilistResponse.status}`);
+  }
+
+  const json = await anilistResponse.json();
+  if (json.errors && json.errors.length > 0) {
+    throw new Error(`AniList GraphQL error: ${json.errors[0]?.message || "unknown"}`);
+  }
+
+  return json.data?.Page;
+}
+
 app.get("/api/release-calendar", async (req, res) => {
   const startQuery = req.query.start ? parseInt(req.query.start as string, 10) : NaN;
   const endQuery = req.query.end ? parseInt(req.query.end as string, 10) : NaN;
@@ -1708,55 +1743,40 @@ app.get("/api/release-calendar", async (req, res) => {
     return res.json({ data: cached.data, cached: true });
   }
 
-  // Attempt 1: Try AniList GraphQL API with timeout and headers
+  // Attempt 1: Try AniList GraphQL API with concurrent page fetching
   let anilistSucceeded = false;
   try {
-    let page = 1;
-    let hasNextPage = true;
     const allSchedules: any[] = [];
     const maxPages = 16;
 
-    while (hasNextPage && page <= maxPages) {
-      const anilistResponse = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
-          Origin: "https://anilist.co",
-          Referer: "https://anilist.co/",
-        },
-        body: JSON.stringify({
-          query: ANILIST_SCHEDULE_QUERY,
-          variables: {
-            page,
-            perPage: 50,
-            airingAt_greater: startSec,
-            airingAt_lesser: endSec,
-          },
-        }),
-        signal: AbortSignal.timeout(6000),
-      });
+    // Fetch Page 1 first to determine total pages
+    const page1Data = await fetchAniListPage(1, startSec, endSec);
+    const page1Schedules = page1Data?.airingSchedules || [];
+    allSchedules.push(...page1Schedules);
 
-      if (!anilistResponse.ok) {
-        console.warn(
-          `[ReleaseCalendar] AniList returned HTTP ${anilistResponse.status} (service temporarily unavailable). Switching to MAL official broadcast schedule.`
+    const pageInfo = page1Data?.pageInfo;
+    if (pageInfo?.hasNextPage) {
+      const total = pageInfo.total || 0;
+      const lastPageCandidate = pageInfo.lastPage || Math.ceil(total / 50);
+      const targetLastPage = Math.min(lastPageCandidate > 1 ? lastPageCandidate : 10, maxPages);
+
+      if (targetLastPage >= 2) {
+        const remainingPageNums: number[] = [];
+        for (let p = 2; p <= targetLastPage; p++) {
+          remainingPageNums.push(p);
+        }
+
+        // Fetch all remaining pages concurrently
+        const pageResults = await Promise.allSettled(
+          remainingPageNums.map((p) => fetchAniListPage(p, startSec, endSec))
         );
-        break;
-      }
 
-      const json = await anilistResponse.json();
-      if (json.errors && json.errors.length > 0) {
-        console.warn(
-          `[ReleaseCalendar] AniList returned GraphQL error: ${json.errors[0]?.message || "unknown"}. Switching to MAL broadcast schedule.`
-        );
-        break;
+        for (const res of pageResults) {
+          if (res.status === "fulfilled" && res.value?.airingSchedules) {
+            allSchedules.push(...res.value.airingSchedules);
+          }
+        }
       }
-
-      const schedules = json.data?.Page?.airingSchedules || [];
-      allSchedules.push(...schedules);
-      hasNextPage = json.data?.Page?.pageInfo?.hasNextPage === true;
-      page++;
     }
 
     if (allSchedules.length > 0) {

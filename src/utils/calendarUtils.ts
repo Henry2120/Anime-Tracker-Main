@@ -105,9 +105,9 @@ export function getWeekScheduleSlots(
   const lastDay = days[6];
   const weekLabel = `${firstDay.dayNum} ${firstDay.monthName} – ${lastDay.dayNum} ${lastDay.monthName} ${lastDay.year}`;
 
-  // Broad buffer around the week in seconds to ensure all timezone overlaps are captured
-  const fetchStartSec = Math.floor((mondayUtc - 86400000 * 2) / 1000);
-  const fetchEndSec = Math.floor((mondayUtc + 86400000 * 9) / 1000);
+  // Safe buffer around the week in seconds to ensure all timezone overlaps are captured (+/- 24 hours covers UTC-12 to UTC+14)
+  const fetchStartSec = Math.floor((mondayUtc - 86400000) / 1000);
+  const fetchEndSec = Math.floor((mondayUtc + 86400000 * 8) / 1000);
 
   return {
     days,
@@ -143,6 +143,46 @@ export function getAnimeDisplayTitle(titleObj?: {
     return titleObj.romaji.trim();
   }
   return 'Unknown Title';
+}
+
+/**
+ * Bounded cache for formatted time and dateKey to prevent repeatedly invoking
+ * expensive Intl.DateTimeFormat.formatToParts for identical airing timestamps and timezones.
+ */
+const timeFormatCache = new Map<string, { dateKey: string; formattedTime: string }>();
+
+function getCachedDateAndTime(
+  airingAtSec: number,
+  resolvedTimezone: string
+): { dateKey: string; formattedTime: string } {
+  const cacheKey = `${airingAtSec}_${resolvedTimezone}`;
+  const hit = timeFormatCache.get(cacheKey);
+  if (hit) return hit;
+
+  const itemDate = new Date(airingAtSec * 1000);
+  const timeFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const parts = timeFormatter.formatToParts(itemDate);
+  const partMap: Record<string, string> = {};
+  for (const p of parts) partMap[p.type] = p.value;
+
+  const dateKey = `${partMap.year}-${partMap.month}-${partMap.day}`;
+  const formattedTime = `${partMap.hour}:${partMap.minute} ${partMap.dayPeriod || ''}`.trim();
+  const entry = { dateKey, formattedTime };
+
+  if (timeFormatCache.size > 2500) {
+    timeFormatCache.clear();
+  }
+  timeFormatCache.set(cacheKey, entry);
+  return entry;
 }
 
 /**
@@ -209,32 +249,15 @@ export function populateDaySchedules(
     dayMap.set(day.dateKey, day);
   }
 
-  const timeFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: resolvedTimezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-
   for (const item of items) {
     if (!item.airingAt) continue;
 
-    const itemDate = new Date(item.airingAt * 1000);
-    const parts = timeFormatter.formatToParts(itemDate);
-    const partMap: Record<string, string> = {};
-    for (const p of parts) partMap[p.type] = p.value;
-
-    const dateKey = `${partMap.year}-${partMap.month}-${partMap.day}`;
-    const formattedTime = `${partMap.hour}:${partMap.minute} ${partMap.dayPeriod || ''}`.trim();
-
+    const { dateKey, formattedTime } = getCachedDateAndTime(item.airingAt, resolvedTimezone);
     const targetDay = dayMap.get(dateKey);
     if (targetDay) {
       const itemMalId = item.malId ? Number(item.malId) : null;
       const isWatching = Boolean(itemMalId && watchingMalIds.has(itemMalId));
-      const displayTitle = getAnimeDisplayTitle(item.title);
+      const displayTitle = item.displayTitle || getAnimeDisplayTitle(item.title);
       targetDay.items.push({
         ...item,
         displayTitle,

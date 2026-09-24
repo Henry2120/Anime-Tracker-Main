@@ -19,7 +19,13 @@ const statusBadgeStyles: Record<string, { label: string; bg: string; text: strin
   dropped: { label: 'Dropped', bg: 'bg-[#D6A0AF]/20 border-[#D6A0AF]/40', text: 'text-[#C77B82]' },
 };
 
-export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onSelect, onEdit, onQuickIncrement }) => {
+export const MalAnimeCard = React.memo(function MalAnimeCard({
+  item,
+  index,
+  onSelect,
+  onEdit,
+  onQuickIncrement,
+}: MalAnimeCardProps) {
   const [imageError, setImageError] = useState(false);
 
   const imageUrl = item.node.main_picture?.large || item.node.main_picture?.medium;
@@ -75,6 +81,7 @@ export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onSelec
             referrerPolicy="no-referrer"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] p-4 text-center">
@@ -180,5 +187,5 @@ export const MalAnimeCard: React.FC<MalAnimeCardProps> = ({ item, index, onSelec
       </div>
     </motion.div>
   );
-};
+});
 

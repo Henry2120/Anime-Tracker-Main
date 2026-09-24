@@ -48,7 +48,7 @@ export interface SeasonReviewProps {
   calendarItems?: ReleaseCalendarItem[];
 }
 
-export const SeasonReview: React.FC<SeasonReviewProps> = ({
+export const SeasonReview = React.memo(function SeasonReview({
   malList,
   summer2026List,
   seasonalList,
@@ -65,7 +65,7 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
   onConnectMal,
   theme = 'light',
   calendarItems,
-}) => {
+}: SeasonReviewProps) {
   const isDark = theme === 'dark';
   const isSakura = theme === 'sakura';
   const isLight = !isDark && !isSakura;
@@ -2094,4 +2094,4 @@ export const SeasonReview: React.FC<SeasonReviewProps> = ({
       />
     </div>
   );
-};
+});

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import type { MalListItem, ReleaseCalendarItem } from '../types';
 import { setCachedCalendarItems } from '../utils/completionUtils';
+import { fetchCalendarDateRange, getCachedCalendarRange } from '../utils/calendarCache';
+import { CalendarPosterCard } from './CalendarPosterCard';
 import { ReleaseCalendarFilters } from './ReleaseCalendarFilters';
 import { TodayReleaseView } from './TodayReleaseView';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
@@ -42,7 +44,7 @@ interface ReleaseCalendarProps {
   onOpenMalEditor?: (anime: AnimeDetailData) => void;
 }
 
-export function ReleaseCalendar({
+export const ReleaseCalendar = React.memo(function ReleaseCalendar({
   malList,
   malLoading,
   onCalendarItemsLoaded,
@@ -140,18 +142,13 @@ export function ReleaseCalendar({
   // Modal State
   const [selectedAnimeForModal, setSelectedAnimeForModal] = useState<AnimeDetailData | null>(null);
 
-  // Data & Fetch State
-  const [rawItems, setRawItems] = useState<ReleaseCalendarItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Live reference timestamp (updates periodically so upcoming transitions naturally)
+  // Live reference timestamp (updates once per minute to smoothly step countdowns without main-thread churn)
   const [currentTime, setCurrentTime] = useState<number>(() => Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
-    }, 15000);
+    }, 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -159,6 +156,25 @@ export function ReleaseCalendar({
   const weekInfo = useMemo(() => {
     return getWeekScheduleSlots(currentTime, selectedTimezone, weekOffset);
   }, [currentTime, selectedTimezone, weekOffset]);
+
+  // Determine query date range based on active view (showOnlyToday vs target week)
+  const targetRange = useMemo(() => {
+    if (showOnlyToday) {
+      const todayStartSec = Math.floor((Date.now() - 86400000) / 1000);
+      const todayEndSec = Math.floor((Date.now() + 86400000 * 2) / 1000);
+      return { startSec: todayStartSec, endSec: todayEndSec };
+    }
+    return { startSec: weekInfo.fetchStartSec, endSec: weekInfo.fetchEndSec };
+  }, [showOnlyToday, weekInfo.fetchStartSec, weekInfo.fetchEndSec]);
+
+  // Data & Fetch State with instant cached initial paint
+  const [rawItems, setRawItems] = useState<ReleaseCalendarItem[]>(() => {
+    return getCachedCalendarRange(targetRange.startSec, targetRange.endSec) || [];
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !getCachedCalendarRange(targetRange.startSec, targetRange.endSec);
+  });
+  const [error, setError] = useState<string | null>(null);
 
   // Set of user's MAL anime IDs with status === 'watching'
   const watchingMalIds = useMemo(() => {
@@ -172,59 +188,44 @@ export function ReleaseCalendar({
     return ids;
   }, [malList]);
 
-  // In-memory cache keyed by query date range for fast instant browsing between weeks/months
-  const scheduleCacheRef = useRef<Map<string, ReleaseCalendarItem[]>>(new Map());
-
-  // Determine query date range based on active view (showOnlyToday vs target week)
-  const targetRange = useMemo(() => {
-    if (showOnlyToday) {
-      const todayStartSec = Math.floor((Date.now() - 86400000 * 2) / 1000);
-      const todayEndSec = Math.floor((Date.now() + 86400000 * 2) / 1000);
-      return { startSec: todayStartSec, endSec: todayEndSec };
+  // Fast O(1) MAL lookup map
+  const malByIdMap = useMemo(() => {
+    const map = new Map<number, MalListItem>();
+    if (!Array.isArray(malList)) return map;
+    for (const item of malList) {
+      if (item?.node?.id) {
+        map.set(Number(item.node.id), item);
+      }
     }
-    return { startSec: weekInfo.fetchStartSec, endSec: weekInfo.fetchEndSec };
-  }, [showOnlyToday, weekInfo.fetchStartSec, weekInfo.fetchEndSec]);
+    return map;
+  }, [malList]);
 
-  // Fetch release schedule from backend endpoint for the target date range
+  // Fetch release schedule using persistent date-range cache and in-flight deduplication
   const fetchSchedule = useCallback(
     async (bypassCache: boolean = false) => {
       const { startSec, endSec } = targetRange;
-      const cacheKey = `${startSec}_${endSec}`;
 
-      if (!bypassCache && scheduleCacheRef.current.has(cacheKey)) {
-        const cachedItems = scheduleCacheRef.current.get(cacheKey)!;
-        setCachedCalendarItems(cachedItems);
-        setRawItems(cachedItems);
-        setLoading(false);
-        setError(null);
-        if (onCalendarItemsLoaded && cachedItems.length > 0) {
-          const malIds = cachedItems
-            .map((i) => (i.malId ? Number(i.malId) : null))
-            .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
-          onCalendarItemsLoaded(malIds, cachedItems);
+      if (!bypassCache) {
+        const cachedItems = getCachedCalendarRange(startSec, endSec);
+        if (cachedItems) {
+          setRawItems(cachedItems);
+          setLoading(false);
+          setError(null);
+          if (onCalendarItemsLoaded && cachedItems.length > 0) {
+            const malIds = cachedItems
+              .map((i) => (i.malId ? Number(i.malId) : null))
+              .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
+            onCalendarItemsLoaded(malIds, cachedItems);
+          }
+          return;
         }
-        return;
       }
 
       setLoading(true);
       setError(null);
 
       try {
-        const res = await fetch(
-          `/api/release-calendar?start=${startSec}&end=${endSec}`
-        );
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(
-            errorData.error || `Server responded with status ${res.status}`
-          );
-        }
-
-        const data = await res.json();
-        const items: ReleaseCalendarItem[] = Array.isArray(data.data) ? data.data : [];
-        scheduleCacheRef.current.set(cacheKey, items);
-        setCachedCalendarItems(items);
+        const items = await fetchCalendarDateRange(startSec, endSec, bypassCache);
         setRawItems(items);
 
         // Only notify summer season tracker if items actually fall within Summer 2026 (July 1 - Sep 30, 2026)
@@ -435,7 +436,7 @@ export function ReleaseCalendar({
   }, [displayedDays]);
 
   const handleOpenModal = useCallback((item: ReleaseCalendarItem) => {
-    const matchedMal = malList.find((m) => m.node.id === Number(item.malId));
+    const matchedMal = item.malId ? malByIdMap.get(Number(item.malId)) : undefined;
     const modalData: AnimeDetailData = {
       id: item.id,
       malId: item.malId ? Number(item.malId) : null,
@@ -462,7 +463,7 @@ export function ReleaseCalendar({
       finishDate: matchedMal?.list_status?.finish_date,
     };
     setSelectedAnimeForModal(modalData);
-  }, [malList]);
+  }, [malByIdMap]);
 
   // Calculate maximum number of releases on any single day to construct aligned rows
   const maxRows = useMemo(() => {
@@ -903,106 +904,15 @@ export function ReleaseCalendar({
                         }
 
                         return (
-                          <motion.div
+                          <CalendarPosterCard
                             key={`${day.dateKey}-${item.id}-${item.airingAt}`}
-                            onClick={() => handleOpenModal(item)}
-                            initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
-                            whileInView={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
-                            viewport={{ once: true, amount: 0.15 }}
-                            transition={
-                              shouldReduceMotion
-                                ? { duration: 0 }
-                                : {
-                                    duration: 0.45,
-                                    delay: Math.min((rowIndex * 0.05) + (dayIndex * 0.02), 0.35),
-                                    ease: [0.25, 0.1, 0.25, 1.0],
-                                  }
-                            }
-                            className={`relative group w-full aspect-[3/4.5] overflow-hidden bg-slate-900 transition-all duration-200 cursor-pointer select-none ${
-                              item.isWatching
-                                ? 'ring-2 ring-inset ring-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.35)] z-10'
-                                : 'hover:z-10 hover:ring-1 hover:ring-inset hover:ring-indigo-400/80'
-                            }`}
-                          >
-                            {/* Artwork Background Image (fills 100% of the tile) */}
-                            {item.imageUrl ? (
-                              <img
-                                src={item.imageUrl}
-                                alt={titleToDisplay}
-                                loading="lazy"
-                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              />
-                            ) : (
-                              <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-slate-900 text-slate-600">
-                                <Film className="h-8 w-8" />
-                              </div>
-                            )}
-
-                            {/* Release Time Pill + UPCOMING Badge (Top Overlay - independently positioned) */}
-                            <div className="absolute top-0 inset-x-0 z-10 p-2 sm:p-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
-                              {showTime && (
-                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/85 text-white text-[11px] sm:text-xs font-black tracking-tight backdrop-blur-xs shadow-md border border-white/10">
-                                  <Clock className="h-3 w-3 text-indigo-400" />
-                                  {item.formattedTime}
-                                </span>
-                              )}
-
-                              {item.isUpcoming && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-400 text-indigo-950 text-[10px] sm:text-[11px] font-black uppercase tracking-wider shadow-md backdrop-blur-xs border border-amber-300 ml-auto">
-                                  UPCOMING
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Gradient Overlay & Metadata (Lower Portion - independently anchored to bottom) */}
-                            <div
-                              className={`absolute bottom-0 inset-x-0 z-10 pt-16 pb-3 sm:pb-3.5 px-3 sm:px-3.5 bg-gradient-to-t ${
-                                item.isWatching
-                                  ? 'from-black via-black/90 via-55%'
-                                  : 'from-black via-black/85 via-50%'
-                              } to-transparent flex flex-col justify-end pointer-events-none`}
-                            >
-                              {/* Title: English when available, Japanese/Native fallback, Large, Bold, White */}
-                              {showTitle && (
-                                <h4
-                                  title={titleToDisplay}
-                                  className={`text-xs sm:text-[13.5px] md:text-sm font-black leading-snug line-clamp-2 mb-1.5 drop-shadow-md transition-colors ${
-                                    item.isWatching
-                                      ? 'text-white group-hover:text-emerald-300'
-                                      : 'text-white group-hover:text-indigo-300'
-                                  }`}
-                                >
-                                  {titleToDisplay}
-                                </h4>
-                              )}
-
-                              {/* Episode Info + Optional Countdown */}
-                              {(showEpisode || (item.isUpcoming && item.countdown)) && (
-                                <div className="text-[11px] sm:text-xs font-extrabold leading-tight flex items-center justify-between gap-1">
-                                  {showEpisode && (
-                                    <span className={item.isWatching ? 'text-emerald-300' : 'text-indigo-300'}>
-                                      {item.episode !== null ? `Episode ${item.episode}` : 'New Episode'}
-                                    </span>
-                                  )}
-                                  {item.isUpcoming && item.countdown && (
-                                    <span className="text-[10px] sm:text-[11px] font-bold text-amber-300/90 truncate ml-auto">
-                                      {item.countdown}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Studio Info (Subtle) */}
-                              {showStudio && item.studio && (
-                                <div
-                                  title={`Studio: ${item.studio}`}
-                                  className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate mt-0.5"
-                                >
-                                  {item.studio}
-                                </div>
-                              )}
-                            </div>
-                          </motion.div>
+                            item={item}
+                            showTime={showTime}
+                            showTitle={showTitle}
+                            showEpisode={showEpisode}
+                            showStudio={showStudio}
+                            onOpenModal={handleOpenModal}
+                          />
                         );
                       })}
                     </div>
@@ -1027,4 +937,4 @@ export function ReleaseCalendar({
       )}
     </div>
   );
-}
+});

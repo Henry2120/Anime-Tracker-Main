@@ -23,7 +23,7 @@ const statusBadgeStyles: Record<string, { label: string; bg: string; text: strin
   not_added: { label: 'Not in MAL List', bg: 'bg-slate-100 dark:bg-[#25232F] border-slate-200 dark:border-[#2E2C37]', text: 'text-slate-600 dark:text-[#A4A1AA]' },
 };
 
-export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
+export const SeasonalAnimeCard = React.memo(function SeasonalAnimeCard({
   item,
   userListItem,
   index,
@@ -32,7 +32,7 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
   onEdit,
   onQuickIncrement,
   onAddToList,
-}) => {
+}: SeasonalAnimeCardProps) {
   const [imageError, setImageError] = useState(false);
 
   const imageUrl = item.node.main_picture?.large || item.node.main_picture?.medium;
@@ -97,6 +97,7 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
             referrerPolicy="no-referrer"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] p-4 text-center">
@@ -196,5 +197,5 @@ export const SeasonalAnimeCard: React.FC<SeasonalAnimeCardProps> = ({
       </div>
     </motion.div>
   );
-};
+});
 

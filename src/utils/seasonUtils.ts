@@ -353,21 +353,51 @@ export async function fetchJikanSeasonCatalogue(
   }
 }
 
+// Session cache for Jikan fallback queries
+const jikanInfoCache = new Map<number, JikanAnimeResponse | null>();
+const jikanInfoInFlight = new Map<number, Promise<JikanAnimeResponse | null>>();
+
 /**
- * Fallback to check an individual anime on Jikan if missing from the seasonal catalogue
+ * Fallback to check an individual anime on Jikan if missing from the seasonal catalogue.
+ * Utilizes in-memory session cache and in-flight request deduplication.
  */
 export async function fetchJikanAnimeInfo(malId: number): Promise<JikanAnimeResponse | null> {
-  try {
-    const res = await fetch(`/api/jikan/anime/${malId}`);
-    if (!res.ok) return null;
-    const contentType = res.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      return null;
-    }
-    return await res.json();
-  } catch (err) {
-    return null;
+  if (jikanInfoCache.has(malId)) {
+    return jikanInfoCache.get(malId) ?? null;
   }
+  if (jikanInfoInFlight.has(malId)) {
+    return jikanInfoInFlight.get(malId)!;
+  }
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`/api/jikan/anime/${malId}`);
+      if (!res.ok) {
+        jikanInfoCache.set(malId, null);
+        return null;
+      }
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        jikanInfoCache.set(malId, null);
+        return null;
+      }
+      const data: JikanAnimeResponse = await res.json();
+      jikanInfoCache.set(malId, data);
+      return data;
+    } catch {
+      jikanInfoCache.set(malId, null);
+      return null;
+    } finally {
+      jikanInfoInFlight.delete(malId);
+    }
+  })();
+
+  jikanInfoInFlight.set(malId, promise);
+  return promise;
+}
+
+export function isJikanAnimeInfoCached(malId: number): boolean {
+  return jikanInfoCache.has(malId);
 }
 
 /**
