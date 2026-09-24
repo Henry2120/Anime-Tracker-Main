@@ -35,6 +35,9 @@ import {
   getUpcomingCountdown,
 } from '../utils/calendarUtils';
 
+const INITIAL_VISIBLE_ROWS = 4;
+const ROW_BATCH_SIZE = 4;
+
 interface ReleaseCalendarProps {
   malList: MalListItem[];
   malLoading: boolean;
@@ -475,6 +478,50 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
     return Array.from({ length: maxRows }, (_, i) => i);
   }, [maxRows]);
 
+  // Progressive row reveal state (reveals batches of rows via IntersectionObserver as user scrolls)
+  const [visibleRowCount, setVisibleRowCount] = useState<number>(INITIAL_VISIBLE_ROWS);
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset visible row count when dataset, week, timezone, or filters change
+  useEffect(() => {
+    setVisibleRowCount(INITIAL_VISIBLE_ROWS);
+  }, [
+    weekOffset,
+    selectedTimezone,
+    searchTerm,
+    watchingOnly,
+    hideWithoutEnglishTitle,
+    hideLongRunning,
+    showOnlyToday,
+  ]);
+
+  // Progressive row reveal via IntersectionObserver
+  useEffect(() => {
+    if (visibleRowCount >= maxRows) return;
+    const sentinel = bottomSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry && entry.isIntersecting) {
+          setVisibleRowCount((prev) => Math.min(prev + ROW_BATCH_SIZE, maxRows));
+        }
+      },
+      {
+        root: null,
+        rootMargin: '800px 0px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [visibleRowCount, maxRows]);
+
   const selectedTzLabel = useMemo(() => {
     const opt = TIMEZONE_OPTIONS.find((t) => t.id === selectedTimezone);
     return opt ? opt.label : getResolvedTimezone(selectedTimezone);
@@ -877,46 +924,83 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
                 </div>
               ) : (
                 <div className="bg-[#181724] dark:bg-[#141318] overflow-hidden">
-                  {rowIndices.map((rowIndex) => (
-                    <div
-                      key={`row-${rowIndex}`}
-                      className="grid grid-cols-7 w-full gap-0 p-0 m-0"
-                    >
-                      {displayedDaysWithUpcoming.map((day, dayIndex) => {
-                        const item = day.items[rowIndex];
-                        const isToday = day.dateKey === todayDateKey;
-                        const titleToDisplay = item
-                          ? item.displayTitle || getAnimeDisplayTitle(item.title)
-                          : '';
+                  <style>{`
+                    @keyframes calendarRowReveal {
+                      0% {
+                        opacity: 0;
+                        transform: translateY(8px);
+                      }
+                      100% {
+                        opacity: 1;
+                        transform: translateY(0);
+                      }
+                    }
+                    .calendar-row-reveal {
+                      animation: calendarRowReveal 260ms ease-out forwards;
+                      will-change: opacity, transform;
+                    }
+                    @media (prefers-reduced-motion: reduce) {
+                      .calendar-row-reveal {
+                        animation: none !important;
+                        opacity: 1 !important;
+                        transform: none !important;
+                      }
+                    }
+                  `}</style>
+                  {rowIndices.slice(0, visibleRowCount).map((rowIndex) => {
+                    const isProgressiveRow = rowIndex >= INITIAL_VISIBLE_ROWS;
+                    return (
+                      <div
+                        key={`row-${rowIndex}`}
+                        className={`grid grid-cols-7 w-full gap-0 p-0 m-0 ${
+                          isProgressiveRow ? 'calendar-row-reveal' : ''
+                        }`}
+                      >
+                        {displayedDaysWithUpcoming.map((day, dayIndex) => {
+                          const item = day.items[rowIndex];
+                          const isToday = day.dateKey === todayDateKey;
+                          const titleToDisplay = item
+                            ? item.displayTitle || getAnimeDisplayTitle(item.title)
+                            : '';
 
-                        if (!item) {
-                          // Seamless empty slot to maintain continuous grid without gaps or white boxes
+                          if (!item) {
+                            // Seamless empty slot to maintain continuous grid without gaps or white boxes
+                            return (
+                              <div
+                                key={`empty-${day.dateKey}-${rowIndex}`}
+                                className={`w-full aspect-[3/4.5] ${
+                                  isToday
+                                    ? 'bg-[#211F2F]/80'
+                                    : 'bg-[#14131C]/90'
+                                } transition-colors`}
+                              />
+                            );
+                          }
+
                           return (
-                            <div
-                              key={`empty-${day.dateKey}-${rowIndex}`}
-                              className={`w-full aspect-[3/4.5] ${
-                                isToday
-                                  ? 'bg-[#211F2F]/80'
-                                  : 'bg-[#14131C]/90'
-                              } transition-colors`}
+                            <CalendarPosterCard
+                              key={`${day.dateKey}-${item.id}-${item.airingAt}`}
+                              item={item}
+                              showTime={showTime}
+                              showTitle={showTitle}
+                              showEpisode={showEpisode}
+                              showStudio={showStudio}
+                              onOpenModal={handleOpenModal}
                             />
                           );
-                        }
+                        })}
+                      </div>
+                    );
+                  })}
 
-                        return (
-                          <CalendarPosterCard
-                            key={`${day.dateKey}-${item.id}-${item.airingAt}`}
-                            item={item}
-                            showTime={showTime}
-                            showTitle={showTitle}
-                            showEpisode={showEpisode}
-                            showStudio={showStudio}
-                            onOpenModal={handleOpenModal}
-                          />
-                        );
-                      })}
-                    </div>
-                  ))}
+                  {/* Progressive Row Reveal Sentinel */}
+                  {visibleRowCount < maxRows && (
+                    <div
+                      ref={bottomSentinelRef}
+                      className="h-4 w-full pointer-events-none opacity-0"
+                      aria-hidden="true"
+                    />
+                  )}
                 </div>
               )}
             </div>

@@ -20,6 +20,7 @@ interface TodayReleaseViewProps {
     isWatching: boolean;
     displayTitle: string;
   })[];
+  totalCount?: number;
   timezoneLabel: string;
   searchTerm: string;
   watchingOnly: boolean;
@@ -32,6 +33,7 @@ interface TodayReleaseViewProps {
 export const TodayReleaseView = React.memo(function TodayReleaseView({
   todaySchedule,
   items,
+  totalCount,
   timezoneLabel,
   searchTerm,
   watchingOnly,
@@ -42,6 +44,7 @@ export const TodayReleaseView = React.memo(function TodayReleaseView({
 }: TodayReleaseViewProps) {
   const shouldReduceMotion = useReducedMotion();
 
+  const countToDisplay = typeof totalCount === 'number' ? totalCount : items.length;
   const hasActiveFilter = Boolean(
     searchTerm.trim() || watchingOnly || hideWithoutEnglishTitle || hideLongRunning
   );
@@ -84,7 +87,7 @@ export const TodayReleaseView = React.memo(function TodayReleaseView({
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7F5F2] border border-[#E7E3DF] text-xs font-semibold text-[#77747D]">
               <Film className="h-3.5 w-3.5 text-[#7567C7]" />
               <span>
-                <strong className="text-[#25242A]">{items.length}</strong> {items.length === 1 ? 'Release' : 'Releases'} Today
+                <strong className="text-[#25242A]">{countToDisplay}</strong> {countToDisplay === 1 ? 'Release' : 'Releases'} Today
               </span>
             </div>
 
