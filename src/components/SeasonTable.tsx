@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Star,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
 import { getAnimeAiringState } from '../utils/completionUtils';
-import type { ReleaseCalendarItem } from '../types';
+import type { ReleaseCalendarItem, AnimeCompletionInfo } from '../types';
 
 export interface SeasonTableItem {
   node: {
@@ -65,6 +65,247 @@ interface SeasonTableProps {
   calendarItems?: ReleaseCalendarItem[];
 }
 
+interface SeasonTableRowProps {
+  item: SeasonTableItem;
+  idx: number;
+  customNote?: string;
+  airingInfo: AnimeCompletionInfo;
+  badgeBg: string;
+  badgeTextClass: string;
+  badgeText: string;
+  onOpenNoteModal: (animeId: number, animeTitle: string, initialNote: string) => void;
+  onSelectAnime?: (item: SeasonTableItem) => void;
+  onEditAnime?: (item: SeasonTableItem) => void;
+  onQuickIncrement?: (item: SeasonTableItem) => void;
+}
+
+const SeasonTableRow = React.memo(function SeasonTableRow({
+  item,
+  idx,
+  customNote,
+  airingInfo,
+  badgeBg,
+  badgeTextClass,
+  badgeText,
+  onOpenNoteModal,
+  onSelectAnime,
+  onEditAnime,
+  onQuickIncrement,
+}: SeasonTableRowProps) {
+  const animeId = item.node.id;
+  const titleStr = item.node.title;
+  const imgUrl = item.node.main_picture?.medium || item.node.main_picture?.large;
+  const score = item.list_status?.score && item.list_status.score > 0 ? item.list_status.score : null;
+  const watchedEps = item.list_status?.num_episodes_watched ?? 0;
+  const totalEps = item.node.num_episodes && item.node.num_episodes > 0 ? item.node.num_episodes : null;
+  const canIncrement = totalEps === null || watchedEps < totalEps;
+
+  // Note source priority: Custom Local Note > MAL Comments > Synopsis snippet
+  const rawMalComment = item.list_status?.comments?.trim();
+  const malComment = rawMalComment ? decodeHtmlEntities(rawMalComment) : '';
+  const localNote = customNote?.trim();
+  const displayNote = localNote || malComment || '';
+  const truncatedNote = displayNote.length > 50 ? `${displayNote.slice(0, 50)}...` : displayNote;
+
+  return (
+    <tr
+      key={animeId}
+      id={`season-row-${animeId}`}
+      data-season-row={animeId}
+      className="hover:bg-[#F0EDFA]/50 dark:hover:bg-[#2E2C37]/40 transition-colors duration-150 group"
+    >
+      {/* Row Number */}
+      <td className="py-3 px-4 text-center font-bold text-[#77747D] group-hover:text-[#7567C7]">
+        {idx + 1}
+      </td>
+
+      {/* Image Thumbnail */}
+      <td className="py-2.5 px-3">
+        <div
+          onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
+          className="h-14 w-10 overflow-hidden rounded-lg bg-[#F7F5F2] dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] shrink-0 cursor-pointer shadow-2xs hover:opacity-90 hover:ring-2 hover:ring-[#7567C7]/50 transition-all"
+          title={`View details for ${titleStr}`}
+        >
+          {imgUrl ? (
+            <img
+              src={imgUrl}
+              alt={titleStr}
+              referrerPolicy="no-referrer"
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="h-full w-full flex items-center justify-center bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] font-bold text-[10px]">
+              N/A
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Anime Title */}
+      <td className="py-3 px-4 font-bold text-[#25242A] dark:text-[#F4F2F7] group-hover:text-[#7567C7] transition-colors">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
+            className="hover:underline hover:text-[#7567C7] text-left leading-snug line-clamp-2 cursor-pointer font-bold text-[#25242A] dark:text-[#F4F2F7] transition-colors"
+            title={`View details for ${titleStr}`}
+          >
+            {titleStr}
+          </button>
+          <a
+            href={`https://myanimelist.net/anime/${animeId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[#77747D] hover:text-[#7567C7] shrink-0"
+            title={`View on MyAnimeList`}
+          >
+            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </a>
+        </div>
+        {item.node.alternative_titles?.en && item.node.alternative_titles.en !== titleStr && (
+          <span className="text-[10px] text-[#77747D] dark:text-[#9E9AA6] font-normal block mt-0.5 line-clamp-1">
+            {item.node.alternative_titles.en}
+          </span>
+        )}
+
+        {/* Airing / Completion Status Indicator */}
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${airingInfo.badgeBg} ${airingInfo.badgeText} ${airingInfo.badgeBorder}`}
+            title={airingInfo.reason || `Broadcast status: ${airingInfo.stateLabel}`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${airingInfo.dotColor} ${
+                airingInfo.state === 'airing' ? 'animate-pulse' : ''
+              }`}
+            />
+            <span>{airingInfo.stateLabel}</span>
+          </span>
+
+          {/* Ready to Summarize badge or remaining episodes indicator */}
+          {airingInfo.isReadyToSummarize ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#C5BEF7] border border-[#7567C7]/30"
+              title="All available episodes watched for this completed broadcast season. Ready to summarize!"
+            >
+              <Sparkles className="h-2.5 w-2.5" />
+              <span>Ready to Summarize</span>
+            </span>
+          ) : airingInfo.isCompleted && totalEps !== null && watchedEps < totalEps ? (
+            <span
+              className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6]"
+              title={`Broadcast finished, but you have ${totalEps - watchedEps} episode(s) remaining`}
+            >
+              ({totalEps - watchedEps} ep{totalEps - watchedEps === 1 ? '' : 's'} left)
+            </span>
+          ) : null}
+        </div>
+      </td>
+
+      {/* Score */}
+      <td className="py-3 px-4 text-center">
+        {score !== null ? (
+          <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#25242A]/85 text-[#C69A55] font-bold text-xs backdrop-blur-md">
+            <Star className="h-3 w-3 fill-current text-[#C69A55]" />
+            <span>{score}</span>
+          </div>
+        ) : (
+          <span className="text-[#77747D] font-bold text-sm">-</span>
+        )}
+      </td>
+
+      {/* Status */}
+      <td className="py-3 px-4 text-center">
+        {(() => {
+          const rawStatus = item.list_status?.status;
+          let badgeClass = `${badgeBg} ${badgeTextClass}`;
+          let label = badgeText;
+
+          if (rawStatus === 'watching') {
+            badgeClass = 'bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30';
+            label = 'Watching';
+          } else if (rawStatus === 'plan_to_watch') {
+            badgeClass = 'bg-[#C69A55]/15 text-[#C69A55] border border-[#C69A55]/30';
+            label = 'Plan to Watch';
+          } else if (rawStatus === 'completed') {
+            badgeClass = 'bg-[#7567C7]/20 text-[#7567C7] border border-[#7567C7]/40';
+            label = 'Completed';
+          } else if (rawStatus === 'on_hold') {
+            badgeClass = 'bg-[#8F8A99]/15 text-[#8F8A99] border border-[#8F8A99]/30';
+            label = 'On Hold';
+          } else if (rawStatus === 'dropped') {
+            badgeClass = 'bg-[#D6A0AF]/20 text-[#C77B82] border border-[#D6A0AF]/40';
+            label = 'Dropped';
+          } else if (rawStatus) {
+            label = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).replace(/_/g, ' ');
+          }
+
+          return (
+            <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${badgeClass}`}>
+              {label}
+            </span>
+          );
+        })()}
+      </td>
+
+      {/* Episodes */}
+      <td className="py-3 px-4 text-center font-bold text-[#25242A] dark:text-[#F4F2F7]">
+        <div className="inline-flex items-center gap-1.5 bg-[#F7F5F2] dark:bg-[#25232F] px-2.5 py-1 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37]">
+          <span>{watchedEps} / {totalEps || '?'}</span>
+          {onQuickIncrement && canIncrement && (
+            <button
+              type="button"
+              onClick={() => onQuickIncrement(item)}
+              className="p-0.5 rounded-md hover:bg-[#7567C7] text-[#7567C7] hover:text-white transition-colors cursor-pointer"
+              title="Watched +1 Episode"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </td>
+
+      {/* Notes */}
+      <td className="py-3 px-4">
+        {displayNote ? (
+          <div
+            onClick={() => onOpenNoteModal(animeId, titleStr, displayNote)}
+            className="group/note cursor-pointer relative bg-[#F7F5F2] dark:bg-[#25232F] hover:bg-[#F0EDFA] dark:hover:bg-[#2E2C37] p-2 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37] transition-all flex items-start gap-1.5"
+            title="Click to view or edit full note"
+          >
+            <MessageSquare className="h-3.5 w-3.5 text-[#7567C7] mt-0.5 shrink-0" />
+            <span className="text-[11px] text-[#25242A] dark:text-[#F4F2F7] group-hover/note:text-[#7567C7] font-medium leading-tight line-clamp-2">
+              {truncatedNote}
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={() => onOpenNoteModal(animeId, titleStr, '')}
+            className="text-[11px] text-[#77747D] dark:text-[#9E9AA6] hover:text-[#7567C7] font-medium flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-[#F0EDFA] dark:hover:bg-[#25232F] transition-colors cursor-pointer"
+          >
+            <Edit2 className="h-3 w-3 text-[#77747D]" />
+            <span>Add note</span>
+          </button>
+        )}
+      </td>
+
+      {/* Actions Column */}
+      <td className="py-3 px-4 text-center">
+        <button
+          type="button"
+          onClick={() => onEditAnime?.(item)}
+          className="px-2.5 py-1 rounded-xl bg-[#F7F5F2] dark:bg-[#25232F] hover:bg-[#7567C7] text-[#7567C7] hover:text-white border border-[#E7E3DF] dark:border-[#2E2C37] text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer mx-auto"
+          title="Edit on MAL"
+        >
+          <Edit2 className="h-3 w-3" />
+          <span>Edit</span>
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 export const SeasonTable = React.memo(function SeasonTable({
   title,
   subtitle,
@@ -89,7 +330,7 @@ export const SeasonTable = React.memo(function SeasonTable({
 
   const [editingText, setEditingText] = useState<string>('');
 
-  const handleOpenNoteModal = (animeId: number, animeTitle: string, initialNote: string) => {
+  const handleOpenNoteModal = useCallback((animeId: number, animeTitle: string, initialNote: string) => {
     setActiveNoteModal({
       animeId,
       title: animeTitle,
@@ -97,7 +338,7 @@ export const SeasonTable = React.memo(function SeasonTable({
       isEditing: false,
     });
     setEditingText(initialNote);
-  };
+  }, []);
 
   const handleSaveNote = () => {
     if (!activeNoteModal) return;
@@ -108,6 +349,17 @@ export const SeasonTable = React.memo(function SeasonTable({
       isEditing: false,
     });
   };
+
+  // Memoized airing state map keyed by anime ID to avoid recalculating during unrelated renders
+  const airingStateMap = useMemo(() => {
+    const map = new Map<number, AnimeCompletionInfo>();
+    for (const item of items) {
+      if (item?.node?.id) {
+        map.set(item.node.id, getAnimeAiringState(item, calendarItems));
+      }
+    }
+    return map;
+  }, [items, calendarItems]);
 
   return (
     <div className="bg-white dark:bg-[#1E1D24] rounded-2xl border border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs overflow-hidden mb-8">
@@ -156,217 +408,23 @@ export const SeasonTable = React.memo(function SeasonTable({
             ) : (
               items.map((item, idx) => {
                 const animeId = item.node.id;
-                const titleStr = item.node.title;
-                const imgUrl = item.node.main_picture?.medium || item.node.main_picture?.large;
-                const score = item.list_status?.score && item.list_status.score > 0 ? item.list_status.score : null;
-                const watchedEps = item.list_status?.num_episodes_watched ?? 0;
-                const totalEps = item.node.num_episodes && item.node.num_episodes > 0 ? item.node.num_episodes : null;
-                const canIncrement = totalEps === null || watchedEps < totalEps;
-
-                // Note source priority: Custom Local Note > MAL Comments > Synopsis snippet
-                const rawMalComment = item.list_status?.comments?.trim();
-                const malComment = rawMalComment ? decodeHtmlEntities(rawMalComment) : '';
-                const localNote = customUserNotes[animeId]?.trim();
-                const displayNote = localNote || malComment || '';
-                const truncatedNote = displayNote.length > 50 ? `${displayNote.slice(0, 50)}...` : displayNote;
-                const airingInfo = getAnimeAiringState(item, calendarItems);
+                const airingInfo = airingStateMap.get(animeId) || getAnimeAiringState(item, calendarItems);
 
                 return (
-                  <tr
+                  <SeasonTableRow
                     key={animeId}
-                    id={`season-row-${animeId}`}
-                    data-season-row={animeId}
-                    className="hover:bg-[#F0EDFA]/50 dark:hover:bg-[#2E2C37]/40 transition-colors duration-150 group"
-                  >
-                    {/* Row Number */}
-                    <td className="py-3 px-4 text-center font-bold text-[#77747D] group-hover:text-[#7567C7]">
-                      {idx + 1}
-                    </td>
-
-                    {/* Image Thumbnail */}
-                    <td className="py-2.5 px-3">
-                      <div
-                        onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
-                        className="h-14 w-10 overflow-hidden rounded-lg bg-[#F7F5F2] dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] shrink-0 cursor-pointer shadow-2xs hover:opacity-90 hover:ring-2 hover:ring-[#7567C7]/50 transition-all"
-                        title={`View details for ${titleStr}`}
-                      >
-                        {imgUrl ? (
-                          <img
-                            src={imgUrl}
-                            alt={titleStr}
-                            referrerPolicy="no-referrer"
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] font-bold text-[10px]">
-                            N/A
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Anime Title */}
-                    <td className="py-3 px-4 font-bold text-[#25242A] dark:text-[#F4F2F7] group-hover:text-[#7567C7] transition-colors">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => (onSelectAnime ? onSelectAnime(item) : onEditAnime?.(item))}
-                          className="hover:underline hover:text-[#7567C7] text-left leading-snug line-clamp-2 cursor-pointer font-bold text-[#25242A] dark:text-[#F4F2F7] transition-colors"
-                          title={`View details for ${titleStr}`}
-                        >
-                          {titleStr}
-                        </button>
-                        <a
-                          href={`https://myanimelist.net/anime/${animeId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[#77747D] hover:text-[#7567C7] shrink-0"
-                          title={`View on MyAnimeList`}
-                        >
-                          <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </a>
-                      </div>
-                      {item.node.alternative_titles?.en && item.node.alternative_titles.en !== titleStr && (
-                        <span className="text-[10px] text-[#77747D] dark:text-[#9E9AA6] font-normal block mt-0.5 line-clamp-1">
-                          {item.node.alternative_titles.en}
-                        </span>
-                      )}
-
-                      {/* Airing / Completion Status Indicator */}
-                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${airingInfo.badgeBg} ${airingInfo.badgeText} ${airingInfo.badgeBorder}`}
-                          title={airingInfo.reason || `Broadcast status: ${airingInfo.stateLabel}`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${airingInfo.dotColor} ${
-                              airingInfo.state === 'airing' ? 'animate-pulse' : ''
-                            }`}
-                          />
-                          <span>{airingInfo.stateLabel}</span>
-                        </span>
-
-                        {/* Ready to Summarize badge or remaining episodes indicator */}
-                        {airingInfo.isReadyToSummarize ? (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#C5BEF7] border border-[#7567C7]/30"
-                            title="All available episodes watched for this completed broadcast season. Ready to summarize!"
-                          >
-                            <Sparkles className="h-2.5 w-2.5" />
-                            <span>Ready to Summarize</span>
-                          </span>
-                        ) : airingInfo.isCompleted && totalEps !== null && watchedEps < totalEps ? (
-                          <span
-                            className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6]"
-                            title={`Broadcast finished, but you have ${totalEps - watchedEps} episode(s) remaining`}
-                          >
-                            ({totalEps - watchedEps} ep{totalEps - watchedEps === 1 ? '' : 's'} left)
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-
-                    {/* Score */}
-                    <td className="py-3 px-4 text-center">
-                      {score !== null ? (
-                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#25242A]/85 text-[#C69A55] font-bold text-xs backdrop-blur-md">
-                          <Star className="h-3 w-3 fill-current text-[#C69A55]" />
-                          <span>{score}</span>
-                        </div>
-                      ) : (
-                        <span className="text-[#77747D] font-bold text-sm">-</span>
-                      )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-3 px-4 text-center">
-                      {(() => {
-                        const rawStatus = item.list_status?.status;
-                        let badgeClass = `${badgeBg} ${badgeTextClass}`;
-                        let label = badgeText;
-
-                        if (rawStatus === 'watching') {
-                          badgeClass = 'bg-[#6D9B7C]/15 text-[#6D9B7C] border border-[#6D9B7C]/30';
-                          label = 'Watching';
-                        } else if (rawStatus === 'plan_to_watch') {
-                          badgeClass = 'bg-[#C69A55]/15 text-[#C69A55] border border-[#C69A55]/30';
-                          label = 'Plan to Watch';
-                        } else if (rawStatus === 'completed') {
-                          badgeClass = 'bg-[#7567C7]/20 text-[#7567C7] border border-[#7567C7]/40';
-                          label = 'Completed';
-                        } else if (rawStatus === 'on_hold') {
-                          badgeClass = 'bg-[#8F8A99]/15 text-[#8F8A99] border border-[#8F8A99]/30';
-                          label = 'On Hold';
-                        } else if (rawStatus === 'dropped') {
-                          badgeClass = 'bg-[#D6A0AF]/20 text-[#C77B82] border border-[#D6A0AF]/40';
-                          label = 'Dropped';
-                        } else if (rawStatus) {
-                          label = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).replace(/_/g, ' ');
-                        }
-
-                        return (
-                          <span className={`inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${badgeClass}`}>
-                            {label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-
-                    {/* Episodes */}
-                    <td className="py-3 px-4 text-center font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                      <div className="inline-flex items-center gap-1.5 bg-[#F7F5F2] dark:bg-[#25232F] px-2.5 py-1 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37]">
-                        <span>{watchedEps} / {totalEps || '?'}</span>
-                        {onQuickIncrement && canIncrement && (
-                          <button
-                            type="button"
-                            onClick={() => onQuickIncrement(item)}
-                            className="p-0.5 rounded-md hover:bg-[#7567C7] text-[#7567C7] hover:text-white transition-colors cursor-pointer"
-                            title="Watched +1 Episode"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Notes */}
-                    <td className="py-3 px-4">
-                      {displayNote ? (
-                        <div
-                          onClick={() => handleOpenNoteModal(animeId, titleStr, displayNote)}
-                          className="group/note cursor-pointer relative bg-[#F7F5F2] dark:bg-[#25232F] hover:bg-[#F0EDFA] dark:hover:bg-[#2E2C37] p-2 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37] transition-all flex items-start gap-1.5"
-                          title="Click to view or edit full note"
-                        >
-                          <MessageSquare className="h-3.5 w-3.5 text-[#7567C7] mt-0.5 shrink-0" />
-                          <span className="text-[11px] text-[#25242A] dark:text-[#F4F2F7] group-hover/note:text-[#7567C7] font-medium leading-tight line-clamp-2">
-                            {truncatedNote}
-                          </span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleOpenNoteModal(animeId, titleStr, '')}
-                          className="text-[11px] text-[#77747D] dark:text-[#9E9AA6] hover:text-[#7567C7] font-medium flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-[#F0EDFA] dark:hover:bg-[#25232F] transition-colors cursor-pointer"
-                        >
-                          <Edit2 className="h-3 w-3 text-[#77747D]" />
-                          <span>Add note</span>
-                        </button>
-                      )}
-                    </td>
-
-                    {/* Actions Column */}
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => onEditAnime?.(item)}
-                        className="px-2.5 py-1 rounded-xl bg-[#F7F5F2] dark:bg-[#25232F] hover:bg-[#7567C7] text-[#7567C7] hover:text-white border border-[#E7E3DF] dark:border-[#2E2C37] text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer mx-auto"
-                        title="Edit on MAL"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                        <span>Edit</span>
-                      </button>
-                    </td>
-                  </tr>
+                    item={item}
+                    idx={idx}
+                    customNote={customUserNotes[animeId]}
+                    airingInfo={airingInfo}
+                    badgeBg={badgeBg}
+                    badgeTextClass={badgeTextClass}
+                    badgeText={badgeText}
+                    onOpenNoteModal={handleOpenNoteModal}
+                    onSelectAnime={onSelectAnime}
+                    onEditAnime={onEditAnime}
+                    onQuickIncrement={onQuickIncrement}
+                  />
                 );
               })
             )}

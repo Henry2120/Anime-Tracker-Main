@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, startTransition } from 'react';
 import {
   AlertCircle,
   RefreshCw,
@@ -62,6 +62,7 @@ import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { Top500EasterEgg } from './components/Top500EasterEgg';
 import { APP_VERSION_INFO } from './config/version';
 import { getSeasonCompletionStats, getCachedCalendarItems, mergeCalendarItems } from './utils/completionUtils';
+import { scheduleDeferredTask } from './utils/scheduler';
 import {
   fetchJikanSeasonCatalogue,
   fetchJikanAnimeInfo,
@@ -933,7 +934,9 @@ export default function App() {
     setJikanSeasonLoading(true);
     try {
       const data = await fetchJikanSeasonCatalogue(2026, 'summer');
-      setJikanSummer2026List(data);
+      startTransition(() => {
+        setJikanSummer2026List(data);
+      });
     } catch (err) {
       console.error('Error fetching Jikan Summer 2026 seasonal catalogue:', err);
     } finally {
@@ -946,7 +949,9 @@ export default function App() {
     setJikanSpringLoading(true);
     try {
       const data = await fetchJikanSeasonCatalogue(2026, 'spring');
-      setJikanSpring2026List(data);
+      startTransition(() => {
+        setJikanSpring2026List(data);
+      });
     } catch (err) {
       console.error('Error fetching Jikan Spring 2026 seasonal catalogue:', err);
     } finally {
@@ -959,7 +964,6 @@ export default function App() {
     try {
       const items = await fetchCalendarSeasonItems();
       if (items.length > 0) {
-        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, items));
         const malIds: number[] = [];
         for (const item of items) {
           if (item.malId) {
@@ -967,13 +971,16 @@ export default function App() {
             if (!isNaN(parsed) && parsed > 0) malIds.push(parsed);
           }
         }
-        if (malIds.length > 0) {
-          setCalendarSummer2026Ids((prev) => {
-            const next = new Set(prev);
-            for (const id of malIds) next.add(id);
-            return next;
-          });
-        }
+        startTransition(() => {
+          setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, items));
+          if (malIds.length > 0) {
+            setCalendarSummer2026Ids((prev) => {
+              const next = new Set(prev);
+              for (const id of malIds) next.add(id);
+              return next;
+            });
+          }
+        });
       }
     } catch (err) {
       console.error('Error fetching calendar seasonal releases fallback:', err);
@@ -982,46 +989,59 @@ export default function App() {
 
   // Callback to merge IDs and calendar items whenever the ReleaseCalendar loads/updates schedule data
   const handleCalendarItemsLoaded = useCallback((malIds: number[], calendarItems?: ReleaseCalendarItem[]) => {
-    if (calendarItems && calendarItems.length > 0) {
-      setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, calendarItems));
-    } else {
-      const cached = getCachedCalendarItems();
-      if (cached && cached.length > 0) {
-        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
-      }
-    }
-    if (!Array.isArray(malIds) || malIds.length === 0) return;
-    setCalendarSummer2026Ids((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const id of malIds) {
-        if (!next.has(id)) {
-          next.add(id);
-          changed = true;
+    startTransition(() => {
+      if (calendarItems && calendarItems.length > 0) {
+        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, calendarItems));
+      } else {
+        const cached = getCachedCalendarItems();
+        if (cached && cached.length > 0) {
+          setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
         }
       }
-      return changed ? next : prev;
+      if (Array.isArray(malIds) && malIds.length > 0) {
+        setCalendarSummer2026Ids((prev) => {
+          let changed = false;
+          const next = new Set(prev);
+          for (const id of malIds) {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
     });
   }, []);
 
-  // Keep MY SEASON calendar schedule data fresh on tab revisit or season change without aggressive polling
+  // Keep MY SEASON calendar schedule data fresh on tab revisit or season change without blocking initial paint
   useEffect(() => {
     if (activeTab === 'season') {
-      const cached = getCachedCalendarItems();
-      if (cached && cached.length > 0) {
-        setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
-      } else {
-        loadCalendarSeasonalReleases();
-      }
+      const cancel = scheduleDeferredTask(() => {
+        const cached = getCachedCalendarItems();
+        if (cached && cached.length > 0) {
+          startTransition(() => {
+            setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
+          });
+        } else {
+          loadCalendarSeasonalReleases();
+        }
+      });
+      return cancel;
     }
   }, [activeTab, selectedSeason]);
 
   // Targeted Fallback: For anime without clear start_season in MAL metadata,
-  // query individual Jikan metadata with bounded concurrency (3-5 concurrent requests) and session deduplication
+  // query individual Jikan metadata with bounded concurrency (4 concurrent requests) and session deduplication.
+  // Execution order: Wait for Jikan seasonal catalogue first so known seasonal anime are resolved without single queries.
   useEffect(() => {
     if (activeTab !== 'season' && activeTab !== 'status' && activeTab !== 'review' && activeTab !== 'gemini') return;
     if (!malList || malList.length === 0) return;
+
+    // Wait for the relevant seasonal catalogue to finish loading first before running individual fallbacks
     if (jikanSeasonLoading || jikanSpringLoading) return;
+    if (selectedSeason === 'summer' && jikanSummer2026List.length === 0) return;
+    if (selectedSeason === 'spring' && jikanSpring2026List.length === 0) return;
 
     const itemsNeedingLookup = malList.filter((item) => {
       const animeId = item.node?.id;
@@ -1080,29 +1100,36 @@ export default function App() {
       await Promise.all(workers);
 
       if (isMounted) {
-        if (summerFound.length > 0) {
-          setFallbackSummer2026Ids((prev) => {
-            const next = new Set(prev);
-            for (const id of summerFound) next.add(id);
-            return next;
-          });
-        }
-        if (springFound.length > 0) {
-          setFallbackSpring2026Ids((prev) => {
-            const next = new Set(prev);
-            for (const id of springFound) next.add(id);
-            return next;
-          });
-        }
+        startTransition(() => {
+          if (summerFound.length > 0) {
+            setFallbackSummer2026Ids((prev) => {
+              const next = new Set(prev);
+              for (const id of summerFound) next.add(id);
+              return next;
+            });
+          }
+          if (springFound.length > 0) {
+            setFallbackSpring2026Ids((prev) => {
+              const next = new Set(prev);
+              for (const id of springFound) next.add(id);
+              return next;
+            });
+          }
+        });
       }
     };
 
-    runFallbackLookups();
+    const cancelSchedule = scheduleDeferredTask(() => {
+      runFallbackLookups();
+    });
+
     return () => {
       isMounted = false;
+      cancelSchedule();
     };
   }, [
     activeTab,
+    selectedSeason,
     malList,
     jikanSummer2026Ids,
     jikanSpring2026Ids,
@@ -1110,6 +1137,8 @@ export default function App() {
     fallbackSpring2026Ids,
     jikanSeasonLoading,
     jikanSpringLoading,
+    jikanSummer2026List.length,
+    jikanSpring2026List.length,
   ]);
 
   // Check MAL Auth Status and configuration on Mount
@@ -1144,37 +1173,40 @@ export default function App() {
     };
   }, []);
 
-  // Secondary seasonal datasets loaded only when requested by active tabs
+  // Secondary seasonal datasets loaded deferred after initial paint when requested by active tabs
   useEffect(() => {
     if (activeTab === 'season' || activeTab === 'status' || activeTab === 'review' || activeTab === 'gemini') {
-      if (jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
-        loadJikanSeasonalCatalogue();
-      }
-      if (seasonalCalendarItems.length === 0) {
-        const cached = getCachedCalendarItems();
-        if (cached && cached.length > 0) {
-          setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
-        } else {
-          loadCalendarSeasonalReleases();
+      const cancel = scheduleDeferredTask(() => {
+        if (jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
+          loadJikanSeasonalCatalogue();
         }
-      }
-      if (activeTab === 'season' && seasonalList.length === 0 && !seasonalLoading) {
-        fetchSeasonalList(2026, 'summer');
-      }
+        if (seasonalCalendarItems.length === 0) {
+          const cached = getCachedCalendarItems();
+          if (cached && cached.length > 0) {
+            startTransition(() => {
+              setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
+            });
+          } else {
+            loadCalendarSeasonalReleases();
+          }
+        }
+      });
+      return cancel;
     }
   }, [
     activeTab,
     jikanSummer2026List.length,
     jikanSeasonLoading,
     seasonalCalendarItems.length,
-    seasonalList.length,
-    seasonalLoading,
   ]);
 
-  // Spring secondary catalogue loaded only when spring season is selected
+  // Spring secondary catalogue loaded deferred when spring season is selected
   useEffect(() => {
     if (selectedSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
-      loadJikanSpringCatalogue();
+      const cancel = scheduleDeferredTask(() => {
+        loadJikanSpringCatalogue();
+      });
+      return cancel;
     }
   }, [selectedSeason, jikanSpring2026List.length, jikanSpringLoading]);
 
@@ -1372,7 +1404,9 @@ export default function App() {
         throw new Error(`Failed to fetch seasonal anime (${res.status})`);
       }
       const data = await res.json();
-      setSeasonalList(data.data || []);
+      startTransition(() => {
+        setSeasonalList(data.data || []);
+      });
     } catch (err: any) {
       console.error('Error fetching seasonal list:', err);
       setSeasonalError(err.message || 'Failed to load seasonal anime list.');
