@@ -132,7 +132,7 @@ const SeasonTableRow = React.memo(function SeasonTableRow({
               alt={titleStr}
               referrerPolicy="no-referrer"
               className="h-full w-full object-cover"
-              loading="lazy"
+              decoding="async"
             />
           ) : (
             <div className="h-full w-full flex items-center justify-center bg-[#F0EDFA] dark:bg-[#25232F] text-[#7567C7] font-bold text-[10px]">

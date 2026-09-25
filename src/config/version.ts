@@ -14,9 +14,29 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION_INFO: AppVersionInfo = {
-  currentVersion: 'v4.6',
+  currentVersion: 'v4.7',
   tagline: 'Your anime. Your season. Your story.',
   history: [
+    {
+      version: 'v4.7',
+      title: 'Performance & Progressive Calendar Engine',
+      date: 'September 2026',
+      description:
+        'Comprehensive performance optimization pass across AniVerse. Implemented progressive Release Calendar row rendering with IntersectionObserver, deferred background enrichment, React transitions for non-urgent updates, memoized seasonal table and calendar cards, dynamic 7-week rolling calendar window, image decoding optimizations, and instant data/image reuse on MY SEASON tab switching.',
+      changes: [
+        'Added progressive Release Calendar row rendering using IntersectionObserver with subtle staggered card animations.',
+        'Reduced initial calendar DOM footprint by rendering an initial 4-row batch with automatic progressive reveal on scroll.',
+        'Dynamic 7-week calendar rolling-window data handling with improved merging and coverage.',
+        'Optimized MY SEASON with instant first-paint architecture and cached state reuse on tab revisits.',
+        'Eliminated image reload flash and lazy-load layout stutter across seasonal table views using eager async image decoding.',
+        'Extracted and memoized SeasonTableRow and CalendarPosterCard components to prevent cascade re-renders.',
+        'Added deferred task scheduler (scheduleDeferredTask) with requestIdleCallback and requestAnimationFrame fallbacks for non-critical background enrichment.',
+        'Wrapped secondary seasonal data loading and fallback state updates in React.startTransition.',
+        'Optimized airing and completion state detection with indexed O(1) calendar lookups.',
+        'Refactored AniList API request pipeline with deduplicated queries, bounded concurrency, and memory caching.',
+      ],
+      easterEgg: 'The calendar now loads faster than anime characters can power up.',
+    },
     {
       version: 'v4.6',
       title: 'Top 500 Celebration Easter Egg',

@@ -925,7 +925,7 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
               ) : (
                 <div className="bg-[#181724] dark:bg-[#141318] overflow-hidden">
                   <style>{`
-                    @keyframes calendarRowReveal {
+                    @keyframes calendarCardReveal {
                       0% {
                         opacity: 0;
                         transform: translateY(8px);
@@ -935,13 +935,16 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
                         transform: translateY(0);
                       }
                     }
-                    .calendar-row-reveal {
-                      animation: calendarRowReveal 260ms ease-out forwards;
+                    .calendar-card-reveal {
+                      opacity: 0;
+                      animation: calendarCardReveal 250ms ease-out forwards;
+                      animation-delay: var(--calendar-reveal-delay, 0ms);
                       will-change: opacity, transform;
                     }
                     @media (prefers-reduced-motion: reduce) {
-                      .calendar-row-reveal {
+                      .calendar-card-reveal {
                         animation: none !important;
+                        animation-delay: 0ms !important;
                         opacity: 1 !important;
                         transform: none !important;
                       }
@@ -949,19 +952,16 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
                   `}</style>
                   {rowIndices.slice(0, visibleRowCount).map((rowIndex) => {
                     const isProgressiveRow = rowIndex >= INITIAL_VISIBLE_ROWS;
+                    let cardIndexInRow = 0;
+
                     return (
                       <div
                         key={`row-${rowIndex}`}
-                        className={`grid grid-cols-7 w-full gap-0 p-0 m-0 ${
-                          isProgressiveRow ? 'calendar-row-reveal' : ''
-                        }`}
+                        className="grid grid-cols-7 w-full gap-0 p-0 m-0"
                       >
                         {displayedDaysWithUpcoming.map((day, dayIndex) => {
                           const item = day.items[rowIndex];
                           const isToday = day.dateKey === todayDateKey;
-                          const titleToDisplay = item
-                            ? item.displayTitle || getAnimeDisplayTitle(item.title)
-                            : '';
 
                           if (!item) {
                             // Seamless empty slot to maintain continuous grid without gaps or white boxes
@@ -977,16 +977,24 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
                             );
                           }
 
+                          const staggerDelay = isProgressiveRow ? `${cardIndexInRow * 45}ms` : undefined;
+                          cardIndexInRow++;
+
                           return (
-                            <CalendarPosterCard
+                            <div
                               key={`${day.dateKey}-${item.id}-${item.airingAt}`}
-                              item={item}
-                              showTime={showTime}
-                              showTitle={showTitle}
-                              showEpisode={showEpisode}
-                              showStudio={showStudio}
-                              onOpenModal={handleOpenModal}
-                            />
+                              className={`w-full ${isProgressiveRow ? 'calendar-card-reveal' : ''}`}
+                              style={staggerDelay ? ({ '--calendar-reveal-delay': staggerDelay } as React.CSSProperties) : undefined}
+                            >
+                              <CalendarPosterCard
+                                item={item}
+                                showTime={showTime}
+                                showTitle={showTitle}
+                                showEpisode={showEpisode}
+                                showStudio={showStudio}
+                                onOpenModal={handleOpenModal}
+                              />
+                            </div>
                           );
                         })}
                       </div>

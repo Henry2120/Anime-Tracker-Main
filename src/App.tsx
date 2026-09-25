@@ -1020,16 +1020,20 @@ export default function App() {
       const cancel = scheduleDeferredTask(() => {
         const cached = getCachedCalendarItems();
         if (cached && cached.length > 0) {
-          startTransition(() => {
-            setSeasonalCalendarItems((prev) => mergeCalendarItems(prev, cached));
+          setSeasonalCalendarItems((prev) => {
+            if (prev.length === cached.length && prev[0]?.id === cached[0]?.id && prev[prev.length - 1]?.id === cached[cached.length - 1]?.id) {
+              return prev;
+            }
+            const merged = mergeCalendarItems(prev, cached);
+            return merged.length === prev.length ? prev : merged;
           });
-        } else {
+        } else if (seasonalCalendarItems.length === 0) {
           loadCalendarSeasonalReleases();
         }
       });
       return cancel;
     }
-  }, [activeTab, selectedSeason]);
+  }, [activeTab, selectedSeason, seasonalCalendarItems.length]);
 
   // Targeted Fallback: For anime without clear start_season in MAL metadata,
   // query individual Jikan metadata with bounded concurrency (4 concurrent requests) and session deduplication.

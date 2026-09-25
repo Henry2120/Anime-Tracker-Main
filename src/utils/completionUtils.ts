@@ -308,69 +308,60 @@ export interface ResolvedCalendarEpisodesResult {
   titleMatchesCount?: number;
 }
 
-/**
- * Resolves calendar episodes for an anime:
- * 1. Exact MAL-ID matching (FIRST/PREFERRED method)
- * 2. External ID fallback (e.g. AniList ID if available on node/item)
- * 3. Safe title matching against grouped calendar records with season/part verification
- * Returns ALL episodes of the resolved anime.
- */
-export function resolveAnimeCalendarEpisodes(
-  node: MalAnimeNode,
-  effectiveCalendar: ReleaseCalendarItem[],
-  itemRaw?: any
-): ResolvedCalendarEpisodesResult {
-  if (!node) return { episodes: [], method: 'none', exactMalMatchesCount: 0, externalMatchesCount: 0, titleMatchesCount: 0 };
+export interface CalendarAnimeGroup {
+  anilistId: number | null;
+  malId: number | null;
+  items: ReleaseCalendarItem[];
+  rawTitles: Set<string>;
+}
 
-  // 1. Primary / Preferred: Exact MAL-ID match
-  if (typeof node.id === 'number' && node.id > 0) {
-    const malMatches = effectiveCalendar.filter(
-      (c) => c.malId !== null && c.malId !== undefined && Number(c.malId) === node.id
-    );
-    if (malMatches.length > 0) {
-      return {
-        episodes: malMatches.sort((a, b) => a.airingAt - b.airingAt),
-        method: 'malId',
-        exactMalMatchesCount: malMatches.length,
-        externalMatchesCount: 0,
-        titleMatchesCount: 0,
-      };
-    }
+interface CalendarIndexedData {
+  calendarRef: ReleaseCalendarItem[];
+  malIdMap: Map<number, ReleaseCalendarItem[]>;
+  anilistIdMap: Map<number, ReleaseCalendarItem[]>;
+  groupsMap: Map<string, CalendarAnimeGroup>;
+}
+
+let cachedCalendarIndex: CalendarIndexedData | null = null;
+
+function getIndexedCalendarData(effectiveCalendar: ReleaseCalendarItem[]): CalendarIndexedData {
+  if (cachedCalendarIndex && cachedCalendarIndex.calendarRef === effectiveCalendar) {
+    return cachedCalendarIndex;
   }
 
-  // 2. Safe Fallback: External ID (e.g. AniList ID)
-  const candidateAnilistId =
-    (node as any)?.anilistId ??
-    (node as any)?.anilist_id ??
-    (node as any)?.idAniList ??
-    itemRaw?.anilistId ??
-    itemRaw?.anilist_id;
-
-  if (typeof candidateAnilistId === 'number' && candidateAnilistId > 0) {
-    const anilistMatches = effectiveCalendar.filter(
-      (c) => c.anilistId && Number(c.anilistId) === candidateAnilistId
-    );
-    if (anilistMatches.length > 0) {
-      return {
-        episodes: anilistMatches.sort((a, b) => a.airingAt - b.airingAt),
-        method: 'externalId',
-        exactMalMatchesCount: 0,
-        externalMatchesCount: anilistMatches.length,
-        titleMatchesCount: 0,
-      };
-    }
-  }
-
-  // 3. Safe Fallback: Title matching against grouped calendar anime
-  interface CalendarAnimeGroup {
-    anilistId: number | null;
-    malId: number | null;
-    items: ReleaseCalendarItem[];
-    rawTitles: Set<string>;
-  }
-
+  const malIdMap = new Map<number, ReleaseCalendarItem[]>();
+  const anilistIdMap = new Map<number, ReleaseCalendarItem[]>();
   const groupsMap = new Map<string, CalendarAnimeGroup>();
+
   for (const c of effectiveCalendar) {
+    if (!c) continue;
+    // Index by malId
+    if (c.malId !== null && c.malId !== undefined) {
+      const parsedMalId = Number(c.malId);
+      if (!isNaN(parsedMalId) && parsedMalId > 0) {
+        let list = malIdMap.get(parsedMalId);
+        if (!list) {
+          list = [];
+          malIdMap.set(parsedMalId, list);
+        }
+        list.push(c);
+      }
+    }
+
+    // Index by anilistId
+    if (c.anilistId) {
+      const parsedAniId = Number(c.anilistId);
+      if (!isNaN(parsedAniId) && parsedAniId > 0) {
+        let list = anilistIdMap.get(parsedAniId);
+        if (!list) {
+          list = [];
+          anilistIdMap.set(parsedAniId, list);
+        }
+        list.push(c);
+      }
+    }
+
+    // Group for title fallback matching
     const groupKey = c.anilistId
       ? `anilist_${c.anilistId}`
       : c.malId
@@ -397,6 +388,80 @@ export function resolveAnimeCalendarEpisodes(
     if (c.titleNative) group.rawTitles.add(c.titleNative);
     if (c.displayTitle) group.rawTitles.add(c.displayTitle);
   }
+
+  // Pre-sort indexed lists once by airingAt
+  for (const list of malIdMap.values()) {
+    list.sort((a, b) => a.airingAt - b.airingAt);
+  }
+  for (const list of anilistIdMap.values()) {
+    list.sort((a, b) => a.airingAt - b.airingAt);
+  }
+
+  cachedCalendarIndex = {
+    calendarRef: effectiveCalendar,
+    malIdMap,
+    anilistIdMap,
+    groupsMap,
+  };
+
+  return cachedCalendarIndex;
+}
+
+/**
+ * Resolves calendar episodes for an anime:
+ * 1. Exact MAL-ID matching (FIRST/PREFERRED method)
+ * 2. External ID fallback (e.g. AniList ID if available on node/item)
+ * 3. Safe title matching against grouped calendar records with season/part verification
+ * Returns ALL episodes of the resolved anime.
+ */
+export function resolveAnimeCalendarEpisodes(
+  node: MalAnimeNode,
+  effectiveCalendar: ReleaseCalendarItem[],
+  itemRaw?: any
+): ResolvedCalendarEpisodesResult {
+  if (!node || !Array.isArray(effectiveCalendar) || effectiveCalendar.length === 0) {
+    return { episodes: [], method: 'none', exactMalMatchesCount: 0, externalMatchesCount: 0, titleMatchesCount: 0 };
+  }
+
+  const indexed = getIndexedCalendarData(effectiveCalendar);
+
+  // 1. Primary / Preferred: Exact MAL-ID match (O(1))
+  if (typeof node.id === 'number' && node.id > 0) {
+    const malMatches = indexed.malIdMap.get(node.id);
+    if (malMatches && malMatches.length > 0) {
+      return {
+        episodes: malMatches,
+        method: 'malId',
+        exactMalMatchesCount: malMatches.length,
+        externalMatchesCount: 0,
+        titleMatchesCount: 0,
+      };
+    }
+  }
+
+  // 2. Safe Fallback: External ID (e.g. AniList ID) (O(1))
+  const candidateAnilistId =
+    (node as any)?.anilistId ??
+    (node as any)?.anilist_id ??
+    (node as any)?.idAniList ??
+    itemRaw?.anilistId ??
+    itemRaw?.anilist_id;
+
+  if (typeof candidateAnilistId === 'number' && candidateAnilistId > 0) {
+    const anilistMatches = indexed.anilistIdMap.get(candidateAnilistId);
+    if (anilistMatches && anilistMatches.length > 0) {
+      return {
+        episodes: anilistMatches,
+        method: 'externalId',
+        exactMalMatchesCount: 0,
+        externalMatchesCount: anilistMatches.length,
+        titleMatchesCount: 0,
+      };
+    }
+  }
+
+  // 3. Safe Fallback: Title matching against pre-grouped calendar anime
+  const groupsMap = indexed.groupsMap;
 
   // Candidate titles for node
   const nodeRawTitles = new Set<string>();
