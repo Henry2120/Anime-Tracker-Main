@@ -1737,8 +1737,8 @@ export default function App() {
     });
   }, [malList, malFilterStatus, malSortOption, malSearchQuery, activeTab]);
 
-  const isEffectiveDark = malUser !== null && theme === 'dark';
-  const isEffectiveSakura = malUser !== null && theme === 'sakura';
+  const isEffectiveDark = theme === 'dark' && (malUser !== null || appMode === 'music');
+  const isEffectiveSakura = theme === 'sakura' && (malUser !== null || appMode === 'music');
 
   useEffect(() => {
     if (isEffectiveDark) {
@@ -1754,9 +1754,15 @@ export default function App() {
       <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
         <Suspense
           fallback={
-            <div className="min-h-screen w-full bg-[#09080F] flex flex-col items-center justify-center text-white p-4">
-              <div className="w-10 h-10 rounded-full border-2 border-[#EC4899]/30 border-t-[#EC4899] animate-spin mb-3" />
-              <span className="text-xs font-mono text-[#F472B6] tracking-widest uppercase">
+            <div className={`min-h-screen w-full flex flex-col items-center justify-center p-4 ${
+              theme === 'dark'
+                ? 'bg-[#141318] text-[#F4F2F7]'
+                : theme === 'sakura'
+                ? 'bg-[#FDF5F7] text-[#25242A]'
+                : 'bg-[#F7F5F2] text-[#25242A]'
+            }`}>
+              <div className="w-10 h-10 rounded-full border-2 border-[#7567C7]/30 border-t-[#7567C7] animate-spin mb-3" />
+              <span className="text-xs font-mono text-[#7567C7] tracking-widest uppercase">
                 Entering Music Lab...
               </span>
             </div>

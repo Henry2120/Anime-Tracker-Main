@@ -254,3 +254,141 @@ body.dark,
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #403E4C;
 }
+
+/* =========================================================================
+   ANIVERSE MUSIC LAB — PERFORMER INSTRUMENT ANIMATIONS
+   GPU-composited CSS transforms with reduced-motion support
+   ========================================================================= */
+
+@keyframes bounceSubtle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-3px) rotate(1deg); }
+}
+
+@keyframes pianoHands {
+  0% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) translateX(2px) rotate(2deg); }
+  50% { transform: translateY(1px) translateX(-1px) rotate(-1deg); }
+  75% { transform: translateY(-1px) translateX(3px) rotate(1deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes drummerStrike {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes drumstickLeft {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-12deg) translateY(-2px); }
+  60% { transform: rotate(8deg) translateY(2px); }
+}
+
+@keyframes drumstickRight {
+  0%, 100% { transform: rotate(0deg); }
+  40% { transform: rotate(14deg) translateY(-2px); }
+  70% { transform: rotate(-6deg) translateY(2px); }
+}
+
+@keyframes cymbalVibe {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(2deg) scale(1.02); }
+}
+
+@keyframes guitarRock {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(-2deg) translateY(-3px); }
+}
+
+@keyframes strummingArm {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg) translateY(-2px); }
+  50% { transform: rotate(10deg) translateY(2px); }
+  75% { transform: rotate(-4deg); }
+}
+
+@keyframes frettingHand {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(3px) translateY(-1px); }
+}
+
+@keyframes violinBowing {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  50% { transform: translateX(8px) rotate(-3deg); }
+}
+
+@keyframes violinSway {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(2deg) translateY(-2px); }
+}
+
+@keyframes celloBowing {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  50% { transform: translateX(-6px) rotate(2deg); }
+}
+
+@keyframes woodwindSway {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(-1.5deg) translateY(-2px); }
+}
+
+@keyframes hornBob {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-3px); }
+}
+
+.animate-bounce-subtle {
+  animation: bounceSubtle 0.9s ease-in-out infinite;
+}
+
+.animate-piano-hands {
+  animation: pianoHands 0.45s ease-in-out infinite;
+}
+
+.animate-drummer-strike {
+  animation: drummerStrike 0.4s ease-in-out infinite;
+}
+
+.animate-drumstick-left {
+  animation: drumstickLeft 0.35s ease-in-out infinite;
+}
+
+.animate-drumstick-right {
+  animation: drumstickRight 0.45s ease-in-out infinite;
+}
+
+.animate-cymbal-vibe {
+  animation: cymbalVibe 0.6s ease-in-out infinite;
+}
+
+.animate-guitar-rock {
+  animation: guitarRock 0.8s ease-in-out infinite;
+}
+
+.animate-strumming-arm {
+  animation: strummingArm 0.38s ease-in-out infinite;
+}
+
+.animate-fretting-hand {
+  animation: frettingHand 0.6s ease-in-out infinite;
+}
+
+.animate-violin-bowing {
+  animation: violinBowing 0.85s ease-in-out infinite alternate;
+}
+
+.animate-violin-sway {
+  animation: violinSway 1.2s ease-in-out infinite;
+}
+
+.animate-cello-bowing {
+  animation: celloBowing 0.95s ease-in-out infinite alternate;
+}
+
+.animate-woodwind-sway {
+  animation: woodwindSway 1.1s ease-in-out infinite;
+}
+
+.animate-horn-bob {
+  animation: hornBob 0.85s ease-in-out infinite;
+}
