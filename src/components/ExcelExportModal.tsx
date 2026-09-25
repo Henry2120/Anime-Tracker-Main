@@ -24,8 +24,8 @@ interface ExcelExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   year: number;
-  season: 'spring' | 'summer';
-  onSeasonChange?: (newSeason: 'spring' | 'summer') => void;
+  season: 'spring' | 'summer' | 'fall';
+  onSeasonChange?: (newSeason: 'spring' | 'summer' | 'fall') => void;
   malList: MalListItem[];
   seasonAnimeList: MalListItem[];
   customUserNotes?: Record<number, string>;

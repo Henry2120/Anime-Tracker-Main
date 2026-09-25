@@ -157,6 +157,14 @@ export function isAnimeSpring2026(node?: any, jikanSpringIds?: Set<number>): boo
 }
 
 /**
+ * Checks if a MAL anime node strictly belongs to Fall 2026
+ * Formula: start_season.year === 2026 && start_season.season === "fall" (with fallbacks)
+ */
+export function isAnimeFall2026(node?: any, jikanFallIds?: Set<number>): boolean {
+  return isAnimeInSeason(node, 2026, 'fall', jikanFallIds);
+}
+
+/**
  * Extracts the anime's actual first-episode airing date / broadcast start date (NOT personal user start date).
  * Checks node.start_date, node.aired.from, node.release_date.
  */
@@ -326,6 +334,25 @@ export function isCompletedDuringSpring2026(
     earliestFirstEpisodeAiringDate,
     springIds,
     winterIds
+  );
+}
+
+/**
+ * Convenience wrapper for Fall 2026 completed anime check
+ */
+export function isCompletedDuringFall2026(
+  item: any,
+  earliestFirstEpisodeAiringDate: string | null = null,
+  fallIds?: Set<number>,
+  summerIds?: Set<number>
+): boolean {
+  return isAnimeCompletedInSeason(
+    item,
+    2026,
+    'fall',
+    earliestFirstEpisodeAiringDate,
+    fallIds,
+    summerIds
   );
 }
 
@@ -513,6 +540,7 @@ export function getAnimeForSelectedSeason<T = any>({
     // Strict boundary checks between seasons to avoid leakage
     if (normSeason === 'summer' && isAnimeSpring2026(node)) continue;
     if (normSeason === 'spring' && isAnimeSummer2026(node)) continue;
+    if (normSeason === 'fall' && isAnimeSummer2026(node)) continue;
     if (!seenIds.has(node.id)) {
       seenIds.add(node.id);
       const original = userMalMap ? userMalMap.get(node.id) : null;
@@ -536,8 +564,8 @@ export function getAnimeForSelectedSeason<T = any>({
 }
 
 export interface AppSeason {
-  id: 'spring' | 'summer';
-  season: 'spring' | 'summer';
+  id: 'spring' | 'summer' | 'fall';
+  season: 'spring' | 'summer' | 'fall';
   year: number;
   label: string;
   shortLabel: string;
@@ -560,6 +588,14 @@ export const SUPPORTED_SEASONS: AppSeason[] = [
     label: 'Summer 2026',
     shortLabel: 'Summer 26',
     seasonLabelJa: '夏',
+  },
+  {
+    id: 'fall',
+    season: 'fall',
+    year: 2026,
+    label: 'Fall 2026',
+    shortLabel: 'Fall 26',
+    seasonLabelJa: '秋',
   },
 ];
 

@@ -14,9 +14,22 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION_INFO: AppVersionInfo = {
-  currentVersion: 'v4.7',
+  currentVersion: 'v4.8',
   tagline: 'Your anime. Your season. Your story.',
   history: [
+    {
+      version: 'v4.8',
+      title: 'Fall 2026 Season Support',
+      date: 'September 2026',
+      description:
+        'Added Fall 2026 to MY SEASON with the same seasonal tracking, episode, airing, and calendar functionality used by previous seasons.',
+      changes: [
+        'Added Fall 2026 to the SeasonSelector alongside Spring 2026 and Summer 2026.',
+        'Connected Fall 2026 seasonal catalogue and fallback metadata pipeline via Jikan API.',
+        'Integrated Fall 2026 Watching, Completed, and Season Completion metrics with existing Release Calendar indexing.',
+        'Enabled Excel Export and Season Review for Fall 2026.',
+      ],
+    },
     {
       version: 'v4.7',
       title: 'Performance & Progressive Calendar Engine',

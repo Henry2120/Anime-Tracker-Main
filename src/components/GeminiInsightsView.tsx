@@ -25,8 +25,8 @@ interface GeminiInsightsViewProps {
   watchingSummer2026List?: any[];
   watchingSeasonList?: any[];
   currentSeasonName: string;
-  selectedSeason?: 'spring' | 'summer';
-  onSeasonChange?: (season: 'spring' | 'summer') => void;
+  selectedSeason?: 'spring' | 'summer' | 'fall';
+  onSeasonChange?: (season: 'spring' | 'summer' | 'fall') => void;
   malUser: MalUser | null;
   malLoading: boolean;
   onConnectMal: () => void;

@@ -44,8 +44,8 @@ interface StatusDashboardProps {
   watchingSummer2026List?: Array<{ node?: any; list_status?: any }>;
   watchingSeasonList?: Array<{ node?: any; list_status?: any }>;
   currentSeasonName?: string;
-  selectedSeason?: 'spring' | 'summer';
-  onSeasonChange?: (season: 'spring' | 'summer') => void;
+  selectedSeason?: 'spring' | 'summer' | 'fall';
+  onSeasonChange?: (season: 'spring' | 'summer' | 'fall') => void;
   earliestStartDate?: string | null;
   earliestAiringDate?: string | null;
   malUser: MalUser | null;

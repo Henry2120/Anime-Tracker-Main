@@ -38,8 +38,8 @@ export interface SeasonReviewProps {
   completedSummer2026List?: MalListItem[];
   completedSeasonList?: MalListItem[];
   currentSeasonName?: string;
-  selectedSeason?: 'spring' | 'summer';
-  onSeasonChange?: (season: 'spring' | 'summer') => void;
+  selectedSeason?: 'spring' | 'summer' | 'fall';
+  onSeasonChange?: (season: 'spring' | 'summer' | 'fall') => void;
   customUserNotes?: Record<number, string>;
   malUser: MalUser | null;
   onSaveCustomNote?: (animeId: number, note: string) => void;

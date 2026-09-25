@@ -3,8 +3,8 @@ import { ChevronDown, Check, Sparkles, Sun } from 'lucide-react';
 import { AppSeason, SUPPORTED_SEASONS } from '../utils/seasonUtils';
 
 interface SeasonSelectorProps {
-  selectedSeason: 'spring' | 'summer';
-  onSelectSeason: (season: 'spring' | 'summer') => void;
+  selectedSeason: 'spring' | 'summer' | 'fall';
+  onSelectSeason: (season: 'spring' | 'summer' | 'fall') => void;
   seasons?: AppSeason[];
   variant?: 'default' | 'review' | 'compact';
   idPrefix?: string;
@@ -56,7 +56,7 @@ export const SeasonSelector: React.FC<SeasonSelectorProps> = ({
     };
   }, [isOpen]);
 
-  const handleSelect = (seasonId: 'spring' | 'summer') => {
+  const handleSelect = (seasonId: 'spring' | 'summer' | 'fall') => {
     onSelectSeason(seasonId);
     setIsOpen(false);
   };
@@ -86,6 +86,8 @@ export const SeasonSelector: React.FC<SeasonSelectorProps> = ({
         <span className="flex items-center gap-1.5">
           {activeSeasonObj.id === 'spring' ? (
             <Sparkles className="h-3.5 w-3.5 text-[#6D9B7C] shrink-0" />
+          ) : activeSeasonObj.id === 'fall' ? (
+            <Sparkles className="h-3.5 w-3.5 text-[#C77B82] shrink-0" />
           ) : (
             <Sun className="h-3.5 w-3.5 text-[#C69A55] shrink-0" />
           )}
@@ -128,6 +130,8 @@ export const SeasonSelector: React.FC<SeasonSelectorProps> = ({
                 <span className="flex items-center gap-2">
                   {season.id === 'spring' ? (
                     <Sparkles className={`h-3.5 w-3.5 ${isSelected ? 'text-[#6D9B7C]' : 'text-[#77747D]'}`} />
+                  ) : season.id === 'fall' ? (
+                    <Sparkles className={`h-3.5 w-3.5 ${isSelected ? 'text-[#C77B82]' : 'text-[#77747D]'}`} />
                   ) : (
                     <Sun className={`h-3.5 w-3.5 ${isSelected ? 'text-[#C69A55]' : 'text-[#77747D]'}`} />
                   )}

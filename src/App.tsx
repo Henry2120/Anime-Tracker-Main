@@ -53,10 +53,19 @@ const TabLoadingFallback: React.FC = () => (
 );
 import { SeasonSelector } from './components/SeasonSelector';
 import { WelcomePage } from './components/WelcomePage';
-import { AboutModal } from './components/AboutModal';
-import { ExcelExportModal } from './components/ExcelExportModal';
-import { EditMalEntryModal, EditableAnimeData } from './components/EditMalEntryModal';
-import { AnimeDetailModal, AnimeDetailData } from './components/AnimeDetailModal';
+import type { EditableAnimeData } from './components/EditMalEntryModal';
+import type { AnimeDetailData } from './components/AnimeDetailModal';
+
+// Lazily loaded modal components to keep initial bundle lean
+const AboutModal = lazy(() => import('./components/AboutModal').then((m) => ({ default: m.AboutModal })));
+const ExcelExportModal = lazy(() => import('./components/ExcelExportModal').then((m) => ({ default: m.ExcelExportModal })));
+const EditMalEntryModal = lazy(() => import('./components/EditMalEntryModal').then((m) => ({ default: m.EditMalEntryModal })));
+const AnimeDetailModal = lazy(() => import('./components/AnimeDetailModal').then((m) => ({ default: m.AnimeDetailModal })));
+
+// Lazily loaded Music Lab world component
+const MusicLabView = lazy(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })));
+
+import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
 import { Top500EasterEgg } from './components/Top500EasterEgg';
@@ -70,9 +79,11 @@ import {
   fetchCalendarSeasonItems,
   isAnimeSummer2026,
   isAnimeSpring2026,
+  isAnimeFall2026,
   isAnimeInSeason,
   isCompletedDuringSummer2026,
   isCompletedDuringSpring2026,
+  isCompletedDuringFall2026,
   getEarliestFirstEpisodeAiringDate,
   getAnimeForSelectedSeason,
   JikanSeasonalAnime,
@@ -83,6 +94,9 @@ import {
 const SHOW_TOP_500_EASTER_EGG = true;
 
 export default function App() {
+  // Application mode state: 'anime' (default Anime Tracker) | 'music' (Music Lab)
+  const [appMode, setAppMode] = useState<AppMode>('anime');
+
   // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
   const [activeTab, setActiveTab] = useState<'home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review'>('season');
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -193,8 +207,8 @@ export default function App() {
   const [seasonalLoading, setSeasonalLoading] = useState<boolean>(false);
   const [seasonalError, setSeasonalError] = useState<string | null>(null);
 
-  // Selected Season state for MY SEASON view ('spring' | 'summer', default 'summer')
-  const [selectedSeason, setSelectedSeason] = useState<'spring' | 'summer'>('summer');
+  // Selected Season state for MY SEASON view ('spring' | 'summer' | 'fall', default 'summer')
+  const [selectedSeason, setSelectedSeason] = useState<'spring' | 'summer' | 'fall'>('summer');
 
   // Jikan Summer 2026 Seasonal State (Authoritative source of truth for MY SEASON)
   const [jikanSummer2026List, setJikanSummer2026List] = useState<JikanSeasonalAnime[]>([]);
@@ -205,6 +219,11 @@ export default function App() {
   const [jikanSpring2026List, setJikanSpring2026List] = useState<JikanSeasonalAnime[]>([]);
   const [jikanSpringLoading, setJikanSpringLoading] = useState<boolean>(false);
   const [fallbackSpring2026Ids, setFallbackSpring2026Ids] = useState<Set<number>>(new Set());
+
+  // Jikan Fall 2026 Seasonal State
+  const [jikanFall2026List, setJikanFall2026List] = useState<JikanSeasonalAnime[]>([]);
+  const [jikanFallLoading, setJikanFallLoading] = useState<boolean>(false);
+  const [fallbackFall2026Ids, setFallbackFall2026Ids] = useState<Set<number>>(new Set());
 
   // Release Calendar Summer 2026 Fallback State
   const [calendarSummer2026Ids, setCalendarSummer2026Ids] = useState<Set<number>>(new Set());
@@ -682,6 +701,26 @@ export default function App() {
     return combined;
   }, [jikanSpring2026Ids, fallbackSpring2026Ids]);
 
+  // Primary Set of MAL IDs from Jikan Fall 2026 seasonal catalogue
+  const jikanFall2026Ids = useMemo(() => {
+    const ids = new Set<number>();
+    for (const item of jikanFall2026List) {
+      if (item?.mal_id) {
+        ids.add(item.mal_id);
+      }
+    }
+    return ids;
+  }, [jikanFall2026List]);
+
+  // Combined Set of verified Fall 2026 IDs
+  const allFall2026Ids = useMemo(() => {
+    const combined = new Set<number>(jikanFall2026Ids);
+    for (const id of fallbackFall2026Ids) {
+      combined.add(id);
+    }
+    return combined;
+  }, [jikanFall2026Ids, fallbackFall2026Ids]);
+
   // Step 1: Currently Watching items (Summer 2026 debuts + active ongoing carryovers)
   // An anime is included in Currently Watching when:
   // 1. MAL list_status.status === 'watching'
@@ -757,6 +796,37 @@ export default function App() {
     return items;
   }, [malList, allSpring2026Ids, allSummer2026Ids]);
 
+  // Fall 2026 Currently Watching items
+  // An anime is included in Fall 2026 Currently Watching when:
+  // 1. MAL list_status.status === 'watching'
+  // 2. Belongs to Fall 2026 (via MAL start_season, seasonal catalogue, or fallback)
+  const currentlyWatchingFall2026Items = useMemo(() => {
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
+    const seenIds = new Set<number>();
+
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      if (item.list_status?.status !== 'watching') continue;
+
+      // Must be a Fall 2026 anime
+      const isFallAnime = isAnimeFall2026(item.node, allFall2026Ids);
+      if (!isFallAnime) continue;
+
+      if (!seenIds.has(item.node.id)) {
+        seenIds.add(item.node.id);
+        items.push({
+          node: item.node,
+          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+        });
+      }
+    }
+
+    return items;
+  }, [malList, allFall2026Ids]);
+
   // Step 2: Seasonal start boundary for Summer 2026:
   // Earliest first-episode airing date among the user's currently-watching Summer 2026 anime.
   // Uses actual broadcast/airing start date (node.start_date) of Summer 2026 anime, NOT personal MAL list_status.start_date.
@@ -775,6 +845,14 @@ export default function App() {
     );
     return getEarliestFirstEpisodeAiringDate(spring2026WatchingItems);
   }, [malList, allSpring2026Ids]);
+
+  // Fall 2026 Earliest First Episode Airing Date
+  const earliestFall2026AiringDate = useMemo(() => {
+    const fall2026WatchingItems = malList.filter(
+      (item) => item.list_status?.status === 'watching' && isAnimeFall2026(item.node, allFall2026Ids)
+    );
+    return getEarliestFirstEpisodeAiringDate(fall2026WatchingItems);
+  }, [malList, allFall2026Ids]);
 
   // Step 3: Anime completed during Summer 2026:
   // 1. MAL status === 'completed'
@@ -856,31 +934,93 @@ export default function App() {
     return items;
   }, [malList, earliestSpring2026AiringDate, allSpring2026Ids]);
 
+  // Anime completed during Fall 2026
+  const completedFall2026Items = useMemo(() => {
+    const items: Array<{
+      node: any;
+      list_status?: any;
+    }> = [];
+    const seenIds = new Set<number>();
+
+    for (const item of malList) {
+      if (!item?.node?.id) continue;
+      if (isCompletedDuringFall2026(item, earliestFall2026AiringDate, allFall2026Ids, allSummer2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'completed', score: 0, num_episodes_watched: 0 },
+          });
+        }
+      }
+    }
+
+    // Sort by finish date descending (most recently completed first)
+    items.sort((a, b) => {
+      const dateA = a.list_status?.finish_date || '';
+      const dateB = b.list_status?.finish_date || '';
+      if (dateB !== dateA) {
+        return dateB.localeCompare(dateA);
+      }
+      return (b.list_status?.score || 0) - (a.list_status?.score || 0);
+    });
+
+    return items;
+  }, [malList, earliestFall2026AiringDate, allFall2026Ids, allSummer2026Ids]);
+
   // Active season calculations for MY SEASON tab
-  const activeWatchingItems = selectedSeason === 'spring' ? currentlyWatchingSpring2026Items : currentlyWatchingItems;
-  const activeCompletedItems = selectedSeason === 'spring' ? completedSpring2026Items : completedSummer2026Items;
-  const activeSeasonLabel = selectedSeason === 'spring' ? 'SPRING 2026' : 'SUMMER 2026';
-  const activeSeasonTotalReleases = selectedSeason === 'spring' ? allSpring2026Ids.size : allSummer2026Ids.size;
+  const activeWatchingItems =
+    selectedSeason === 'spring'
+      ? currentlyWatchingSpring2026Items
+      : selectedSeason === 'fall'
+      ? currentlyWatchingFall2026Items
+      : currentlyWatchingItems;
+
+  const activeCompletedItems =
+    selectedSeason === 'spring'
+      ? completedSpring2026Items
+      : selectedSeason === 'fall'
+      ? completedFall2026Items
+      : completedSummer2026Items;
+
+  const activeSeasonLabel =
+    selectedSeason === 'spring'
+      ? 'SPRING 2026'
+      : selectedSeason === 'fall'
+      ? 'FALL 2026'
+      : 'SUMMER 2026';
+
+  const activeSeasonTotalReleases =
+    selectedSeason === 'spring'
+      ? allSpring2026Ids.size
+      : selectedSeason === 'fall'
+      ? allFall2026Ids.size
+      : allSummer2026Ids.size;
+
+  const activeSeasonCatalogueIds =
+    selectedSeason === 'spring'
+      ? allSpring2026Ids
+      : selectedSeason === 'fall'
+      ? allFall2026Ids
+      : allSummer2026Ids;
 
   // Single Source of Truth for Season-Aware Insights:
   // 1. Watching list strictly belonging to the currently selected season (excludes cross-season carryovers)
   const activeSeasonWatchingList = useMemo(() => {
-    const catalogueIds = selectedSeason === 'spring' ? allSpring2026Ids : allSummer2026Ids;
     return activeWatchingItems.filter((item) =>
-      isAnimeInSeason(item?.node || item, 2026, selectedSeason, catalogueIds)
+      isAnimeInSeason(item?.node || item, 2026, selectedSeason, activeSeasonCatalogueIds)
     );
-  }, [activeWatchingItems, selectedSeason, allSpring2026Ids, allSummer2026Ids]);
+  }, [activeWatchingItems, selectedSeason, activeSeasonCatalogueIds]);
 
   // 2. Complete list of MAL anime for the currently selected season across all statuses
   const activeSeasonMalList = useMemo(() => {
-    const catalogueIds = selectedSeason === 'spring' ? allSpring2026Ids : allSummer2026Ids;
     return getAnimeForSelectedSeason<MalListItem>({
       malList,
       year: 2026,
       season: selectedSeason,
       watchingItems: activeSeasonWatchingList,
       completedItems: activeCompletedItems,
-      seasonCatalogueIds: catalogueIds,
+      seasonCatalogueIds: activeSeasonCatalogueIds,
       userMalMap,
     });
   }, [
@@ -888,8 +1028,7 @@ export default function App() {
     selectedSeason,
     activeSeasonWatchingList,
     activeCompletedItems,
-    allSpring2026Ids,
-    allSummer2026Ids,
+    activeSeasonCatalogueIds,
     userMalMap,
   ]);
 
@@ -897,8 +1036,10 @@ export default function App() {
   const activeSeasonEarliestAiringDate = useMemo(() => {
     return selectedSeason === 'spring'
       ? earliestSpring2026AiringDate
+      : selectedSeason === 'fall'
+      ? earliestFall2026AiringDate
       : earliestSummer2026AiringDate;
-  }, [selectedSeason, earliestSpring2026AiringDate, earliestSummer2026AiringDate]);
+  }, [selectedSeason, earliestSpring2026AiringDate, earliestFall2026AiringDate, earliestSummer2026AiringDate]);
 
   // 4. Season Completion Stats for active season
   const seasonCompletionStats = useMemo(() => {
@@ -956,6 +1097,21 @@ export default function App() {
       console.error('Error fetching Jikan Spring 2026 seasonal catalogue:', err);
     } finally {
       setJikanSpringLoading(false);
+    }
+  };
+
+  // Fetch Jikan Fall 2026 seasonal catalogue
+  const loadJikanFallCatalogue = async () => {
+    setJikanFallLoading(true);
+    try {
+      const data = await fetchJikanSeasonCatalogue(2026, 'fall');
+      startTransition(() => {
+        setJikanFall2026List(data);
+      });
+    } catch (err) {
+      console.error('Error fetching Jikan Fall 2026 seasonal catalogue:', err);
+    } finally {
+      setJikanFallLoading(false);
     }
   };
 
@@ -1043,9 +1199,10 @@ export default function App() {
     if (!malList || malList.length === 0) return;
 
     // Wait for the relevant seasonal catalogue to finish loading first before running individual fallbacks
-    if (jikanSeasonLoading || jikanSpringLoading) return;
+    if (jikanSeasonLoading || jikanSpringLoading || jikanFallLoading) return;
     if (selectedSeason === 'summer' && jikanSummer2026List.length === 0) return;
     if (selectedSeason === 'spring' && jikanSpring2026List.length === 0) return;
+    if (selectedSeason === 'fall' && jikanFall2026List.length === 0) return;
 
     const itemsNeedingLookup = malList.filter((item) => {
       const animeId = item.node?.id;
@@ -1058,8 +1215,8 @@ export default function App() {
         const season = item.node.start_season.season;
         if (!isNaN(year) && season) return false;
       }
-      if (jikanSummer2026Ids.has(animeId) || jikanSpring2026Ids.has(animeId)) return false;
-      if (fallbackSummer2026Ids.has(animeId) || fallbackSpring2026Ids.has(animeId)) return false;
+      if (jikanSummer2026Ids.has(animeId) || jikanSpring2026Ids.has(animeId) || jikanFall2026Ids.has(animeId)) return false;
+      if (fallbackSummer2026Ids.has(animeId) || fallbackSpring2026Ids.has(animeId) || fallbackFall2026Ids.has(animeId)) return false;
       return true;
     });
 
@@ -1075,6 +1232,7 @@ export default function App() {
       const CONCURRENCY = 4;
       const summerFound: number[] = [];
       const springFound: number[] = [];
+      const fallFound: number[] = [];
 
       let index = 0;
       const worker = async () => {
@@ -1090,6 +1248,8 @@ export default function App() {
               summerFound.push(animeId);
             } else if (info.year === 2026 && info.season?.toLowerCase() === 'spring') {
               springFound.push(animeId);
+            } else if (info.year === 2026 && info.season?.toLowerCase() === 'fall') {
+              fallFound.push(animeId);
             }
           } catch {
             // Individual request failure does not abort other lookups
@@ -1119,6 +1279,13 @@ export default function App() {
               return next;
             });
           }
+          if (fallFound.length > 0) {
+            setFallbackFall2026Ids((prev) => {
+              const next = new Set(prev);
+              for (const id of fallFound) next.add(id);
+              return next;
+            });
+          }
         });
       }
     };
@@ -1137,12 +1304,16 @@ export default function App() {
     malList,
     jikanSummer2026Ids,
     jikanSpring2026Ids,
+    jikanFall2026Ids,
     fallbackSummer2026Ids,
     fallbackSpring2026Ids,
+    fallbackFall2026Ids,
     jikanSeasonLoading,
     jikanSpringLoading,
+    jikanFallLoading,
     jikanSummer2026List.length,
     jikanSpring2026List.length,
+    jikanFall2026List.length,
   ]);
 
   // Check MAL Auth Status and configuration on Mount
@@ -1213,6 +1384,16 @@ export default function App() {
       return cancel;
     }
   }, [selectedSeason, jikanSpring2026List.length, jikanSpringLoading]);
+
+  // Fall secondary catalogue loaded deferred when fall season is selected
+  useEffect(() => {
+    if (selectedSeason === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+      const cancel = scheduleDeferredTask(() => {
+        loadJikanFallCatalogue();
+      });
+      return cancel;
+    }
+  }, [selectedSeason, jikanFall2026List.length, jikanFallLoading]);
 
   // Debounced MAL Catalogue Search
   useEffect(() => {
@@ -1489,65 +1670,72 @@ export default function App() {
     }
   };
 
-  // Filtered and sorted MAL list
+  // Filtered and sorted MAL list (optimized with tab-guard and cached lowercase search)
   const filteredMalList = useMemo(() => {
+    if (activeTab !== 'mal' && !malSearchQuery) return [];
+    if (!malList || malList.length === 0) return [];
+
     const query = malSearchQuery.trim().toLowerCase();
 
-    return malList
-      .filter((item) => {
-        // Status filter
-        if (malFilterStatus !== 'all' && item.list_status?.status !== malFilterStatus) {
-          return false;
+    const filtered = malList.filter((item) => {
+      // Status filter
+      if (malFilterStatus !== 'all' && item.list_status?.status !== malFilterStatus) {
+        return false;
+      }
+
+      // Local search query filter
+      if (query.length > 0) {
+        const title = (item.node?.title || '').toLowerCase();
+        const titleEn = (item.node?.alternative_titles?.en || '').toLowerCase();
+        const titleJa = (item.node?.alternative_titles?.ja || '').toLowerCase();
+
+        if (title.includes(query) || titleEn.includes(query) || titleJa.includes(query)) {
+          return true;
         }
 
-        // Local search query filter
-        if (query.length > 0) {
-          const title = (item.node?.title || '').toLowerCase();
-          const titleEn = (item.node?.alternative_titles?.en || '').toLowerCase();
-          const titleJa = (item.node?.alternative_titles?.ja || '').toLowerCase();
-          const synonyms = (item.node?.alternative_titles?.synonyms || []).map((s) => s.toLowerCase());
-
-          const matchesTitle =
-            title.includes(query) ||
-            titleEn.includes(query) ||
-            titleJa.includes(query) ||
-            synonyms.some((s) => s.includes(query));
-
-          if (!matchesTitle) return false;
+        const synonyms = item.node?.alternative_titles?.synonyms;
+        if (Array.isArray(synonyms) && synonyms.some((s) => typeof s === 'string' && s.toLowerCase().includes(query))) {
+          return true;
         }
 
-        return true;
-      })
-      .sort((a, b) => {
-        if (malSortOption === 'title_asc') {
-          const titleA = (a.node?.title || '').toLowerCase();
-          const titleB = (b.node?.title || '').toLowerCase();
-          return titleA.localeCompare(titleB);
+        return false;
+      }
+
+      return true;
+    });
+
+    if (filtered.length <= 1) return filtered;
+
+    return filtered.sort((a, b) => {
+      if (malSortOption === 'title_asc') {
+        const titleA = (a.node?.title || '').toLowerCase();
+        const titleB = (b.node?.title || '').toLowerCase();
+        return titleA.localeCompare(titleB);
+      }
+      if (malSortOption === 'title_desc') {
+        const titleA = (a.node?.title || '').toLowerCase();
+        const titleB = (b.node?.title || '').toLowerCase();
+        return titleB.localeCompare(titleA);
+      }
+      if (malSortOption === 'score_desc') {
+        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
         }
-        if (malSortOption === 'title_desc') {
-          const titleA = (a.node?.title || '').toLowerCase();
-          const titleB = (b.node?.title || '').toLowerCase();
-          return titleB.localeCompare(titleA);
+        return (a.node?.title || '').localeCompare(b.node?.title || '');
+      }
+      if (malSortOption === 'score_asc') {
+        const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
+        const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
+        if (scoreA !== scoreB) {
+          return scoreA - scoreB;
         }
-        if (malSortOption === 'score_desc') {
-          const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
-          const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
-          if (scoreA !== scoreB) {
-            return scoreB - scoreA;
-          }
-          return (a.node?.title || '').localeCompare(b.node?.title || '');
-        }
-        if (malSortOption === 'score_asc') {
-          const scoreA = typeof a.list_status?.score === 'number' && !isNaN(a.list_status.score) ? a.list_status.score : 0;
-          const scoreB = typeof b.list_status?.score === 'number' && !isNaN(b.list_status.score) ? b.list_status.score : 0;
-          if (scoreA !== scoreB) {
-            return scoreA - scoreB;
-          }
-          return (a.node?.title || '').localeCompare(b.node?.title || '');
-        }
-        return 0;
-      });
-  }, [malList, malFilterStatus, malSortOption, malSearchQuery]);
+        return (a.node?.title || '').localeCompare(b.node?.title || '');
+      }
+      return 0;
+    });
+  }, [malList, malFilterStatus, malSortOption, malSearchQuery, activeTab]);
 
   const isEffectiveDark = malUser !== null && theme === 'dark';
   const isEffectiveSakura = malUser !== null && theme === 'sakura';
@@ -1559,6 +1747,32 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [isEffectiveDark]);
+
+  // If in Music Lab mode, render the dedicated atmospheric Music Lab world
+  if (appMode === 'music') {
+    return (
+      <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
+        <Suspense
+          fallback={
+            <div className="min-h-screen w-full bg-[#09080F] flex flex-col items-center justify-center text-white p-4">
+              <div className="w-10 h-10 rounded-full border-2 border-[#EC4899]/30 border-t-[#EC4899] animate-spin mb-3" />
+              <span className="text-xs font-mono text-[#F472B6] tracking-widest uppercase">
+                Entering Music Lab...
+              </span>
+            </div>
+          }
+        >
+          <MusicLabView
+            onReturnToAnime={() => setAppMode('anime')}
+            onSelectMode={(mode) => setAppMode(mode)}
+            malUser={malUser}
+            theme={theme}
+            onThemeChange={handleThemeChange}
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
@@ -1572,15 +1786,12 @@ export default function App() {
         <div className={`${
           activeTab === 'calendar' ? 'max-w-[1920px]' : 'max-w-7xl'
         } w-full mx-auto flex items-center justify-between gap-4`}>
-          {/* BRAND */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
-            <span className="text-[#7567C7] text-lg font-bold">✦</span>
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#25242A] dark:text-[#F4F2F7] flex items-center gap-2">
-              <span>AniVerse</span>
-              <span className="text-[11px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden md:inline-block">
-                アニバース
-              </span>
-            </h1>
+          {/* BRAND & WORLD SWITCHER */}
+          <div className="flex items-center gap-2">
+            <WorldSwitcher
+              currentMode={appMode}
+              onSelectMode={(mode) => setAppMode(mode)}
+            />
           </div>
 
           {/* DESKTOP TOP NAV TABS */}
@@ -2229,6 +2440,8 @@ export default function App() {
                         setSelectedSeason(s);
                         if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
                           loadJikanSpringCatalogue();
+                        } else if (s === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+                          loadJikanFallCatalogue();
                         }
                       }}
                     />
@@ -2260,13 +2473,14 @@ export default function App() {
                       if (malUser) fetchMalList();
                       loadJikanSeasonalCatalogue();
                       loadJikanSpringCatalogue();
+                      loadJikanFallCatalogue();
                       fetchSeasonalList(2026, selectedSeason);
                       loadCalendarSeasonalReleases();
                     }}
-                    disabled={seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading}
+                    disabled={seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading || jikanFallLoading}
                     className="px-4 py-2 rounded-xl bg-white dark:bg-[#25232F] border border-[#E7E3DF] dark:border-[#2E2C37] hover:bg-slate-50 dark:hover:bg-[#2E2C37] text-[#25242A] dark:text-[#EAE8F0] font-medium text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-3.5 w-3.5 ${seasonalLoading || malLoading || jikanSeasonLoading || jikanSpringLoading || jikanFallLoading ? 'animate-spin' : ''}`} />
                     <span>Refresh Data</span>
                   </button>
                 </div>
@@ -2357,6 +2571,8 @@ export default function App() {
               subtitle={
                 selectedSeason === 'spring'
                   ? 'Anime from your MyAnimeList account that aired in Spring 2026.'
+                  : selectedSeason === 'fall'
+                  ? 'Anime from your MyAnimeList account that are airing in Fall 2026.'
                   : 'Anime from your MyAnimeList account that are airing in Summer 2026.'
               }
               icon={<PlayCircle className="h-5 w-5 text-[#6D9B7C]" />}
@@ -2377,11 +2593,15 @@ export default function App() {
               title={
                 selectedSeason === 'spring'
                   ? 'Completed During Spring 2026'
+                  : selectedSeason === 'fall'
+                  ? 'Completed During Fall 2026'
                   : 'Completed During Summer 2026'
               }
               subtitle={
                 selectedSeason === 'spring'
                   ? 'Anime completed during the Spring 2026 season (Apr 1 – Jun 30, 2026).'
+                  : selectedSeason === 'fall'
+                  ? 'Anime completed during the Fall 2026 season.'
                   : 'Anime completed during the Summer 2026 season.'
               }
               icon={<CheckCircle2 className="h-5 w-5 text-[#7567C7]" />}
@@ -2426,6 +2646,8 @@ export default function App() {
                 setSelectedSeason(s);
                 if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
                   loadJikanSpringCatalogue();
+                } else if (s === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+                  loadJikanFallCatalogue();
                 }
               }}
               earliestAiringDate={activeSeasonEarliestAiringDate}
@@ -2454,6 +2676,8 @@ export default function App() {
                 setSelectedSeason(s);
                 if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
                   loadJikanSpringCatalogue();
+                } else if (s === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+                  loadJikanFallCatalogue();
                 }
               }}
               malUser={malUser}
@@ -2480,6 +2704,8 @@ export default function App() {
                 setSelectedSeason(s);
                 if (s === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
                   loadJikanSpringCatalogue();
+                } else if (s === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+                  loadJikanFallCatalogue();
                 }
               }}
               customUserNotes={customUserNotes}
@@ -2508,51 +2734,69 @@ export default function App() {
       </footer>
 
       {/* ABOUT / VERSION MODAL */}
-      <AboutModal
-        isOpen={isAboutModalOpen}
-        onClose={() => setIsAboutModalOpen(false)}
-      />
+      {isAboutModalOpen && (
+        <Suspense fallback={null}>
+          <AboutModal
+            isOpen={isAboutModalOpen}
+            onClose={() => setIsAboutModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* PROFESSIONAL EXCEL EXPORT MODAL */}
-      <ExcelExportModal
-        isOpen={isExcelExportModalOpen}
-        onClose={() => setIsExcelExportModalOpen(false)}
-        year={2026}
-        season={selectedSeason}
-        onSeasonChange={(newSeason) => {
-          setSelectedSeason(newSeason);
-          if (newSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
-            loadJikanSpringCatalogue();
-          }
-        }}
-        malList={malList}
-        seasonAnimeList={activeSeasonMalList}
-        customUserNotes={customUserNotes}
-        malUser={malUser}
-        onSuccessToast={(msg) => showSyncToast(msg, 'success')}
-      />
+      {isExcelExportModalOpen && (
+        <Suspense fallback={null}>
+          <ExcelExportModal
+            isOpen={isExcelExportModalOpen}
+            onClose={() => setIsExcelExportModalOpen(false)}
+            year={2026}
+            season={selectedSeason}
+            onSeasonChange={(newSeason) => {
+              setSelectedSeason(newSeason);
+              if (newSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+                loadJikanSpringCatalogue();
+              } else if (newSeason === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+                loadJikanFallCatalogue();
+              }
+            }}
+            malList={malList}
+            seasonAnimeList={activeSeasonMalList}
+            customUserNotes={customUserNotes}
+            malUser={malUser}
+            onSuccessToast={(msg) => showSyncToast(msg, 'success')}
+          />
+        </Suspense>
+      )}
 
       {/* TWO-WAY MAL ENTRY EDIT MODAL */}
-      <EditMalEntryModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setEditingMalAnime(null);
-        }}
-        anime={editingMalAnime}
-        onSave={handleSaveMalStatus}
-        onDelete={handleDeleteMalStatus}
-      />
+      {isEditModalOpen && (
+        <Suspense fallback={null}>
+          <EditMalEntryModal
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false);
+              setEditingMalAnime(null);
+            }}
+            anime={editingMalAnime}
+            onSave={handleSaveMalStatus}
+            onDelete={handleDeleteMalStatus}
+          />
+        </Suspense>
+      )}
 
       {/* ANIME DETAIL MODAL */}
-      <AnimeDetailModal
-        isOpen={Boolean(selectedDetailAnime)}
-        onClose={() => setSelectedDetailAnime(null)}
-        anime={selectedDetailAnime}
-        customNotes={customUserNotes}
-        onSaveNote={handleSaveCustomNote}
-        onOpenMalEditor={handleOpenEditModal}
-      />
+      {Boolean(selectedDetailAnime) && (
+        <Suspense fallback={null}>
+          <AnimeDetailModal
+            isOpen={Boolean(selectedDetailAnime)}
+            onClose={() => setSelectedDetailAnime(null)}
+            anime={selectedDetailAnime}
+            customNotes={customUserNotes}
+            onSaveNote={handleSaveCustomNote}
+            onOpenMalEditor={handleOpenEditModal}
+          />
+        </Suspense>
+      )}
 
       {/* FLOATING SYNC TOAST NOTIFICATION */}
       {syncToast && (
