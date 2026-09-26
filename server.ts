@@ -1869,6 +1869,164 @@ app.get("/api/release-calendar", async (req, res) => {
   });
 });
 
+// In-memory cache for analyzed YouTube performances to provide instant responses
+const youtubeAnalysisCache = new Map<string, any>();
+
+// ----------------------------------------------------
+// MUSIC LAB YOUTUBE INSTRUMENT DETECTION ENDPOINT
+// ----------------------------------------------------
+app.post("/api/music/analyze-youtube", async (req, res) => {
+  try {
+    const { videoId, url, titleHint } = req.body || {};
+    if (!videoId || typeof videoId !== "string") {
+      return res.status(400).json({ success: false, error: "Missing YouTube video ID" });
+    }
+
+    const cleanVideoId = videoId.trim();
+
+    // Check in-memory cache first
+    if (youtubeAnalysisCache.has(cleanVideoId)) {
+      console.log(`[MUSIC LAB] Serving cached Gemini analysis for video ${cleanVideoId}`);
+      return res.json({ success: true, ...youtubeAnalysisCache.get(cleanVideoId), cached: true });
+    }
+
+    // 1. Fetch public oEmbed metadata for accurate video title and artist/channel name
+    let oembedTitle = "";
+    let oembedAuthor = "";
+    try {
+      const oembedRes = await fetch(
+        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(cleanVideoId)}&format=json`,
+        { headers: { "User-Agent": "AniVerse-MusicLab/1.0" } }
+      );
+      if (oembedRes.ok) {
+        const oembedData: any = await oembedRes.json();
+        oembedTitle = oembedData.title || "";
+        oembedAuthor = oembedData.author_name || "";
+      }
+    } catch (oembedErr: any) {
+      console.warn(`[MUSIC LAB] oEmbed lookup skipped: ${oembedErr.message}`);
+    }
+
+    const effectiveTitle = oembedTitle || titleHint || "";
+    const artistInfo = oembedAuthor ? `Channel/Artist: "${oembedAuthor}"\n` : "";
+
+    // 2. Call Gemini
+    const ai = getGeminiClient();
+    if (!ai) {
+      console.warn("[MUSIC LAB] Gemini API key not configured or unavailable");
+      return res.status(503).json({
+        success: false,
+        error: "Gemini AI service is currently unavailable.",
+      });
+    }
+
+    const prompt = `Analyze the musical instrumentation and arrangement for this YouTube music video/track:
+URL: https://www.youtube.com/watch?v=${cleanVideoId}
+Video ID: ${cleanVideoId}
+${effectiveTitle ? `Video Title: "${effectiveTitle}"` : ""}
+${artistInfo}
+
+TASK:
+Determine what musical instruments are ACTUALLY being played in the music/video.
+Do NOT guess or assume a generic pop/rock band (do NOT assume piano, drums, bass, or guitar unless they are genuinely present in the performance).
+For example:
+- An all-cello quartet (like Prague Cello Quartet) features ONLY cello; do NOT include drums, bass, or piano.
+- A solo violin performance (like Lindsey Stirling) features violin and its actual backing arrangement (e.g. drums, bass if present).
+- An acoustic guitar fingerstyle piece features acoustic guitar; do not add electric guitar or piano unless present.
+- A piano solo features piano only.
+
+From this exact closed list of supported instruments:
+- piano
+- acoustic-guitar
+- electric-guitar
+- bass
+- drums
+- violin
+- cello
+- flute
+- saxophone
+- trumpet
+- vocalist
+- church-organ
+- synthesizer
+- electronic-drums
+- dj-turntable
+- harp
+
+Identify which of these instruments are genuinely present and played in the track. For each detected instrument, provide confidence (0.0 to 1.0) and a concise reason.
+Also provide the estimated tempo (BPM), a 1-sentence performance description, and a 4-part arrangement timeline breakdown (Intro, Verse, Chorus/Peak, Outro) detailing which of the detected instruments are playing during each section.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            artist: { type: Type.STRING },
+            description: { type: Type.STRING },
+            bpm: { type: Type.NUMBER },
+            detectedInstruments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  instrumentId: { type: Type.STRING },
+                  confidence: { type: Type.NUMBER },
+                  reason: { type: Type.STRING },
+                },
+                required: ["instrumentId", "confidence", "reason"],
+              },
+            },
+            sections: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  startPercent: { type: Type.NUMBER },
+                  endPercent: { type: Type.NUMBER },
+                  activeInstruments: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                  intensity: { type: Type.NUMBER },
+                },
+                required: ["name", "startPercent", "endPercent", "activeInstruments", "intensity"],
+              },
+            },
+          },
+          required: ["description", "bpm", "detectedInstruments", "sections"],
+        },
+      },
+    });
+
+    const outputText = response.text;
+    if (!outputText) {
+      return res.status(502).json({ success: false, error: "Empty response from Gemini AI." });
+    }
+
+    const parsed = JSON.parse(outputText);
+    const resultPayload = {
+      title: parsed.title || effectiveTitle || "YouTube Performance",
+      artist: parsed.artist || oembedAuthor || "YouTube Artist",
+      description: parsed.description || "Musical performance analyzed with Gemini AI.",
+      bpm: typeof parsed.bpm === "number" ? Math.round(parsed.bpm) : 120,
+      detectedInstruments: Array.isArray(parsed.detectedInstruments) ? parsed.detectedInstruments : [],
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+    };
+
+    youtubeAnalysisCache.set(cleanVideoId, resultPayload);
+    return res.json({ success: true, ...resultPayload, cached: false });
+  } catch (err: any) {
+    console.error("[MUSIC LAB] Failed to analyze YouTube video:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to analyze video." });
+  }
+});
+
 // ----------------------------------------------------
 // GEMINI INSIGHTS ENDPOINT
 // ----------------------------------------------------

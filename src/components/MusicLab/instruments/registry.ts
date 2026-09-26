@@ -81,6 +81,54 @@ export const INSTRUMENT_REGISTRY: Record<MusicInstrument, InstrumentDefinition> 
     performerTitle: 'Trumpeter',
     defaultEnsembleRank: 10,
   },
+  vocalist: {
+    id: 'vocalist',
+    name: 'Vocalist',
+    category: 'vocal',
+    icon: '🎤',
+    performerTitle: 'Vocalist',
+    defaultEnsembleRank: 11,
+  },
+  'church-organ': {
+    id: 'church-organ',
+    name: 'Church Organ',
+    category: 'keyboard',
+    icon: '⛪',
+    performerTitle: 'Organist',
+    defaultEnsembleRank: 12,
+  },
+  synthesizer: {
+    id: 'synthesizer',
+    name: 'Synthesizer Workstation',
+    category: 'electronic',
+    icon: '🎛️',
+    performerTitle: 'Synth Player',
+    defaultEnsembleRank: 13,
+  },
+  'electronic-drums': {
+    id: 'electronic-drums',
+    name: 'Electronic Drum Kit',
+    category: 'percussion',
+    icon: '🥁',
+    performerTitle: 'Electronic Drummer',
+    defaultEnsembleRank: 14,
+  },
+  'dj-turntable': {
+    id: 'dj-turntable',
+    name: 'DJ Turntables & Mixer',
+    category: 'electronic',
+    icon: '🎧',
+    performerTitle: 'DJ / Producer',
+    defaultEnsembleRank: 15,
+  },
+  harp: {
+    id: 'harp',
+    name: 'Concert Harp',
+    category: 'strings',
+    icon: '🪕',
+    performerTitle: 'Harpist',
+    defaultEnsembleRank: 16,
+  },
 };
 
 export const ALL_INSTRUMENTS: MusicInstrument[] = [
@@ -94,6 +142,12 @@ export const ALL_INSTRUMENTS: MusicInstrument[] = [
   'flute',
   'saxophone',
   'trumpet',
+  'vocalist',
+  'church-organ',
+  'synthesizer',
+  'electronic-drums',
+  'dj-turntable',
+  'harp',
 ];
 
 export function getInstrumentDefinition(id: MusicInstrument): InstrumentDefinition {

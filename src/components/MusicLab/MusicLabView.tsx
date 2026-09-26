@@ -18,6 +18,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
 import { AppearanceSelector } from '../AppearanceSelector';
@@ -148,12 +149,12 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
     return activeSet;
   }, [playback.isPlaying, playback.currentTime, analysisResult, activeInstruments]);
 
-  // Handle YouTube URL submission
-  const handleLoadYouTube = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Handle YouTube URL submission with Gemini AI media analysis
+  const handleLoadYouTube = async (urlToLoad?: string) => {
+    const rawUrl = typeof urlToLoad === 'string' ? urlToLoad : youtubeInput;
     setYoutubeError(null);
 
-    const videoId = extractYouTubeVideoId(youtubeInput);
+    const videoId = extractYouTubeVideoId(rawUrl);
     if (!videoId) {
       setYoutubeError('Please enter a valid YouTube video URL (e.g. https://www.youtube.com/watch?v=...)');
       return;
@@ -167,22 +168,41 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
     setSourceType('youtube');
     setYoutubeTrack({
       videoId,
-      url: youtubeInput,
-      title: 'YouTube Song',
+      url: rawUrl,
+      title: 'Analyzing video instrumentation with Gemini AI...',
     });
 
     try {
-      // Detect instruments from title / music cues
-      const result = await instrumentDetector.detectFromTitle(youtubeInput, 210);
+      // Real Gemini multimodal media instrument analysis
+      const result = await instrumentDetector.detectYouTube(videoId, rawUrl, undefined, 210);
       setAnalysisResult(result);
-      const detected = result.detectedInstruments.filter((d) => d.isDetected).map((d) => d.instrumentId);
-      setActiveInstruments(detected.length > 0 ? detected : ['piano', 'drums', 'bass', 'electric-guitar']);
+
+      const songTitle =
+        result.artist && result.title
+          ? `${result.artist} - ${result.title}`
+          : result.title || 'YouTube Performance';
+
+      setYoutubeTrack({
+        videoId,
+        url: rawUrl,
+        title: songTitle,
+      });
+
+      // Put ONLY genuine detected instruments on stage!
+      const detected = result.detectedInstruments
+        .filter((d) => d.isDetected)
+        .map((d) => d.instrumentId);
+
+      setActiveInstruments(detected);
       setPlayback({
         currentTime: 0,
         duration: result.duration,
         progress: 0,
         isPlaying: false,
       });
+    } catch (err: any) {
+      console.error('YouTube detection error:', err);
+      setYoutubeError(err.message || 'Failed to analyze video');
     } finally {
       setIsAnalyzing(false);
     }
@@ -215,7 +235,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
       const result = await instrumentDetector.detectLocalAudio(audioBuffer, file.name);
       setAnalysisResult(result);
       const detected = result.detectedInstruments.filter((d) => d.isDetected).map((d) => d.instrumentId);
-      setActiveInstruments(detected.length > 0 ? detected : ['piano', 'acoustic-guitar']);
+      setActiveInstruments(detected);
 
       setPlayback({
         currentTime: 0,
@@ -227,43 +247,19 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
       if (ctx.state !== 'closed') {
         ctx.close().catch(() => {});
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Audio decode failure:', err);
       setYoutubeError('Could not decode audio file with Web Audio API. Please try an MP3, WAV, or M4A file.');
-      // Fallback detector
-      const fallbackResult = await instrumentDetector.detectFromTitle(file.name, 180);
-      setAnalysisResult(fallbackResult);
-      setActiveInstruments(['piano', 'drums', 'bass']);
+      setActiveInstruments([]);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Quick Preset Demo Loader
-  const handleLoadDemo = async (preset: 'rock' | 'acoustic' | 'orchestral') => {
-    setYoutubeError(null);
-    setIsAnalyzing(true);
-    setSourceType('youtube');
-
-    let title = 'Anime Rock Band';
-    let demoVideoId = 'dQw4w9WgXcQ'; // Safe fallback
-    if (preset === 'acoustic') {
-      title = 'Acoustic Guitar & Piano Recital';
-    } else if (preset === 'orchestral') {
-      title = 'Symphonic Anime OST';
-    }
-
-    setYoutubeTrack({
-      videoId: demoVideoId,
-      url: `https://www.youtube.com/watch?v=${demoVideoId}`,
-      title,
-    });
-
-    const result = await instrumentDetector.detectFromTitle(title, 240);
-    setAnalysisResult(result);
-    const detected = result.detectedInstruments.filter((d) => d.isDetected).map((d) => d.instrumentId);
-    setActiveInstruments(detected.length > 0 ? detected : ['piano', 'drums', 'electric-guitar']);
-    setIsAnalyzing(false);
+  // Quick Preset Demo Loader - runs full real detector on provided URLs
+  const handleLoadDemo = async (url: string) => {
+    setYoutubeInput(url);
+    await handleLoadYouTube(url);
   };
 
   // Toggle instrument inclusion on stage
@@ -396,25 +392,49 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
             </div>
 
             {/* Input Form */}
-            <form onSubmit={handleLoadYouTube} className="flex flex-col sm:flex-row gap-2 max-w-xl mx-auto">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleLoadYouTube();
+              }}
+              className="flex flex-col sm:flex-row gap-2 max-w-xl mx-auto"
+            >
               <input
                 type="text"
                 value={youtubeInput}
+                disabled={isAnalyzing}
                 onChange={(e) => {
                   setYoutubeInput(e.target.value);
                   if (youtubeError) setYoutubeError(null);
                 }}
                 placeholder="Paste YouTube music video URL..."
-                className="flex-1 px-4 py-3 rounded-xl bg-[#F7F5F2] dark:bg-[#26252F] border border-[#E7E3DF] dark:border-[#2E2C37] text-xs sm:text-sm text-[#25242A] dark:text-[#F4F2F7] focus:outline-none focus:ring-2 focus:ring-[#7567C7]/50 font-mono"
+                className="flex-1 px-4 py-3 rounded-xl bg-[#F7F5F2] dark:bg-[#26252F] border border-[#E7E3DF] dark:border-[#2E2C37] text-xs sm:text-sm text-[#25242A] dark:text-[#F4F2F7] focus:outline-none focus:ring-2 focus:ring-[#7567C7]/50 font-mono disabled:opacity-60"
               />
               <button
                 type="submit"
-                className="px-6 py-3 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                disabled={isAnalyzing}
+                className="px-6 py-3 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] disabled:bg-[#7567C7]/60 text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
               >
-                <Play className="h-4 w-4 fill-white" />
-                <span>Create Performance</span>
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 fill-white" />
+                    <span>Create Performance</span>
+                  </>
+                )}
               </button>
             </form>
+
+            {isAnalyzing && (
+              <div className="max-w-xl mx-auto p-3.5 rounded-2xl bg-[#F0EDFA] dark:bg-[#2A2542] border border-[#7567C7]/30 flex items-center justify-center gap-2.5 text-xs font-semibold text-[#7567C7] dark:text-[#B9B0F2] animate-pulse">
+                <Sparkles className="h-4 w-4 text-[#7567C7] dark:text-[#B9B0F2] shrink-0" />
+                <span>Gemini AI is analyzing performance video & detecting instruments...</span>
+              </div>
+            )}
 
             {youtubeError && (
               <div className="text-xs text-red-500 dark:text-red-400 flex items-center justify-center gap-1.5 font-medium">
@@ -442,8 +462,9 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
               />
               <button
                 type="button"
+                disabled={isAnalyzing}
                 onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2.5 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37] hover:border-[#7567C7] hover:bg-[#F0EDFA]/40 dark:hover:bg-[#2A2542]/40 text-xs font-semibold text-[#25242A] dark:text-[#F4F2F7] transition-all cursor-pointer inline-flex items-center gap-2"
+                className="px-4 py-2.5 rounded-xl border border-[#E7E3DF] dark:border-[#2E2C37] hover:border-[#7567C7] hover:bg-[#F0EDFA]/40 dark:hover:bg-[#2A2542]/40 text-xs font-semibold text-[#25242A] dark:text-[#F4F2F7] transition-all cursor-pointer inline-flex items-center gap-2 disabled:opacity-60"
               >
                 <Upload className="h-4 w-4 text-[#7567C7]" />
                 <span>Upload Audio File (MP3 / WAV / M4A)</span>
@@ -453,28 +474,34 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
             {/* Instant Demo Presets */}
             <div className="pt-2 border-t border-[#E7E3DF] dark:border-[#2E2C37] flex flex-wrap items-center justify-center gap-2 text-xs">
               <span className="text-[#77747D] dark:text-[#9E9AA6] text-[11px] font-medium mr-1">
-                Try an instant ensemble demo:
+                Test songs:
               </span>
               <button
                 type="button"
-                onClick={() => handleLoadDemo('rock')}
+                disabled={isAnalyzing}
+                onClick={() => handleLoadDemo('https://www.youtube.com/watch?v=qpbX7SbXOtU')}
                 className="px-2.5 py-1 rounded-lg bg-[#F7F5F2] dark:bg-[#26252F] hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] font-semibold text-[11px] transition-colors cursor-pointer border border-[#E7E3DF] dark:border-[#2E2C37]"
+                title="Prague Cello Quartet (All Cello Performance)"
+              >
+                🎻 Prague Cello Quartet
+              </button>
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => handleLoadDemo('https://www.youtube.com/watch?v=Igg7AxN5QPc')}
+                className="px-2.5 py-1 rounded-lg bg-[#F7F5F2] dark:bg-[#26252F] hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] font-semibold text-[11px] transition-colors cursor-pointer border border-[#E7E3DF] dark:border-[#2E2C37]"
+                title="Lindsey Stirling - Carol of the Bells (Violin Solo + EDM)"
+              >
+                🎻 Lindsey Stirling (Violin)
+              </button>
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => handleLoadDemo('https://www.youtube.com/watch?v=kYbgcOC_FkI')}
+                className="px-2.5 py-1 rounded-lg bg-[#F7F5F2] dark:bg-[#26252F] hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] font-semibold text-[11px] transition-colors cursor-pointer border border-[#E7E3DF] dark:border-[#2E2C37]"
+                title="Anime Rock Band (Bocchi the Rock)"
               >
                 🎸 Anime Rock Band
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLoadDemo('acoustic')}
-                className="px-2.5 py-1 rounded-lg bg-[#F7F5F2] dark:bg-[#26252F] hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] font-semibold text-[11px] transition-colors cursor-pointer border border-[#E7E3DF] dark:border-[#2E2C37]"
-              >
-                🎹 Acoustic Recital
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLoadDemo('orchestral')}
-                className="px-2.5 py-1 rounded-lg bg-[#F7F5F2] dark:bg-[#26252F] hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] font-semibold text-[11px] transition-colors cursor-pointer border border-[#E7E3DF] dark:border-[#2E2C37]"
-              >
-                🎻 Symphonic Strings
               </button>
             </div>
           </div>
@@ -545,14 +572,39 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-[#77747D] dark:text-[#9E9AA6] mt-0.5">
-                  Musicians visibly perform their instruments when detected in the song timeline. Click any instrument to toggle them on or off the stage.
+                  Performers visibly play their detected instruments synchronized with the song. Click any instrument card to add or remove performers from the stage.
                 </p>
               </div>
 
-              <div className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-                Analysis Source: <span className="font-semibold text-[#7567C7]">{analysisResult?.analysisSource === 'local_web_audio' ? 'Web Audio Spectrum' : 'Musical Metadata'}</span>
+              <div className="text-[11px] text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1.5 shrink-0">
+                <span>Detection Engine:</span>
+                {analysisResult?.analysisSource === 'gemini_ai' ? (
+                  <span className="font-semibold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-purple-500" />
+                    <span>Gemini Multimodal AI</span>
+                  </span>
+                ) : (
+                  <span className="font-semibold text-[#7567C7]">
+                    {analysisResult?.analysisSource === 'local_web_audio' ? 'Web Audio Spectrum' : 'Manual Arrangement'}
+                  </span>
+                )}
               </div>
             </div>
+
+            {/* AI Performance Profile Callout */}
+            {analysisResult?.notes && (
+              <div className="p-3.5 rounded-2xl bg-[#F0EDFA]/60 dark:bg-[#2A2542]/40 border border-[#7567C7]/20 text-xs flex items-start gap-2.5">
+                <Sparkles className="h-4 w-4 text-[#7567C7] dark:text-[#B9B0F2] shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold text-[10px] uppercase tracking-wider text-[#7567C7] dark:text-[#B9B0F2]">
+                    Musical Performance Insight
+                  </div>
+                  <p className="text-xs text-[#524E5B] dark:text-[#D1CCE0] leading-relaxed">
+                    {analysisResult.notes}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Instrument Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -560,16 +612,19 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
                 const def = getInstrumentDefinition(inst);
                 const isSelected = activeInstruments.includes(inst);
                 const isCurrentlyPlaying = playingInstruments.has(inst);
+                const detectedInfo = analysisResult?.detectedInstruments.find((d) => d.instrumentId === inst);
+                const isAiDetected = Boolean(detectedInfo?.isDetected);
 
                 return (
                   <button
                     key={inst}
                     type="button"
                     onClick={() => handleToggleInstrument(inst)}
+                    title={detectedInfo?.reason || `${def.performerTitle} (${def.name})`}
                     className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 relative ${
                       isSelected
                         ? isCurrentlyPlaying
-                          ? 'bg-[#F0EDFA] dark:bg-[#2A2542] border-[#7567C7] shadow-xs'
+                          ? 'bg-[#F0EDFA] dark:bg-[#2A2542] border-[#7567C7] shadow-xs ring-1 ring-[#7567C7]/40'
                           : 'bg-white dark:bg-[#1E1D24] border-[#7567C7]/50'
                         : 'bg-[#F7F5F2]/60 dark:bg-[#26252F]/40 border-[#E7E3DF] dark:border-[#2E2C37] opacity-60 hover:opacity-100'
                     }`}
@@ -606,6 +661,12 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
                       >
                         {isSelected ? (isCurrentlyPlaying ? 'Playing ♪' : 'Resting') : 'Off Stage'}
                       </span>
+
+                      {isAiDetected && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                          {Math.round((detectedInfo?.confidence || 1) * 100)}%
+                        </span>
+                      )}
                     </div>
                   </button>
                 );

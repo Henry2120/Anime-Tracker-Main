@@ -10,9 +10,48 @@ export type MusicInstrument =
   | 'cello'
   | 'flute'
   | 'saxophone'
-  | 'trumpet';
+  | 'trumpet'
+  | 'vocalist'
+  | 'church-organ'
+  | 'synthesizer'
+  | 'electronic-drums'
+  | 'dj-turntable'
+  | 'harp';
 
-export type InstrumentCategory = 'keyboard' | 'strings' | 'percussion' | 'woodwind' | 'brass';
+export type InstrumentCategory =
+  | 'keyboard'
+  | 'strings'
+  | 'percussion'
+  | 'woodwind'
+  | 'brass'
+  | 'vocal'
+  | 'electronic';
+
+export type PerformerGender = 'female' | 'male';
+
+export type TheaterEnvironment = 'concert-hall' | 'small-theater' | 'church';
+
+export interface TheaterPerformer {
+  id: string;
+  instrument: MusicInstrument;
+  gender: PerformerGender;
+  characterName: string;
+  x: number; // 0 - 100 percentage
+  y: number; // 0 - 100 percentage
+  scale: number; // 0.5 - 2.0
+  isPlaying: boolean;
+  playMode?: 'auto' | 'always' | 'resting';
+  layerOrder?: number;
+}
+
+export interface TheaterSceneConfig {
+  id: string;
+  name: string;
+  environment: TheaterEnvironment;
+  performers: TheaterPerformer[];
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface InstrumentDefinition {
   id: MusicInstrument;
@@ -28,6 +67,7 @@ export interface DetectedInstrument {
   confidence: number; // 0.0 to 1.0
   isDetected: boolean;
   isActive: boolean; // whether currently playing at currentTime
+  reason?: string;
 }
 
 export interface MusicSection {
@@ -43,8 +83,11 @@ export interface MusicAnalysisResult {
   bpm?: number;
   detectedInstruments: DetectedInstrument[];
   sections: MusicSection[];
-  analysisSource: 'local_web_audio' | 'metadata_heuristic' | 'manual';
+  analysisSource: 'gemini_ai' | 'local_web_audio' | 'metadata_heuristic' | 'manual';
   notes?: string;
+  title?: string;
+  artist?: string;
+  description?: string;
 }
 
 export interface MusicPerformer {
