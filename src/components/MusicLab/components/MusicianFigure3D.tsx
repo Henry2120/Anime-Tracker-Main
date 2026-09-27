@@ -108,6 +108,3 @@ export const MusicianFigure3D: React.FC<MusicianFigure3DProps> = ({
     </group>
   );
 };
-
-// Preload the default prototype asset
-useGLTF.preload('/music-lab/musicians/violinist.glb');

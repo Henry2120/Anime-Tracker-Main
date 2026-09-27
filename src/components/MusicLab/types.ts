@@ -103,14 +103,40 @@ export interface InstrumentDefinition {
   rotation3D?: [number, number, number];
 }
 
-export interface MusicianFigure3DConfig {
+export interface CharacterProfile {
+  id: string;
+  name: string;
+  gender: PerformerGender;
+  archetype?: string;
+  modelPath?: string;
+  heightCm?: number;
+  defaultScale?: number;
+}
+
+export interface InstrumentAsset {
   instrumentId: MusicInstrument;
-  modelPath: string;
-  idleAnimation?: string;
-  playingAnimation?: string;
-  scale?: number;
-  position?: [number, number, number];
+  propModelPath?: string;
+  attachmentBone?: string;
+  performerType: 'seated' | 'standing' | 'station';
+}
+
+export interface MusicianAnimationBinding {
+  characterId: string;
+  instrumentId: MusicInstrument;
+  idleAnimationClip?: string;
+  playingAnimationClip?: string;
+  intensityScale?: number;
+}
+
+export interface ModularMusician {
+  id: string;
+  character: CharacterProfile;
+  instrument: InstrumentAsset;
+  animationBinding: MusicianAnimationBinding;
+  position: [number, number, number];
   rotation?: [number, number, number];
+  isPlaying: boolean;
+  intensity: number;
 }
 
 export interface InstrumentActivity {

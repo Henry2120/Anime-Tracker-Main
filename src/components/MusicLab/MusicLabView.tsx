@@ -19,8 +19,6 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  Box,
-  Layers,
 } from 'lucide-react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
 import { AppearanceSelector } from '../AppearanceSelector';
@@ -576,8 +574,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
         )}
 
         {/* =======================================================================
-            SECTION 2: PERFORMANCE THEATER STAGE (CENTERPIECE)
-            Small full-body stylized human musicians on miniature concert stage
+            SECTION 2: PERFORMANCE STAGE (CENTERPIECE)
             ======================================================================= */}
         <div className="w-full">
           <PerformanceStage
