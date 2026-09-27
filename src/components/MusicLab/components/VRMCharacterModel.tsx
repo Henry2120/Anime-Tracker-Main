@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { CharacterModelConfig } from '../characters/registry';
+import { ViolinPerformance, CharacterPerformanceMode } from './ViolinPerformance';
 
 export interface VRMCharacterModelProps {
   modelConfig: CharacterModelConfig;
@@ -10,14 +11,16 @@ export interface VRMCharacterModelProps {
   scale?: number;
   position?: [number, number, number];
   rotation?: [number, number, number];
+  mode?: CharacterPerformanceMode;
   onModelLoaded?: (info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => void;
   onError?: (err: string) => void;
 }
 
 /**
- * VRM & GLB Passive Character Model
- * Loads and renders the VRM model cleanly in its authored default pose.
- * Preserves correct MToon materials and sRGB texture color spaces.
+ * VRM & GLB Character Model
+ * Loads and renders the VRM model once.
+ * Toggles performance rig without reloading or recreating the model.
+ * Spring-bone simulation is intentionally disabled.
  */
 export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   modelConfig,
@@ -25,6 +28,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   scale = 1.0,
   position = [0, 0, 0],
   rotation = [0, 0, 0],
+  mode = 'normal',
   onModelLoaded,
   onError,
 }) => {
@@ -33,6 +37,13 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadedVRM, setLoadedVRM] = useState<VRM | null>(null);
+
+  // Keep stable callback refs to prevent any infinite reload loops
+  const onModelLoadedRef = useRef(onModelLoaded);
+  onModelLoadedRef.current = onModelLoaded;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const activeUrl = customModelUrl || modelConfig.assetPath;
 
@@ -97,8 +108,9 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
             containerRef.current.add(vrm.scene);
           }
 
+          setLoadedVRM(vrm);
           setIsLoading(false);
-          onModelLoaded?.({
+          onModelLoadedRef.current?.({
             isVRM: true,
             vrmVersion: vrm.meta?.metaVersion || '1.0',
             boneCount: Object.keys(vrm.humanoid?.humanBones || {}).length,
@@ -126,8 +138,9 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
             containerRef.current.add(scene);
           }
 
+          setLoadedVRM(null);
           setIsLoading(false);
-          onModelLoaded?.({
+          onModelLoadedRef.current?.({
             isVRM: false,
           });
         }
@@ -139,22 +152,29 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
         console.warn(errMsg, err);
         setIsLoading(false);
         setLoadError(errMsg);
-        onError?.(errMsg);
+        onErrorRef.current?.(errMsg);
       }
     );
 
     return () => {
       isMounted = false;
+      setLoadedVRM(null);
       if (currentModelSceneRef.current) {
         VRMUtils.deepDispose(currentModelSceneRef.current);
         currentModelSceneRef.current = null;
       }
     };
-  }, [activeUrl, onModelLoaded, onError]);
+  }, [activeUrl]); // STRICTLY only depend on activeUrl to avoid infinite reloading
 
   return (
     <group position={position} rotation={rotation} scale={scale}>
       <group ref={containerRef} />
+      {loadedVRM && (
+        <ViolinPerformance
+          vrm={loadedVRM}
+          mode={mode}
+        />
+      )}
     </group>
   );
 };

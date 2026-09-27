@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useRef, useEffect } from 'react';
+import React, { Suspense, useState, useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
@@ -9,12 +9,14 @@ import {
   Upload,
   FileCode2,
   AlertCircle,
-  Loader2,
   CheckCircle2,
+  Music2,
+  User,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
 import { VRMCharacterModel } from './VRMCharacterModel';
+import { CharacterPerformanceMode } from './ViolinPerformance';
 
 interface MusicLab3DStageProps {
   theme?: AppTheme;
@@ -124,16 +126,29 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   // Character Configuration State
   const characterConfig = getCharacterConfig(DEFAULT_CHARACTER_ID);
 
+  // Explicit Performance Mode: 'normal' (default T-pose) vs 'violin'
+  const [performanceMode, setPerformanceMode] = useState<CharacterPerformanceMode>('normal');
+
   // Custom user uploaded VRM/GLB model URL
   const [customModelUrl, setCustomModelUrl] = useState<string | null>(null);
   const [customFileName, setCustomFileName] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<{ isVRM: boolean; vrmVersion?: string; boneCount?: number } | null>(null);
   const [loadNotice, setLoadNotice] = useState<string | null>(null);
-  const [cameraPreset, setCameraPreset] = useState<'front' | 'threeQuarter' | 'side' | 'faceCloseup' | 'fullBody'>('front');
+  const [cameraPreset, setCameraPreset] = useState<'front' | 'threeQuarter' | 'side' | 'faceCloseup' | 'fullBody'>('threeQuarter');
 
   const controlsRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const blobUrlRef = useRef<string | null>(null);
+
+  // Stable callback handlers
+  const handleModelLoaded = useCallback((info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => {
+    setModelStatus(info);
+    setLoadNotice(null);
+  }, []);
+
+  const handleModelError = useCallback((msg: string) => {
+    setLoadNotice(msg);
+  }, []);
 
   // Cleanup Blob URLs on replacement or unmount to avoid memory leaks
   useEffect(() => {
@@ -168,17 +183,17 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
 
     const controls = controlsRef.current;
     if (preset === 'front') {
-      controls.object.position.set(0, 1.1, 3.2);
-      controls.target.set(0, 0.85, 0);
+      controls.object.position.set(0, 1.1, 3.0);
+      controls.target.set(0, 0.9, 0);
     } else if (preset === 'threeQuarter') {
-      controls.object.position.set(1.8, 1.15, 2.5);
-      controls.target.set(0, 0.85, 0);
+      controls.object.position.set(1.6, 1.15, 2.4);
+      controls.target.set(-0.05, 0.95, 0);
     } else if (preset === 'side') {
-      controls.object.position.set(3.0, 0.95, 0);
-      controls.target.set(0, 0.85, 0);
+      controls.object.position.set(2.8, 1.0, 0.2);
+      controls.target.set(0, 0.9, 0);
     } else if (preset === 'faceCloseup') {
-      controls.object.position.set(0, 1.42, 0.95);
-      controls.target.set(0, 1.42, 0);
+      controls.object.position.set(0.2, 1.38, 0.9);
+      controls.target.set(-0.05, 1.35, 0);
     } else if (preset === 'fullBody') {
       controls.object.position.set(0, 0.9, 3.8);
       controls.target.set(0, 0.75, 0);
@@ -197,7 +212,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-xs sm:text-sm font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                3D VRM Character Viewport
+                3D Character Viewport
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#A294EE] border border-[#7567C7]/20 flex items-center gap-1">
                 <FileCode2 className="h-3 w-3" />
@@ -205,12 +220,42 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              Passive 3D Humanoid Model Viewer • Default Authored Pose
+              {performanceMode === 'violin'
+                ? 'Violin Performance Rig • Procedural Bowing & Fingering'
+                : 'Normal Model Viewer • Authored T-Pose'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
+          {/* Two Explicit State Buttons: Normal (T-Pose) vs Violin Performance */}
+          <div className="flex items-center p-1 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs">
+            <button
+              type="button"
+              onClick={() => setPerformanceMode('normal')}
+              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                performanceMode === 'normal'
+                  ? 'bg-white dark:bg-[#2C2A38] text-[#25242A] dark:text-white shadow-xs border border-black/5 dark:border-white/10'
+                  : 'text-[#77747D] dark:text-[#A8A4B2] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span>Normal</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPerformanceMode('violin')}
+              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                performanceMode === 'violin'
+                  ? 'bg-[#7567C7] text-white shadow-xs'
+                  : 'text-[#77747D] dark:text-[#A8A4B2] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              <Music2 className="h-3.5 w-3.5" />
+              <span>Violin Performance</span>
+            </button>
+          </div>
+
           {/* External VRM / GLB File Input */}
           <input
             type="file"
@@ -223,7 +268,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#7567C7] hover:bg-[#6455B8] text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-white/10 hover:bg-[#7567C7]/15 text-[#25242A] dark:text-[#F4F2F7] border border-[#E7E3DF] dark:border-[#2E2C37] transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
             title="Import custom VRM or GLB character model"
           >
             <Upload className="h-3.5 w-3.5" />
@@ -246,7 +291,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
       <div className="relative w-full h-[480px] sm:h-[560px] bg-gradient-to-b from-transparent to-black/5 dark:to-black/30">
         <Canvas
           shadows
-          camera={{ position: [0, 1.1, 3.2], fov: 38 }}
+          camera={{ position: [1.6, 1.15, 2.4], fov: 38 }}
           gl={{ antialias: true, alpha: true, outputColorSpace: THREE.SRGBColorSpace }}
           className="w-full h-full cursor-grab active:cursor-grabbing"
         >
@@ -259,7 +304,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             maxDistance={5.5}
             minPolarAngle={Math.PI / 8}
             maxPolarAngle={Math.PI / 2 - 0.05}
-            target={[0, 0.85, 0]}
+            target={[-0.05, 0.95, 0]}
             makeDefault
           />
 
@@ -269,13 +314,9 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               customModelUrl={customModelUrl}
               position={[0, 0, 0]}
               scale={1.0}
-              onModelLoaded={(info) => {
-                setModelStatus(info);
-                setLoadNotice(null);
-              }}
-              onError={(msg) => {
-                setLoadNotice(msg);
-              }}
+              mode={performanceMode}
+              onModelLoaded={handleModelLoaded}
+              onError={handleModelError}
             />
           </Suspense>
         </Canvas>
@@ -287,8 +328,8 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             <span>Camera:</span>
           </span>
           {[
-            { id: 'front', label: 'Front' },
             { id: 'threeQuarter', label: '3/4 Angle' },
+            { id: 'front', label: 'Front' },
             { id: 'side', label: 'Side' },
             { id: 'faceCloseup', label: 'Face' },
             { id: 'fullBody', label: 'Full Body' },
@@ -333,7 +374,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
         <div className="absolute bottom-4 left-4 pointer-events-none p-3 rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 text-white text-xs max-w-xs shadow-xl space-y-1 z-10">
           <div className="flex items-center gap-1.5 text-[#C4B9FC] font-bold text-xs">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>Character Model Info</span>
+            <span>Character Viewport Status</span>
           </div>
           <div className="text-[10px] text-white/80 space-y-0.5">
             <div>• <strong className="text-white">Source:</strong> {customFileName || 'Default (test.vrm)'}</div>
@@ -341,7 +382,12 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             {modelStatus?.boneCount !== undefined && (
               <div>• <strong className="text-white">Humanoid Bones:</strong> {modelStatus.boneCount}</div>
             )}
-            <div>• <strong className="text-white">State:</strong> Authored Pose (Passive)</div>
+            <div>
+              • <strong className="text-white">State:</strong>{' '}
+              <span className={performanceMode === 'violin' ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-medium'}>
+                {performanceMode === 'violin' ? 'Violin Performance' : 'Normal / T-Pose'}
+              </span>
+            </div>
           </div>
         </div>
 
