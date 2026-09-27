@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
-export interface FredricaModelProps {
+export interface CharacterModelProps {
   url?: string;
   onLoaded?: (vrm: VRM) => void;
   onError?: (error: Error | string) => void;
@@ -15,11 +15,16 @@ export interface FredricaModelProps {
 }
 
 /**
- * FredricaModel: Isolated VRM Character Component
- * Loads /models/test.vrm using GLTFLoader and @pixiv/three-vrm VRMLoaderPlugin.
- * Handles centering, bounding box normalization, VRM 0.0 rotation, and resource disposal.
+ * CharacterModel: Neutral VRM 3D Character Component for Music Lab
+ * Loads /models/test.vrm using GLTFLoader + @pixiv/three-vrm VRMLoaderPlugin.
+ * 
+ * Fix for MToon Black Materials:
+ * - Preserves VRM MToon shaders and culling (never forces DoubleSide on inverted-hull outlines).
+ * - Enforces sRGB color space on all embedded texture maps.
+ * - Calibrates bounding box and grounds feet on the stage plane (y = 0).
+ * - Performs vrm.update(delta) for continuous shader and spring bone execution.
  */
-export const FredricaModel: React.FC<FredricaModelProps> = ({
+export const CharacterModel: React.FC<CharacterModelProps> = ({
   url = '/models/test.vrm',
   onLoaded,
   onError,
@@ -51,7 +56,7 @@ export const FredricaModel: React.FC<FredricaModelProps> = ({
           return;
         }
 
-        // VRM 0.0 coordinate/rotation correction
+        // VRM 0.0 coordinate/rotation correction if applicable
         try {
           VRMUtils.rotateVRM0(vrm);
         } catch (e) {
@@ -60,32 +65,42 @@ export const FredricaModel: React.FC<FredricaModelProps> = ({
 
         vrmRef.current = vrm;
 
-        // Traverse meshes to enable casting and receiving shadows
+        // Traverse meshes: enable shadows and ensure textures use sRGB color space
         vrm.scene.traverse((obj) => {
           if ((obj as THREE.Mesh).isMesh) {
             const mesh = obj as THREE.Mesh;
             mesh.castShadow = true;
             mesh.receiveShadow = true;
 
-            // Ensure materials are rendered with proper double-sidedness and color space
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((mat) => {
-                mat.side = THREE.DoubleSide;
-                mat.needsUpdate = true;
-              });
-            } else if (mesh.material) {
-              mesh.material.side = THREE.DoubleSide;
-              mesh.material.needsUpdate = true;
-            }
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach((mat) => {
+              if (!mat) return;
+
+              // Ensure texture maps use sRGB color space so skin/clothing colors aren't crushed to black
+              if ('map' in mat && mat.map) {
+                (mat.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                (mat.map as THREE.Texture).needsUpdate = true;
+              }
+              if ('shadeMultiplyTexture' in mat && (mat as any).shadeMultiplyTexture) {
+                ((mat as any).shadeMultiplyTexture as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                ((mat as any).shadeMultiplyTexture as THREE.Texture).needsUpdate = true;
+              }
+              if ('emissiveMap' in mat && (mat as any).emissiveMap) {
+                ((mat as any).emissiveMap as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+              }
+
+              // Do NOT override mat.side to DoubleSide on MToon materials
+              // MToon uses front-side for main geometry and back-side for inverted-hull black outlines.
+              // Forcing DoubleSide causes black outline hulls to overlay all front-facing skin/clothing!
+              mat.needsUpdate = true;
+            });
           }
         });
 
-        // Center model geometry on the floor platform
+        // Center model geometry and align feet with ground plane (y = 0)
         const bbox = new THREE.Box3().setFromObject(vrm.scene);
         const center = bbox.getCenter(new THREE.Vector3());
-        const size = bbox.getSize(new THREE.Vector3());
 
-        // Offset so feet align with ground plane (y = 0) and model is centered horizontally
         vrm.scene.position.x = -center.x;
         vrm.scene.position.y = -bbox.min.y;
         vrm.scene.position.z = -center.z;
@@ -123,7 +138,7 @@ export const FredricaModel: React.FC<FredricaModelProps> = ({
     };
   }, [url, onLoaded, onError, onProgress]);
 
-  // Frame update for VRM spring bone physics & internal state
+  // Frame update for VRM spring bone physics & internal shader uniforms
   useFrame((_, delta) => {
     if (vrmRef.current) {
       vrmRef.current.update(delta);

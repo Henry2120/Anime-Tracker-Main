@@ -42,7 +42,7 @@ export interface SeasonTableItem {
     score?: number;
     num_episodes_watched?: number;
     comments?: string;
-    tags?: string[];
+    tags?: string[] | string;
     priority?: number;
     num_times_rewatched?: number;
     rewatch_value?: number;

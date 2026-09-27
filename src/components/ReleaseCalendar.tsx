@@ -694,7 +694,7 @@ export const ReleaseCalendar = React.memo(function ReleaseCalendar({
 
           {/* Refresh Button */}
           <button
-            onClick={fetchSchedule}
+            onClick={() => fetchSchedule()}
             disabled={loading}
             title="Refresh Schedule"
             className="p-2 rounded-xl bg-[#F7F5F2] border border-[#E7E3DF] text-[#77747D] hover:text-[#25242A] hover:bg-white transition-colors cursor-pointer disabled:opacity-50"

@@ -36,20 +36,20 @@ export interface CharacterModelConfig {
  * MUSICIAN
  */
 export const CHARACTER_REGISTRY: Record<string, CharacterModelConfig> = {
-  aria: {
-    id: 'aria',
-    name: 'Aria (アリア)',
-    avatarTitle: 'Heroine #01 — Universal Performer',
+  character: {
+    id: 'character',
+    name: 'Character',
+    avatarTitle: '3D VRM Performer',
     gender: 'female',
-    assetPath: '/music-lab/characters/aria/aria.vrm',
-    fallbackAssetPath: '/music-lab/characters/aria/aria.glb',
+    assetPath: '/models/test.vrm',
+    fallbackAssetPath: '/models/test.vrm',
     format: 'vrm',
     heightCm: 166,
     defaultScale: 1.0,
     offsetY: 0,
     springBoneEnabled: true,
     description:
-      'Youthful, elegant, anime-game humanoid base model customized into Aria. Decoupled performer capable of playing any instrument in AniVerse.',
+      'Anime-game humanoid VRM model. Decoupled performer capable of playing any instrument in AniVerse.',
     defaultExpressions: {
       relaxed: 0.3,
       happy: 0.1,
@@ -57,8 +57,8 @@ export const CHARACTER_REGISTRY: Record<string, CharacterModelConfig> = {
   },
 };
 
-export const DEFAULT_CHARACTER_ID = 'aria';
+export const DEFAULT_CHARACTER_ID = 'character';
 
 export function getCharacterConfig(characterId: string = DEFAULT_CHARACTER_ID): CharacterModelConfig {
-  return CHARACTER_REGISTRY[characterId] || CHARACTER_REGISTRY.aria;
+  return CHARACTER_REGISTRY[characterId] || CHARACTER_REGISTRY.character;
 }

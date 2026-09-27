@@ -186,13 +186,33 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
           vrmRef.current = vrm;
           gltfSceneRef.current = vrm.scene;
 
-          // Enable shadows
+          // Enable shadows and ensure sRGB textures on all materials
           vrm.scene.traverse((obj) => {
             if ((obj as THREE.Mesh).isMesh) {
-              obj.castShadow = true;
-              obj.receiveShadow = true;
+              const mesh = obj as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+
+              const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+              mats.forEach((mat) => {
+                if (!mat) return;
+                if ('map' in mat && mat.map) {
+                  (mat.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                }
+                if ('shadeMultiplyTexture' in mat && (mat as any).shadeMultiplyTexture) {
+                  ((mat as any).shadeMultiplyTexture as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                }
+                mat.needsUpdate = true;
+              });
             }
           });
+
+          // Center VRM model geometry on stage platform
+          const bbox = new THREE.Box3().setFromObject(vrm.scene);
+          const center = bbox.getCenter(new THREE.Vector3());
+          vrm.scene.position.x = -center.x;
+          vrm.scene.position.y = -bbox.min.y;
+          vrm.scene.position.z = -center.z;
 
           if (containerRef.current) {
             containerRef.current.clear();

@@ -149,7 +149,7 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
             }`}
           >
             <Palette className="h-3.5 w-3.5" />
-            <span>Heroine #01 Design</span>
+            <span>Character Design Sheet</span>
           </button>
           <button
             type="button"
@@ -161,7 +161,7 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
             }`}
           >
             <Box className="h-3.5 w-3.5" />
-            <span>3D VRM Performer Stage</span>
+            <span>3D Character Viewport</span>
           </button>
           <button
             type="button"

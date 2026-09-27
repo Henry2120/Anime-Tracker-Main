@@ -68,7 +68,7 @@ export const CharacterDesignSheet: React.FC<CharacterDesignSheetProps> = ({
       title: 'Image 4: Master Front View (CANONICAL SOURCE OF TRUTH)',
       subtitle: 'Definitive Reference • All Features Locked from this Image',
       description:
-        'The absolute canonical source of truth for AniVerse Character 01 (Aria). Every proportion, facial feature, hair ribbon mass, clothing seam, and color is established here.',
+        'The absolute canonical source of truth for AniVerse Character. Every proportion, facial feature, hair ribbon mass, clothing seam, and color is established here.',
       isMaster: true,
       tags: ['CANONICAL MASTER', 'Source of Truth', 'Locked Identity', 'Front A-Pose'],
     },
@@ -125,7 +125,7 @@ export const CharacterDesignSheet: React.FC<CharacterDesignSheetProps> = ({
                 AniVerse Character 01: Master Model Specification & Audit
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#A294EE] border border-[#7567C7]/20">
-                Aria (アリア) • Image 4 is Master
+                Character • Image 4 is Master
               </span>
             </div>
             <p className="text-xs text-[#77747D] dark:text-[#9E9AA6]">

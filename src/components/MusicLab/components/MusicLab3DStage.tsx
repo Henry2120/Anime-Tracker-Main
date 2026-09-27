@@ -1,4 +1,5 @@
 import React, { Suspense, useState, useRef } from 'react';
+import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
 import {
@@ -234,7 +235,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              Decoupled Architecture: <strong className="text-[#25242A] dark:text-white">Aria (VRM)</strong> + <strong className="text-[#25242A] dark:text-white">Instrument</strong> + <strong className="text-[#25242A] dark:text-white">Animation</strong> = Live Musician
+              Decoupled Architecture: <strong className="text-[#25242A] dark:text-white">Character (VRM)</strong> + <strong className="text-[#25242A] dark:text-white">Instrument</strong> + <strong className="text-[#25242A] dark:text-white">Animation</strong> = Live Musician
             </p>
           </div>
         </div>
@@ -276,7 +277,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
         <Canvas
           shadows
           camera={{ position: [0, 1.1, 3.2], fov: 38 }}
-          gl={{ antialias: true, alpha: true }}
+          gl={{ antialias: true, alpha: true, outputColorSpace: THREE.SRGBColorSpace }}
           className="w-full h-full cursor-grab active:cursor-grabbing"
         >
           <StageDioramaEnvironment theme={theme} />
@@ -351,7 +352,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               <span>External Character Asset Pipeline Ready</span>
             </div>
             <p className="text-[11px] text-white/80">
-              The loader is listening at <code className="font-mono text-amber-300 bg-white/10 px-1 py-0.5 rounded">public/music-lab/characters/aria/aria.vrm</code>.
+              The loader is listening at <code className="font-mono text-amber-300 bg-white/10 px-1 py-0.5 rounded">public/models/test.vrm</code>.
             </p>
             <button
               type="button"

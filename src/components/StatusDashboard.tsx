@@ -478,7 +478,7 @@ export const StatusDashboard = React.memo(function StatusDashboard({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                       {geminiData.insights.map((item, idx) => {
                         const category = typeof item === 'object' && item !== null ? item.category : null;
-                        const text = typeof item === 'object' && item !== null ? item.insight : item;
+                        const text = typeof item === 'object' && item !== null ? item.insight : String(item);
                         return (
                           <div
                             key={idx}
