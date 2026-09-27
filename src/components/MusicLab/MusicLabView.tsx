@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Box,
+  Layers,
 } from 'lucide-react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
 import { AppearanceSelector } from '../AppearanceSelector';
@@ -36,6 +38,7 @@ import {
 import { extractYouTubeVideoId } from './utils/youtubeParser';
 import { YouTubePlayer } from './components/YouTubePlayer';
 import { PerformanceStage } from './components/PerformanceStage';
+import { MusicLab3DStage } from './components/MusicLab3DStage';
 import { instrumentDetector } from './services/detector';
 import { ALL_INSTRUMENTS, getInstrumentDefinition } from './instruments/registry';
 
@@ -78,6 +81,12 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
   const [analysisResult, setAnalysisResult] = useState<MusicAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeInstruments, setActiveInstruments] = useState<MusicInstrument[]>([]);
+  const [instrumentCategoryFilter, setInstrumentCategoryFilter] = useState<string>('all');
+
+  // Stage Presentation Mode: '3d' (Real-time 3D Anime Stage) or 'miniature' (Collectible Figurines)
+  const [stageViewMode, setStageViewMode] = useState<'3d' | 'miniature'>('3d');
+  // Visual Test Mode Override for 3D prototype (toggles Idle vs Playing animation)
+  const [testPlayingOverride, setTestPlayingOverride] = useState<boolean | null>(null);
 
   // Local audio time sync effect
   useEffect(() => {
@@ -123,31 +132,57 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
   }, [localAudioTrack?.objectUrl]);
 
   // Calculate which instruments are actively playing at current playback time
-  const playingInstruments = useMemo(() => {
+  // Distinguishes: "Present in performance" vs "Currently actively playing at currentTime"
+  const { playingInstruments, instrumentIntensities } = useMemo(() => {
     const activeSet = new Set<MusicInstrument>();
+    const intensities: Record<string, number> = {};
+
     if (!playback.isPlaying || !analysisResult) {
-      return activeSet;
+      return { playingInstruments: activeSet, instrumentIntensities: intensities };
     }
 
     const curTime = playback.currentTime;
-    // Find current section
-    const currentSection = analysisResult.sections.find(
-      (sec) => curTime >= sec.start && curTime <= sec.end
-    );
+    const totalDur = playback.duration || analysisResult.duration || 1;
+    const progressPercent = totalDur > 0 ? curTime / totalDur : 0;
 
-    if (currentSection) {
-      currentSection.activeInstruments.forEach((inst) => {
-        if (activeInstruments.includes(inst)) {
-          activeSet.add(inst);
+    // 1. If detailed instrumentActivities timeline is provided by Gemini, use it with high precision
+    if (analysisResult.instrumentActivities && analysisResult.instrumentActivities.length > 0) {
+      analysisResult.instrumentActivities.forEach((act) => {
+        if (progressPercent >= act.startPercent && progressPercent <= act.endPercent) {
+          if (activeInstruments.includes(act.instrumentId)) {
+            activeSet.add(act.instrumentId);
+            intensities[act.instrumentId] = act.intensity;
+          }
         }
       });
-    } else {
-      // Fallback: all active ensemble instruments play if in playback
-      activeInstruments.forEach((inst) => activeSet.add(inst));
     }
 
-    return activeSet;
-  }, [playback.isPlaying, playback.currentTime, analysisResult, activeInstruments]);
+    // 2. Otherwise use sections timeline
+    if (activeSet.size === 0 && analysisResult.sections && analysisResult.sections.length > 0) {
+      const currentSection = analysisResult.sections.find(
+        (sec) => curTime >= sec.start && curTime <= sec.end
+      );
+
+      if (currentSection) {
+        currentSection.activeInstruments.forEach((inst) => {
+          if (activeInstruments.includes(inst)) {
+            activeSet.add(inst);
+            intensities[inst] = currentSection.intensity || 0.8;
+          }
+        });
+      }
+    }
+
+    // 3. Fallback: if arrangement does not specify, all active ensemble instruments play
+    if (activeSet.size === 0 && activeInstruments.length > 0) {
+      activeInstruments.forEach((inst) => {
+        activeSet.add(inst);
+        intensities[inst] = 0.8;
+      });
+    }
+
+    return { playingInstruments: activeSet, instrumentIntensities: intensities };
+  }, [playback.isPlaying, playback.currentTime, playback.duration, analysisResult, activeInstruments]);
 
   // Handle YouTube URL submission with Gemini AI media analysis
   const handleLoadYouTube = async (urlToLoad?: string) => {
@@ -548,14 +583,97 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
 
         {/* =======================================================================
             SECTION 2: PERFORMANCE STAGE (CENTERPIECE)
+            Real-time 3D Anime Miniature Concert Stage or Collectible Figurine Diorama
             ======================================================================= */}
-        <div className="w-full">
-          <PerformanceStage
-            activeInstruments={activeInstruments}
-            playingInstruments={playingInstruments}
-            theme={theme}
-            isPlaying={playback.isPlaying}
-          />
+        <div className="w-full space-y-2">
+          {/* Stage View & Visual Test Controls Bar */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            {/* View Mode Switcher: 3D Anime Stage vs 2D Diorama */}
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-white dark:bg-[#1E1D24] border border-[#E7E3DF] dark:border-[#2E2C37] shadow-xs">
+              <button
+                type="button"
+                onClick={() => setStageViewMode('3d')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  stageViewMode === '3d'
+                    ? 'bg-[#7567C7] text-white shadow-xs'
+                    : 'text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white'
+                }`}
+              >
+                <Box className="h-3.5 w-3.5" />
+                <span>3D Anime Stage</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStageViewMode('miniature')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  stageViewMode === 'miniature'
+                    ? 'bg-[#7567C7] text-white shadow-xs'
+                    : 'text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>Ensemble Diorama</span>
+              </button>
+            </div>
+
+            {/* Visual Test Mode Control (Only in 3D prototype mode as requested) */}
+            {stageViewMode === '3d' && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-[#77747D] dark:text-[#9E9AA6] hidden sm:inline">
+                  3D Animation Test:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTestPlayingOverride((prev) => {
+                      if (prev === null) return true;
+                      if (prev === true) return false;
+                      return null; // Return to synchronized playback timeline
+                    });
+                  }}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
+                    testPlayingOverride === true
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/20'
+                      : testPlayingOverride === false
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40'
+                      : 'bg-white dark:bg-[#1E1D24] text-[#77747D] dark:text-[#9E9AA6] border-[#E7E3DF] dark:border-[#2E2C37] hover:border-[#7567C7]'
+                  }`}
+                  title="Cycle between Forced Playing, Forced Idle, and Auto-Timeline"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>
+                    {testPlayingOverride === true
+                      ? 'Test: Playing (Forced)'
+                      : testPlayingOverride === false
+                      ? 'Test: Idle (Forced)'
+                      : 'Test Playing'}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Render Active Stage */}
+          {stageViewMode === '3d' ? (
+            <MusicLab3DStage
+              activeInstruments={activeInstruments}
+              playingInstruments={playingInstruments}
+              instrumentIntensities={instrumentIntensities}
+              theme={theme}
+              isPlaying={playback.isPlaying}
+              testPlayingOverride={testPlayingOverride}
+              onSelectInstrument={handleToggleInstrument}
+            />
+          ) : (
+            <PerformanceStage
+              activeInstruments={activeInstruments}
+              playingInstruments={playingInstruments}
+              instrumentIntensities={instrumentIntensities}
+              theme={theme}
+              isPlaying={playback.isPlaying}
+              onSelectInstrument={handleToggleInstrument}
+            />
+          )}
         </div>
 
         {/* =======================================================================
@@ -606,9 +724,50 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
               </div>
             )}
 
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+              {[
+                { id: 'all', label: 'All Instruments' },
+                { id: 'detected', label: 'Detected by AI' },
+                { id: 'strings', label: 'Strings' },
+                { id: 'keyboard', label: 'Keys & Organ' },
+                { id: 'vocal', label: 'Vocals & Choir' },
+                { id: 'woodwind', label: 'Winds & Brass' },
+                { id: 'percussion', label: 'Percussion & Drums' },
+                { id: 'electronic', label: 'Electronic & Synth' },
+              ].map((tab) => {
+                const isCurrent = instrumentCategoryFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setInstrumentCategoryFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl font-semibold transition-all shrink-0 cursor-pointer ${
+                      isCurrent
+                        ? 'bg-[#7567C7] text-white shadow-xs'
+                        : 'bg-[#F7F5F2] dark:bg-[#26252F] text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white border border-[#E7E3DF] dark:border-[#2E2C37]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Instrument Cards Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              {ALL_INSTRUMENTS.map((inst) => {
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+              {ALL_INSTRUMENTS.filter((inst) => {
+                if (instrumentCategoryFilter === 'all') return true;
+                const def = getInstrumentDefinition(inst);
+                if (instrumentCategoryFilter === 'detected') {
+                  const d = analysisResult?.detectedInstruments.find((item) => item.instrumentId === inst);
+                  return Boolean(d?.isDetected);
+                }
+                if (instrumentCategoryFilter === 'woodwind') {
+                  return def.category === 'woodwind' || def.category === 'brass';
+                }
+                return def.category === instrumentCategoryFilter;
+              }).map((inst) => {
                 const def = getInstrumentDefinition(inst);
                 const isSelected = activeInstruments.includes(inst);
                 const isCurrentlyPlaying = playingInstruments.has(inst);

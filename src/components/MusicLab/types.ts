@@ -1,22 +1,48 @@
 import { AppTheme } from '../../types/theme';
 
 export type MusicInstrument =
+  // Acoustic / traditional / orchestral
   | 'piano'
   | 'acoustic-guitar'
+  | 'classical-guitar'
   | 'electric-guitar'
   | 'bass'
-  | 'drums'
+  | 'double-bass'
   | 'violin'
+  | 'viola'
   | 'cello'
   | 'flute'
+  | 'clarinet'
+  | 'oboe'
+  | 'bassoon'
   | 'saxophone'
   | 'trumpet'
-  | 'vocalist'
+  | 'trombone'
+  | 'french-horn'
+  | 'tuba'
+  | 'harp'
+  | 'accordion'
+  | 'mandolin'
   | 'church-organ'
+  | 'pipe-organ'
+  | 'timpani'
+  | 'percussion'
+  | 'drums'
+  // Voice / ensemble
+  | 'vocalist'
+  | 'vocals-effects'
+  | 'choir'
+  // Electronic / modern / production
   | 'synthesizer'
-  | 'electronic-drums'
+  | 'keyboard-workstation'
   | 'dj-turntable'
-  | 'harp';
+  | 'sampler'
+  | 'drum-machine'
+  | 'electronic-drum-pad'
+  | 'electronic-drums'
+  | 'midi-controller'
+  | 'sequencer'
+  | 'electronic-producer';
 
 export type InstrumentCategory =
   | 'keyboard'
@@ -59,7 +85,41 @@ export interface InstrumentDefinition {
   category: InstrumentCategory;
   icon: string;
   performerTitle: string;
+  description?: string;
   defaultEnsembleRank: number; // Priority order for stage arrangement
+  performerType: 'seated' | 'standing' | 'station';
+  requiresSeatedPerformer?: boolean;
+  requiresStandingPerformer?: boolean;
+  visualVariant?: string;
+  aliases?: string[];
+
+  // 3D Miniature Stage Configuration
+  modelPath?: string;
+  has3DModel?: boolean;
+  idleAnimation?: string;
+  playingAnimation?: string;
+  scale3D?: number;
+  position3D?: [number, number, number];
+  rotation3D?: [number, number, number];
+}
+
+export interface MusicianFigure3DConfig {
+  instrumentId: MusicInstrument;
+  modelPath: string;
+  idleAnimation?: string;
+  playingAnimation?: string;
+  scale?: number;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+}
+
+export interface InstrumentActivity {
+  instrumentId: MusicInstrument;
+  startPercent: number; // 0.0 to 1.0
+  endPercent: number;   // 0.0 to 1.0
+  intensity: number;    // 0.0 to 1.0
+  confidence: number;   // 0.0 to 1.0
+  reason?: string;
 }
 
 export interface DetectedInstrument {
@@ -68,6 +128,7 @@ export interface DetectedInstrument {
   isDetected: boolean;
   isActive: boolean; // whether currently playing at currentTime
   reason?: string;
+  intensity?: number;
 }
 
 export interface MusicSection {
@@ -82,6 +143,7 @@ export interface MusicAnalysisResult {
   duration: number;
   bpm?: number;
   detectedInstruments: DetectedInstrument[];
+  instrumentActivities?: InstrumentActivity[];
   sections: MusicSection[];
   analysisSource: 'gemini_ai' | 'local_web_audio' | 'metadata_heuristic' | 'manual';
   notes?: string;

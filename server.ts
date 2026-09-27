@@ -45,6 +45,7 @@ const PORT = 3000;
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(express.static(path.join(process.cwd(), "public")));
 
 // Stateless secure encryption using Node crypto (AES-256-GCM) shared across all Cloud Run instances
 const ENCRYPTION_KEY = crypto.createHash('sha256')
@@ -1920,41 +1921,84 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       });
     }
 
-    const prompt = `Analyze the musical instrumentation and arrangement for this YouTube music video/track:
+    const prompt = `Analyze the musical instrumentation, presence, and arrangement timeline for this YouTube music video/track:
 URL: https://www.youtube.com/watch?v=${cleanVideoId}
 Video ID: ${cleanVideoId}
 ${effectiveTitle ? `Video Title: "${effectiveTitle}"` : ""}
 ${artistInfo}
 
-TASK:
-Determine what musical instruments are ACTUALLY being played in the music/video.
-Do NOT guess or assume a generic pop/rock band (do NOT assume piano, drums, bass, or guitar unless they are genuinely present in the performance).
-For example:
-- An all-cello quartet (like Prague Cello Quartet) features ONLY cello; do NOT include drums, bass, or piano.
-- A solo violin performance (like Lindsey Stirling) features violin and its actual backing arrangement (e.g. drums, bass if present).
-- An acoustic guitar fingerstyle piece features acoustic guitar; do not add electric guitar or piano unless present.
-- A piano solo features piano only.
+CRITICAL RULES & INTEGRITY:
+1. ONLY identify instruments that are genuinely supported by the specific performance being analyzed.
+2. Do NOT guess or infer instrumentation merely because:
+   - the genre commonly uses that instrument
+   - the artist commonly uses that instrument
+   - the song is normally arranged with that instrument in a studio album
+   - the title suggests that instrument
+   - the model thinks a generic band arrangement would contain it
+3. For example:
+   - An all-cello quartet (like Prague Cello Quartet) features ONLY cello; do NOT include drums, bass, or piano.
+   - A solo piano performance features ONLY piano.
+   - An acoustic guitar fingerstyle performance features ONLY acoustic guitar; do not add drums or electric guitar.
+   - A violin performance does not mean violin is playing continuously if it has quiet rest periods.
+   - A church performance does not automatically mean church organ is playing.
+   - A vocal/choir performance should not automatically imply instrumental accompaniment.
+4. Distinguish similar instruments carefully (do NOT collapse them):
+   - church-organ ≠ pipe-organ
+   - acoustic-guitar ≠ classical-guitar
+   - bass (electric) ≠ double-bass (upright acoustic)
+   - violin ≠ viola ≠ cello
+   - synthesizer ≠ keyboard-workstation
+   - drums (acoustic kit) ≠ electronic-drums ≠ electronic-drum-pad
+   - vocalist (lead singer) ≠ choir (ensemble) ≠ vocals-effects (vocoder/autotune fx)
+   - dj-turntable ≠ sampler ≠ sequencer ≠ midi-controller
 
-From this exact closed list of supported instruments:
+CLOSED LIST OF SUPPORTED INSTRUMENTS (select ONLY from this list):
 - piano
 - acoustic-guitar
+- classical-guitar
 - electric-guitar
 - bass
-- drums
+- double-bass
 - violin
+- viola
 - cello
 - flute
+- clarinet
+- oboe
+- bassoon
 - saxophone
 - trumpet
-- vocalist
-- church-organ
-- synthesizer
-- electronic-drums
-- dj-turntable
+- trombone
+- french-horn
+- tuba
 - harp
+- accordion
+- mandolin
+- church-organ
+- pipe-organ
+- timpani
+- percussion
+- drums
+- vocalist
+- vocals-effects
+- choir
+- synthesizer
+- keyboard-workstation
+- dj-turntable
+- sampler
+- drum-machine
+- electronic-drum-pad
+- electronic-drums
+- midi-controller
+- sequencer
+- electronic-producer
 
-Identify which of these instruments are genuinely present and played in the track. For each detected instrument, provide confidence (0.0 to 1.0) and a concise reason.
-Also provide the estimated tempo (BPM), a 1-sentence performance description, and a 4-part arrangement timeline breakdown (Intro, Verse, Chorus/Peak, Outro) detailing which of the detected instruments are playing during each section.`;
+REQUIRED TIMELINE ANALYSIS:
+Distinguish:
+A. PRESENCE: Is the instrument genuinely part of this specific performance?
+B. ACTIVITY TIMELINE: When is the instrument actually actively playing (startPercent to endPercent, 0.0 to 1.0)?
+C. INTENSITY: How prominent is it during that active window (0.0 to 1.0)?
+D. CONFIDENCE: How certain are you that it plays during that window (0.0 to 1.0)?`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.8-flash",
@@ -1979,6 +2023,21 @@ Also provide the estimated tempo (BPM), a 1-sentence performance description, an
                   reason: { type: Type.STRING },
                 },
                 required: ["instrumentId", "confidence", "reason"],
+              },
+            },
+            instrumentActivities: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  instrumentId: { type: Type.STRING },
+                  startPercent: { type: Type.NUMBER },
+                  endPercent: { type: Type.NUMBER },
+                  intensity: { type: Type.NUMBER },
+                  confidence: { type: Type.NUMBER },
+                  reason: { type: Type.STRING },
+                },
+                required: ["instrumentId", "startPercent", "endPercent", "intensity", "confidence"],
               },
             },
             sections: {
@@ -2016,6 +2075,7 @@ Also provide the estimated tempo (BPM), a 1-sentence performance description, an
       description: parsed.description || "Musical performance analyzed with Gemini AI.",
       bpm: typeof parsed.bpm === "number" ? Math.round(parsed.bpm) : 120,
       detectedInstruments: Array.isArray(parsed.detectedInstruments) ? parsed.detectedInstruments : [],
+      instrumentActivities: Array.isArray(parsed.instrumentActivities) ? parsed.instrumentActivities : [],
       sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     };
 

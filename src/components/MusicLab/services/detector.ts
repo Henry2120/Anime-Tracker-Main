@@ -66,7 +66,7 @@ export class StandardInstrumentDetector implements InstrumentDetector {
         }
       }
 
-      // Build detected instruments list for all 10 registered instruments
+      // Build detected instruments list for all registered instruments
       // Crucial: ONLY instruments explicitly detected by Gemini have isDetected = true!
       const detectedInstruments: DetectedInstrument[] = ALL_INSTRUMENTS.map((inst) => {
         const info = detectedMap.get(inst);
@@ -82,6 +82,20 @@ export class StandardInstrumentDetector implements InstrumentDetector {
       });
 
       const activeIds = detectedInstruments.filter((d) => d.isDetected).map((d) => d.instrumentId);
+
+      // Convert instrument activities
+      const instrumentActivities = Array.isArray(data.instrumentActivities)
+        ? data.instrumentActivities
+            .filter((act: any) => act && ALL_INSTRUMENTS.includes(act.instrumentId as MusicInstrument))
+            .map((act: any) => ({
+              instrumentId: act.instrumentId as MusicInstrument,
+              startPercent: typeof act.startPercent === 'number' ? Math.max(0, Math.min(1, act.startPercent)) : 0,
+              endPercent: typeof act.endPercent === 'number' ? Math.max(0, Math.min(1, act.endPercent)) : 1,
+              intensity: typeof act.intensity === 'number' ? Math.max(0, Math.min(1, act.intensity)) : 0.8,
+              confidence: typeof act.confidence === 'number' ? Math.max(0, Math.min(1, act.confidence)) : 0.9,
+              reason: act.reason || undefined,
+            }))
+        : [];
 
       // Convert sections or build them if missing
       const dur = Math.max(30, duration);
@@ -113,6 +127,7 @@ export class StandardInstrumentDetector implements InstrumentDetector {
         duration: dur,
         bpm: data.bpm || 120,
         detectedInstruments,
+        instrumentActivities,
         sections,
         analysisSource: 'gemini_ai',
         title: data.title,
