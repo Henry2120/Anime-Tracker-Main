@@ -3,23 +3,11 @@ import * as THREE from 'three';
 /**
  * Procedural Stylized Anime Violin & Bow Prop
  * Constructed from modular, named Three.js sub-meshes with lightweight geometries.
+ * Includes precise reference anchors for string contact, neck cradling, and chin resting.
  */
 
-export interface ViolinPropGroup extends THREE.Group {
-  userData: {
-    isViolinProp: true;
-    bodyMesh?: THREE.Mesh;
-    neckMesh?: THREE.Mesh;
-    fingerboardMesh?: THREE.Mesh;
-    bridgeMesh?: THREE.Mesh;
-    bowMesh?: THREE.Group;
-    stringsMesh?: THREE.Group;
-    contactPoint?: THREE.Vector3; // Point where bow meets strings
-  };
-}
-
 /**
- * Creates a procedurally modeled anime violin.
+ * Creates a procedurally modeled anime violin with visible strings and reference anchors.
  * Scale: ~0.60m length (standard 4/4 violin proportion).
  */
 export function createViolinProp(): THREE.Group {
@@ -32,13 +20,6 @@ export function createViolinProp(): THREE.Group {
     roughness: 0.35,
     metalness: 0.05,
     name: 'ViolinVarnish',
-  });
-
-  const bodyRimMat = new THREE.MeshStandardMaterial({
-    color: 0x4a1e0e, // Darker purfling edge and ribs
-    roughness: 0.4,
-    metalness: 0.05,
-    name: 'ViolinRibs',
   });
 
   const ebonyMat = new THREE.MeshStandardMaterial({
@@ -55,10 +36,11 @@ export function createViolinProp(): THREE.Group {
     name: 'ViolinMaple',
   });
 
+  // High-visibility metallic silver strings
   const stringMat = new THREE.MeshStandardMaterial({
-    color: 0xdedede, // Metallic silver / steel strings
-    roughness: 0.2,
-    metalness: 0.85,
+    color: 0xffffff,
+    roughness: 0.1,
+    metalness: 0.9,
     name: 'ViolinStrings',
   });
 
@@ -242,43 +224,63 @@ export function createViolinProp(): THREE.Group {
 
   violin.add(chinRestGroup);
 
-  // --- 9. Four Strings (G, D, A, E) ---
+  // --- 9. Four Clear Visible Strings (G, D, A, E) ---
   const stringsGroup = new THREE.Group();
   stringsGroup.name = 'Strings';
 
-  const stringOffsets = [-0.008, -0.0028, 0.0028, 0.008];
+  const stringOffsets = [-0.009, -0.003, 0.003, 0.009];
   stringOffsets.forEach((offset, idx) => {
-    const strGeo = new THREE.CylinderGeometry(0.0007, 0.0007, 0.44, 4);
+    // Thicker, clearly visible strings with clean metallic material
+    const strGeo = new THREE.CylinderGeometry(0.0016, 0.0016, 0.45, 6);
     const strMesh = new THREE.Mesh(strGeo, stringMat);
-    strMesh.position.set(offset * 0.7, 0.1, 0.041);
-    strMesh.rotation.x = -0.015; // Slopes slightly from bridge to nut
+    strMesh.position.set(offset * 0.75, 0.1, 0.043);
+    strMesh.rotation.x = -0.015;
     strMesh.name = `String_${['G', 'D', 'A', 'E'][idx]}`;
     stringsGroup.add(strMesh);
   });
 
   violin.add(stringsGroup);
 
+  // --- Reference Anchors (Invisible Object3D targets) ---
+  const bowContactPoint = new THREE.Object3D();
+  bowContactPoint.name = 'BowContactPoint';
+  bowContactPoint.position.set(0, 0.045, 0.046); // Over strings between bridge & fingerboard
+  violin.add(bowContactPoint);
+
+  const violinNeckTarget = new THREE.Object3D();
+  violinNeckTarget.name = 'ViolinNeckTarget';
+  violinNeckTarget.position.set(0, 0.22, 0.02); // Neck holding target for left hand
+  violin.add(violinNeckTarget);
+
+  const chinRestTarget = new THREE.Object3D();
+  chinRestTarget.name = 'ChinRestTarget';
+  chinRestTarget.position.set(-0.055, -0.165, 0.045);
+  violin.add(chinRestTarget);
+
   return violin;
 }
 
 /**
  * Creates a procedurally modeled violin bow.
- * Length: ~0.74m (standard full-size bow).
+ * Length: ~0.72m.
+ * Long axis: Local Y (frog at -0.32, tip at +0.35).
+ * Hair ribbon: Positioned at local z = -0.014 facing -Z towards the violin strings.
  */
 export function createBowProp(): THREE.Group {
   const bow = new THREE.Group();
   bow.name = 'BowRoot';
 
   const pernambucoWoodMat = new THREE.MeshStandardMaterial({
-    color: 0x5a2d18, // Rich reddish-brown Pernambuco / Brazilwood
+    color: 0x5a2d18, // Rich reddish-brown Pernambuco wood
     roughness: 0.3,
     metalness: 0.05,
     name: 'BowWood',
   });
 
+  // High-contrast clean white horsehair ribbon
   const horsehairMat = new THREE.MeshStandardMaterial({
-    color: 0xf3ede2, // Creamy white horsehair
-    roughness: 0.6,
+    color: 0xffffff,
+    roughness: 0.4,
     metalness: 0.0,
     name: 'BowHorsehair',
   });
@@ -304,7 +306,7 @@ export function createBowProp(): THREE.Group {
     name: 'BowTipBone',
   });
 
-  // --- 1. Stick (Gentle camber curve) ---
+  // --- 1. Stick (Gentle camber curve along Y axis) ---
   const stickLength = 0.72;
   const stickGeo = new THREE.CylinderGeometry(0.004, 0.0055, stickLength, 8);
   const stickMesh = new THREE.Mesh(stickGeo, pernambucoWoodMat);
@@ -312,14 +314,14 @@ export function createBowProp(): THREE.Group {
   stickMesh.castShadow = true;
   bow.add(stickMesh);
 
-  // --- 2. Horsehair Ribbon ---
-  const hairGeo = new THREE.BoxGeometry(0.006, stickLength - 0.04, 0.0015);
+  // --- 2. Horsehair Ribbon (Contacts strings at -Z) ---
+  const hairGeo = new THREE.BoxGeometry(0.008, stickLength - 0.04, 0.0025);
   const hairMesh = new THREE.Mesh(hairGeo, horsehairMat);
   hairMesh.position.set(0, 0.015, -0.014);
   hairMesh.name = 'HairRibbon';
   bow.add(hairMesh);
 
-  // --- 3. Frog (Handle end where fingers rest) ---
+  // --- 3. Frog (Handle end at negative Y) ---
   const frogGroup = new THREE.Group();
   frogGroup.name = 'Frog';
 
@@ -361,6 +363,12 @@ export function createBowProp(): THREE.Group {
   tipGroup.add(tipMesh);
 
   bow.add(tipGroup);
+
+  // --- Reference Anchors on Bow ---
+  const bowGripPoint = new THREE.Object3D();
+  bowGripPoint.name = 'BowGripPoint';
+  bowGripPoint.position.set(0, -stickLength / 2 + 0.06, 0); // Where right hand fingers grasp frog
+  bow.add(bowGripPoint);
 
   return bow;
 }
