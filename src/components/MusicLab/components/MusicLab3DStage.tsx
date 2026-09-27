@@ -1,42 +1,23 @@
-import React, { Suspense, useState, useRef } from 'react';
+import React, { Suspense, useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
 import {
-  Sparkles,
   Eye,
-  Layers,
-  CheckCircle2,
-  Users,
-  Music,
-  RotateCcw,
-  Play,
-  Pause,
   Box,
-  Palette,
   Camera,
-  ShieldCheck,
-  Star,
-  Maximize2,
-  Sliders,
   Upload,
   FileCode2,
-  Smile,
-  Activity,
   AlertCircle,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
-import { MusicInstrument, ModularMusician } from '../types';
-import { CHARACTER_REGISTRY, getCharacterConfig } from '../characters/registry';
+import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
 import { VRMCharacterModel } from './VRMCharacterModel';
 
 interface MusicLab3DStageProps {
   theme?: AppTheme;
-  activeInstruments?: MusicInstrument[];
-  playingInstruments?: Set<MusicInstrument>;
-  instrumentIntensities?: Record<string, number>;
-  musicians?: ModularMusician[];
-  isPlaying?: boolean;
   className?: string;
   onReturnToEnsemble?: () => void;
 }
@@ -80,7 +61,7 @@ const StageDioramaEnvironment: React.FC<{ theme: AppTheme }> = ({ theme }) => {
       {/* Rim / Backlight for anime silhouette separation */}
       <directionalLight position={[0, 4, -4]} intensity={1.4} color={rimLightColor} />
 
-      {/* Miniature Concert Diorama Stage Platform */}
+      {/* Miniature Diorama Stage Platform */}
       <group position={[0, -0.01, 0]}>
         {/* Main circular pedestal */}
         <mesh position={[0, -0.08, 0]} receiveShadow>
@@ -128,8 +109,6 @@ const StageDioramaEnvironment: React.FC<{ theme: AppTheme }> = ({ theme }) => {
 
 export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   theme = 'light',
-  activeInstruments = [],
-  playingInstruments = new Set(),
   className = '',
   onReturnToEnsemble,
 }) => {
@@ -143,34 +122,40 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
     : 'bg-[#F8F6F2] border-[#E7E3DF]';
 
   // Character Configuration State
-  const [selectedCharacterId] = useState('aria');
-  const characterConfig = getCharacterConfig(selectedCharacterId);
+  const characterConfig = getCharacterConfig(DEFAULT_CHARACTER_ID);
 
   // Custom user uploaded VRM/GLB model URL
   const [customModelUrl, setCustomModelUrl] = useState<string | null>(null);
   const [customFileName, setCustomFileName] = useState<string | null>(null);
-  const [modelStatus, setModelStatus] = useState<{ isVRM: boolean; vrmVersion?: string } | null>(null);
+  const [modelStatus, setModelStatus] = useState<{ isVRM: boolean; vrmVersion?: string; boneCount?: number } | null>(null);
   const [loadNotice, setLoadNotice] = useState<string | null>(null);
-
-  // Performer & Decoupled Instrument State
-  const [assignedInstrument, setAssignedInstrument] = useState<MusicInstrument | 'none'>('violin');
-  const [pose, setPose] = useState<
-    'relaxed_idle' | 'neutral_standing' | 'violin_playing' | 'guitar_playing' | 'vocal_performance'
-  >('violin_playing');
-  const [expression, setExpression] = useState<'neutral' | 'happy' | 'relaxed' | 'singing'>('relaxed');
-  const [enableBlinking, setEnableBlinking] = useState(true);
-  const [enableSpringBones, setEnableSpringBones] = useState(true);
   const [cameraPreset, setCameraPreset] = useState<'front' | 'threeQuarter' | 'side' | 'faceCloseup' | 'fullBody'>('front');
 
   const controlsRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  // Cleanup Blob URLs on replacement or unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Handle local VRM / GLB file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+    }
+
     const url = URL.createObjectURL(file);
+    blobUrlRef.current = url;
     setCustomModelUrl(url);
     setCustomFileName(file.name);
     setLoadNotice(null);
@@ -201,21 +186,6 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
     controls.update();
   };
 
-  // Handle dynamic instrument assignment and auto-sync pose
-  const handleSelectInstrument = (inst: MusicInstrument | 'none') => {
-    setAssignedInstrument(inst);
-    if (inst === 'violin') {
-      setPose('violin_playing');
-    } else if (inst === 'acoustic-guitar' || inst === 'electric-guitar') {
-      setPose('guitar_playing');
-    } else if (inst === 'vocalist') {
-      setPose('vocal_performance');
-      setExpression('singing');
-    } else {
-      setPose('relaxed_idle');
-    }
-  };
-
   return (
     <div className={`relative w-full rounded-3xl overflow-hidden border shadow-2xl flex flex-col ${containerBg} ${className}`}>
       {/* Top Header Bar */}
@@ -227,15 +197,15 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-xs sm:text-sm font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                AniVerse External VRM / GLB Character System
+                3D VRM Character Viewport
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#7567C7]/15 text-[#7567C7] dark:text-[#A294EE] border border-[#7567C7]/20 flex items-center gap-1">
                 <FileCode2 className="h-3 w-3" />
-                <span>@pixiv/three-vrm Active</span>
+                <span>{modelStatus?.isVRM ? `VRM ${modelStatus.vrmVersion || '1.0'}` : 'VRM Pipeline'}</span>
               </span>
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              Decoupled Architecture: <strong className="text-[#25242A] dark:text-white">Character (VRM)</strong> + <strong className="text-[#25242A] dark:text-white">Instrument</strong> + <strong className="text-[#25242A] dark:text-white">Animation</strong> = Live Musician
+              Passive 3D Humanoid Model Viewer • Default Authored Pose
             </p>
           </div>
         </div>
@@ -254,7 +224,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#7567C7] hover:bg-[#6455B8] text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
-            title="Import custom external VRM or GLB character"
+            title="Import custom VRM or GLB character model"
           >
             <Upload className="h-3.5 w-3.5" />
             <span>{customFileName ? 'Replace VRM/GLB' : 'Load VRM / GLB'}</span>
@@ -273,7 +243,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
       </div>
 
       {/* 3D Canvas Viewport */}
-      <div className="relative w-full h-[460px] sm:h-[540px] bg-gradient-to-b from-transparent to-black/5 dark:to-black/30">
+      <div className="relative w-full h-[480px] sm:h-[560px] bg-gradient-to-b from-transparent to-black/5 dark:to-black/30">
         <Canvas
           shadows
           camera={{ position: [0, 1.1, 3.2], fov: 38 }}
@@ -297,12 +267,6 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             <VRMCharacterModel
               modelConfig={characterConfig}
               customModelUrl={customModelUrl}
-              pose={pose}
-              activeInstrument={assignedInstrument === 'none' ? null : assignedInstrument}
-              isPlaying={true}
-              expressionPreset={expression}
-              enableBlinking={enableBlinking}
-              enableSpringBones={enableSpringBones}
               position={[0, 0, 0]}
               scale={1.0}
               onModelLoaded={(info) => {
@@ -317,7 +281,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
         </Canvas>
 
         {/* Quick Camera Angle Bar (Top Left) */}
-        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-[11px] shadow-lg">
+        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-[11px] shadow-lg z-10">
           <span className="px-2 font-bold font-mono text-[#C4B9FC] text-[10px] flex items-center gap-1">
             <Camera className="h-3 w-3" />
             <span>Camera:</span>
@@ -344,12 +308,12 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           ))}
         </div>
 
-        {/* External VRM Asset Readiness Callout (If model waiting for local file) */}
+        {/* Model Asset Notice / Upload Prompt */}
         {loadNotice && !customModelUrl && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-black/80 backdrop-blur-md border border-amber-500/30 text-white text-xs max-w-md shadow-2xl space-y-1.5 text-center">
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-black/80 backdrop-blur-md border border-amber-500/30 text-white text-xs max-w-md shadow-2xl space-y-1.5 text-center z-10">
             <div className="flex items-center justify-center gap-1.5 text-amber-400 font-bold">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>External Character Asset Pipeline Ready</span>
+              <span>Character Model Asset Ready</span>
             </div>
             <p className="text-[11px] text-white/80">
               The loader is listening at <code className="font-mono text-amber-300 bg-white/10 px-1 py-0.5 rounded">public/models/test.vrm</code>.
@@ -365,144 +329,26 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           </div>
         )}
 
-        {/* Floating Decoupled Architecture HUD (Bottom Left) */}
-        <div className="absolute bottom-4 left-4 pointer-events-none p-3 rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 text-white text-xs max-w-xs shadow-xl space-y-1">
+        {/* Model Info HUD (Bottom Left) */}
+        <div className="absolute bottom-4 left-4 pointer-events-none p-3 rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 text-white text-xs max-w-xs shadow-xl space-y-1 z-10">
           <div className="flex items-center gap-1.5 text-[#C4B9FC] font-bold text-xs">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Decoupled Musician Pipeline</span>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>Character Model Info</span>
           </div>
           <div className="text-[10px] text-white/80 space-y-0.5">
-            <div>• <strong className="text-white">Performer:</strong> {customFileName || characterConfig.name}</div>
-            <div>• <strong className="text-white">Assigned Prop:</strong> {assignedInstrument === 'none' ? 'Standalone (No Instrument)' : assignedInstrument}</div>
-            <div>• <strong className="text-white">Animation Clip:</strong> {pose}</div>
-            <div>• <strong className="text-white">Format:</strong> {modelStatus?.isVRM ? `VRM ${modelStatus.vrmVersion || '1.0'}` : customFileName ? 'Standard GLB' : 'VRM Pipeline'}</div>
+            <div>• <strong className="text-white">Source:</strong> {customFileName || 'Default (test.vrm)'}</div>
+            <div>• <strong className="text-white">Format:</strong> {modelStatus?.isVRM ? `VRM (${modelStatus.vrmVersion || '1.0'})` : customFileName ? 'GLB / GLTF' : 'VRM'}</div>
+            {modelStatus?.boneCount !== undefined && (
+              <div>• <strong className="text-white">Humanoid Bones:</strong> {modelStatus.boneCount}</div>
+            )}
+            <div>• <strong className="text-white">State:</strong> Authored Pose (Passive)</div>
           </div>
         </div>
 
         {/* Interaction Hint (Top Right) */}
-        <div className="absolute top-3 right-3 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10">
+        <div className="absolute top-3 right-3 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10 z-10">
           <Eye className="h-3 w-3" />
-          <span>Left-drag to rotate • Scroll to zoom</span>
-        </div>
-      </div>
-
-      {/* Control Deck (Bottom Panel) */}
-      <div className="relative z-10 p-4 sm:p-5 border-t border-black/5 dark:border-white/10 bg-white/80 dark:bg-[#1E1D24]/90 backdrop-blur-md space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-          {/* Decoupled Instrument Assignment */}
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1 text-[11px] uppercase tracking-wider">
-              <Music className="h-3.5 w-3.5 text-[#7567C7]" />
-              <span>Assign Instrument:</span>
-            </span>
-            <div className="inline-flex rounded-xl bg-black/5 dark:bg-white/5 p-0.5 border border-black/10 dark:border-white/10">
-              {[
-                { id: 'violin', label: 'Violin' },
-                { id: 'acoustic-guitar', label: 'Acoustic Guitar' },
-                { id: 'electric-guitar', label: 'Electric Guitar' },
-                { id: 'flute', label: 'Flute' },
-                { id: 'vocalist', label: 'Vocal Mic' },
-                { id: 'none', label: 'Standalone' },
-              ].map((inst) => (
-                <button
-                  key={inst.id}
-                  type="button"
-                  onClick={() => handleSelectInstrument(inst.id as any)}
-                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    assignedInstrument === inst.id
-                      ? 'bg-[#7567C7] text-white shadow-xs'
-                      : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-                  }`}
-                >
-                  {inst.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Reusable Animation & Pose Selectors */}
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1 text-[11px] uppercase tracking-wider">
-              <Activity className="h-3.5 w-3.5 text-[#7567C7]" />
-              <span>Humanoid Pose:</span>
-            </span>
-            <div className="inline-flex rounded-xl bg-black/5 dark:bg-white/5 p-0.5 border border-black/10 dark:border-white/10">
-              {[
-                { id: 'relaxed_idle', label: 'Idle Breathing' },
-                { id: 'neutral_standing', label: 'A-Pose' },
-                { id: 'violin_playing', label: 'Violin Posture' },
-                { id: 'guitar_playing', label: 'Guitar Strum' },
-                { id: 'vocal_performance', label: 'Singing' },
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setPose(p.id as any)}
-                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    pose === p.id
-                      ? 'bg-[#7567C7] text-white shadow-xs'
-                      : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Expressions and Physics Row */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-1 border-t border-black/5 dark:border-white/5">
-          {/* VRM Facial BlendShapes / Expressions */}
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-[#77747D] dark:text-[#9E9AA6] flex items-center gap-1 text-[11px] uppercase tracking-wider">
-              <Smile className="h-3.5 w-3.5 text-[#7567C7]" />
-              <span>VRM Expression:</span>
-            </span>
-            <div className="inline-flex rounded-xl bg-black/5 dark:bg-white/5 p-0.5 border border-black/10 dark:border-white/10">
-              {[
-                { id: 'neutral', label: 'Neutral' },
-                { id: 'happy', label: 'Happy' },
-                { id: 'relaxed', label: 'Relaxed' },
-                { id: 'singing', label: 'Singing (Mouth Aa)' },
-              ].map((exp) => (
-                <button
-                  key={exp.id}
-                  type="button"
-                  onClick={() => setExpression(exp.id as any)}
-                  className={`px-2 py-0.5 rounded-lg font-medium transition-all cursor-pointer ${
-                    expression === exp.id
-                      ? 'bg-[#7567C7] text-white shadow-xs'
-                      : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-                  }`}
-                >
-                  {exp.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Physics Toggles */}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 cursor-pointer text-[#524E5B] dark:text-[#D1CCE0] text-[11px] font-medium">
-              <input
-                type="checkbox"
-                checked={enableBlinking}
-                onChange={(e) => setEnableBlinking(e.target.checked)}
-                className="rounded accent-[#7567C7]"
-              />
-              <span>VRM Blink</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-[#524E5B] dark:text-[#D1CCE0] text-[11px] font-medium">
-              <input
-                type="checkbox"
-                checked={enableSpringBones}
-                onChange={(e) => setEnableSpringBones(e.target.checked)}
-                className="rounded accent-[#7567C7]"
-              />
-              <span>Spring Bone Physics</span>
-            </label>
-          </div>
+          <span>Left-drag to rotate • Scroll to zoom • Right-drag to pan</span>
         </div>
       </div>
     </div>

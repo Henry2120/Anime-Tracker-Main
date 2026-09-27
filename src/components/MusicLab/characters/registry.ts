@@ -1,5 +1,3 @@
-import { CharacterProfile } from '../types';
-
 export type CharacterAssetFormat = 'vrm' | 'glb' | 'gltf';
 
 export interface CharacterModelConfig {
@@ -13,33 +11,18 @@ export interface CharacterModelConfig {
   heightCm: number;
   defaultScale: number;
   offsetY: number;
-  springBoneEnabled: boolean;
   description: string;
-  defaultExpressions?: {
-    blink?: number;
-    happy?: number;
-    relaxed?: number;
-    neutral?: number;
-  };
 }
 
 /**
- * AniVerse Master Character Registry
- * 
- * Production Character Architecture:
- * CHARACTER (VRM / GLB Humanoid)
- *     +
- * INSTRUMENT (3D Prop Asset)
- *     +
- * ANIMATION (Reusable Humanoid Skeletal Clip)
- *     =
- * MUSICIAN
+ * Character Registry
+ * Holds clean configuration for loading the passive VRM character model.
  */
 export const CHARACTER_REGISTRY: Record<string, CharacterModelConfig> = {
   character: {
     id: 'character',
     name: 'Character',
-    avatarTitle: '3D VRM Performer',
+    avatarTitle: '3D VRM Character Model',
     gender: 'female',
     assetPath: '/models/test.vrm',
     fallbackAssetPath: '/models/test.vrm',
@@ -47,13 +30,7 @@ export const CHARACTER_REGISTRY: Record<string, CharacterModelConfig> = {
     heightCm: 166,
     defaultScale: 1.0,
     offsetY: 0,
-    springBoneEnabled: true,
-    description:
-      'Anime-game humanoid VRM model. Decoupled performer capable of playing any instrument in AniVerse.',
-    defaultExpressions: {
-      relaxed: 0.3,
-      happy: 0.1,
-    },
+    description: 'Humanoid VRM character model.',
   },
 };
 

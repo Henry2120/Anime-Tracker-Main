@@ -4,8 +4,7 @@ import { AppTheme } from '../../../types/theme';
 import { MusicianFigure } from './MusicianFigure';
 import { getInstrumentDefinition } from '../instruments/registry';
 import { MusicLab3DStage } from './MusicLab3DStage';
-import { CharacterDesignSheet } from './CharacterDesignSheet';
-import { Box, Sparkles, LayoutGrid, Palette } from 'lucide-react';
+import { Box, Sparkles, LayoutGrid } from 'lucide-react';
 
 interface PerformanceStageProps {
   activeInstruments: MusicInstrument[]; // Currently detected / selected instruments
@@ -26,8 +25,8 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
   className = '',
   onSelectInstrument,
 }) => {
-  // Toggle between 2D ensemble stage, 3D diorama concert stage, and character design sheet
-  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d' | 'design-sheet'>('2d');
+  // Toggle between 2D ensemble stage and 3D character viewport
+  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d'>('2d');
 
   // Theme styling for the stage floor, wooden platform, and backdrop
   const stageStyles = {
@@ -141,18 +140,6 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
         <div className="inline-flex items-center p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs">
           <button
             type="button"
-            onClick={() => setStageViewMode('design-sheet')}
-            className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              stageViewMode === 'design-sheet'
-                ? 'bg-[#7567C7] text-white shadow-xs'
-                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-            }`}
-          >
-            <Palette className="h-3.5 w-3.5" />
-            <span>Character Design Sheet</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setStageViewMode('3d')}
             className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
               stageViewMode === '3d'
@@ -178,9 +165,7 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
         </div>
       </div>
 
-      {stageViewMode === 'design-sheet' ? (
-        <CharacterDesignSheet theme={theme} className={className} />
-      ) : stageViewMode === '3d' ? (
+      {stageViewMode === '3d' ? (
         <MusicLab3DStage
           theme={theme}
           className={className}
