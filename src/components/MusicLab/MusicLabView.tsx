@@ -38,7 +38,6 @@ import {
 import { extractYouTubeVideoId } from './utils/youtubeParser';
 import { YouTubePlayer } from './components/YouTubePlayer';
 import { PerformanceStage } from './components/PerformanceStage';
-import { MusicLab3DStage } from './components/MusicLab3DStage';
 import { instrumentDetector } from './services/detector';
 import { ALL_INSTRUMENTS, getInstrumentDefinition } from './instruments/registry';
 
@@ -82,11 +81,6 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeInstruments, setActiveInstruments] = useState<MusicInstrument[]>([]);
   const [instrumentCategoryFilter, setInstrumentCategoryFilter] = useState<string>('all');
-
-  // Stage Presentation Mode: '3d' (Real-time 3D Anime Stage) or 'miniature' (Collectible Figurines)
-  const [stageViewMode, setStageViewMode] = useState<'3d' | 'miniature'>('3d');
-  // Visual Test Mode Override for 3D prototype (toggles Idle vs Playing animation)
-  const [testPlayingOverride, setTestPlayingOverride] = useState<boolean | null>(null);
 
   // Local audio time sync effect
   useEffect(() => {
@@ -582,98 +576,18 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
         )}
 
         {/* =======================================================================
-            SECTION 2: PERFORMANCE STAGE (CENTERPIECE)
-            Real-time 3D Anime Miniature Concert Stage or Collectible Figurine Diorama
+            SECTION 2: PERFORMANCE THEATER STAGE (CENTERPIECE)
+            Small full-body stylized human musicians on miniature concert stage
             ======================================================================= */}
-        <div className="w-full space-y-2">
-          {/* Stage View & Visual Test Controls Bar */}
-          <div className="flex items-center justify-between gap-2 px-1">
-            {/* View Mode Switcher: 3D Anime Stage vs 2D Diorama */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-white dark:bg-[#1E1D24] border border-[#E7E3DF] dark:border-[#2E2C37] shadow-xs">
-              <button
-                type="button"
-                onClick={() => setStageViewMode('3d')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  stageViewMode === '3d'
-                    ? 'bg-[#7567C7] text-white shadow-xs'
-                    : 'text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white'
-                }`}
-              >
-                <Box className="h-3.5 w-3.5" />
-                <span>3D Anime Stage</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setStageViewMode('miniature')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  stageViewMode === 'miniature'
-                    ? 'bg-[#7567C7] text-white shadow-xs'
-                    : 'text-[#77747D] dark:text-[#9E9AA6] hover:text-[#25242A] dark:hover:text-white'
-                }`}
-              >
-                <Layers className="h-3.5 w-3.5" />
-                <span>Ensemble Diorama</span>
-              </button>
-            </div>
-
-            {/* Visual Test Mode Control (Only in 3D prototype mode as requested) */}
-            {stageViewMode === '3d' && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono text-[#77747D] dark:text-[#9E9AA6] hidden sm:inline">
-                  3D Animation Test:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTestPlayingOverride((prev) => {
-                      if (prev === null) return true;
-                      if (prev === true) return false;
-                      return null; // Return to synchronized playback timeline
-                    });
-                  }}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
-                    testPlayingOverride === true
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/20'
-                      : testPlayingOverride === false
-                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40'
-                      : 'bg-white dark:bg-[#1E1D24] text-[#77747D] dark:text-[#9E9AA6] border-[#E7E3DF] dark:border-[#2E2C37] hover:border-[#7567C7]'
-                  }`}
-                  title="Cycle between Forced Playing, Forced Idle, and Auto-Timeline"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>
-                    {testPlayingOverride === true
-                      ? 'Test: Playing (Forced)'
-                      : testPlayingOverride === false
-                      ? 'Test: Idle (Forced)'
-                      : 'Test Playing'}
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Render Active Stage */}
-          {stageViewMode === '3d' ? (
-            <MusicLab3DStage
-              activeInstruments={activeInstruments}
-              playingInstruments={playingInstruments}
-              instrumentIntensities={instrumentIntensities}
-              theme={theme}
-              isPlaying={playback.isPlaying}
-              testPlayingOverride={testPlayingOverride}
-              onSelectInstrument={handleToggleInstrument}
-            />
-          ) : (
-            <PerformanceStage
-              activeInstruments={activeInstruments}
-              playingInstruments={playingInstruments}
-              instrumentIntensities={instrumentIntensities}
-              theme={theme}
-              isPlaying={playback.isPlaying}
-              onSelectInstrument={handleToggleInstrument}
-            />
-          )}
+        <div className="w-full">
+          <PerformanceStage
+            activeInstruments={activeInstruments}
+            playingInstruments={playingInstruments}
+            instrumentIntensities={instrumentIntensities}
+            theme={theme}
+            isPlaying={playback.isPlaying}
+            onSelectInstrument={handleToggleInstrument}
+          />
         </div>
 
         {/* =======================================================================

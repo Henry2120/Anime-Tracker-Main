@@ -201,7 +201,7 @@ export class StandardInstrumentDetector implements InstrumentDetector {
     const percussiveIndex = sampleCount > 0 ? transientCount / sampleCount : 0.1;
 
     // Instrument confidence evaluations based on acoustic profile
-    const confidences: Record<MusicInstrument, number> = {
+    const confidences: Partial<Record<MusicInstrument, number>> = {
       piano: Math.min(0.95, Math.max(0.2, normMid * 1.6)),
       drums: Math.min(0.96, Math.max(0.1, percussiveIndex * 4.5 + normLow * 0.6)),
       bass: Math.min(0.92, Math.max(0.2, normLow * 1.8)),
