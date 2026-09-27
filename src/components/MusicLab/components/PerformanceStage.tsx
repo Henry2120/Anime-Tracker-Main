@@ -161,7 +161,7 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
             }`}
           >
             <Box className="h-3.5 w-3.5" />
-            <span>3D Stage (Empty)</span>
+            <span>3D VRM Performer Stage</span>
           </button>
           <button
             type="button"
