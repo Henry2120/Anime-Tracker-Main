@@ -65,6 +65,9 @@ const AnimeDetailModal = lazy(() => import('./components/AnimeDetailModal').then
 // Lazily loaded Music Lab world component
 const MusicLabView = lazy(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })));
 
+// Lazily loaded Fredrica isolated VRM test viewer
+const FredricaViewer = lazy(() => import('./components/Fredrica/FredricaViewer').then((m) => ({ default: m.FredricaViewer })));
+
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
@@ -94,8 +97,24 @@ import {
 const SHOW_TOP_500_EASTER_EGG = true;
 
 export default function App() {
-  // Application mode state: 'anime' (default Anime Tracker) | 'music' (Music Lab)
-  const [appMode, setAppMode] = useState<AppMode>('anime');
+  // Application mode state: 'anime' (default Anime Tracker) | 'music' (Music Lab) | 'fredrica' (Isolated VRM Test)
+  const [appMode, setAppMode] = useState<AppMode>(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search || '';
+      const path = window.location.pathname || '';
+      const hash = window.location.hash || '';
+      if (
+        path.includes('fredrica') ||
+        path.includes('vrm-test') ||
+        search.includes('fredrica') ||
+        search.includes('vrm-test') ||
+        hash.includes('fredrica')
+      ) {
+        return 'fredrica';
+      }
+    }
+    return 'anime';
+  });
 
   // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
   const [activeTab, setActiveTab] = useState<'home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review'>('season');
@@ -1747,6 +1766,21 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [isEffectiveDark]);
+
+  // If in Fredrica VRM test viewer mode, render the isolated 3D viewer
+  if (appMode === 'fredrica') {
+    return (
+      <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
+        <Suspense fallback={<TabLoadingFallback />}>
+          <FredricaViewer
+            onReturnToAnime={() => setAppMode('anime')}
+            theme={theme}
+            initialModelUrl="/models/test.vrm"
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   // If in Music Lab mode, render the dedicated atmospheric Music Lab world
   if (appMode === 'music') {

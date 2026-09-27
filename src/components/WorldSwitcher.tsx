@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Tv, Sparkles, Music2, Layers, Check } from 'lucide-react';
+import { ChevronDown, Tv, Sparkles, Music2, Layers, Check, Box } from 'lucide-react';
 
-export type AppMode = 'anime' | 'music';
+export type AppMode = 'anime' | 'music' | 'fredrica';
 
 interface WorldSwitcherProps {
   currentMode: AppMode;
@@ -195,13 +195,45 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
               <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
                 Turn music into an atmospheric visual performance & soundstage.
               </p>
-              <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#EC4899] dark:text-[#F472B6] uppercase tracking-wider">
-                <span>Soundstage</span>
-                <span>•</span>
-                <span>Acoustic Visuals</span>
-                <span>•</span>
-                <span>Scene Generator</span>
+            </div>
+          </button>
+
+          {/* Divider */}
+          <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
+
+          {/* Mode 3: Fredrica VRM Test */}
+          <button
+            type="button"
+            role="menuitem"
+            id="world-select-fredrica"
+            onClick={() => handleModeChange('fredrica')}
+            className={`w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative ${
+              currentMode === 'fredrica'
+                ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF] border border-[#7567C7]/30'
+                : 'text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]'
+            }`}
+          >
+            <div
+              className={`p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 ${
+                currentMode === 'fredrica'
+                  ? 'bg-[#7567C7] text-white shadow-sm'
+                  : 'bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]'
+              }`}
+            >
+              <Box className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
+                  🧊 Fredrica VRM Test
+                </span>
+                <span className="text-[10px] font-bold bg-[#7567C7] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
+                  VRM Test
+                </span>
               </div>
+              <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
+                Isolated 3D VRM test viewer loading /models/test.vrm.
+              </p>
             </div>
           </button>
         </div>
