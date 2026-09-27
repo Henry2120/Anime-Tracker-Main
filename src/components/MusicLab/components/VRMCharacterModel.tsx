@@ -12,6 +12,7 @@ export interface VRMCharacterModelProps {
   position?: [number, number, number];
   rotation?: [number, number, number];
   mode?: CharacterPerformanceMode;
+  showDebugTargets?: boolean;
   onModelLoaded?: (info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => void;
   onError?: (err: string) => void;
 }
@@ -19,7 +20,7 @@ export interface VRMCharacterModelProps {
 /**
  * VRM & GLB Character Model
  * Loads and renders the VRM model once.
- * Toggles performance rig without reloading or recreating the model.
+ * Toggles target-driven violin performance rig without reloading or recreating the model.
  * Spring-bone simulation is intentionally disabled.
  */
 export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
@@ -29,6 +30,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   position = [0, 0, 0],
   rotation = [0, 0, 0],
   mode = 'normal',
+  showDebugTargets = false,
   onModelLoaded,
   onError,
 }) => {
@@ -173,6 +175,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
         <ViolinPerformance
           vrm={loadedVRM}
           mode={mode}
+          showDebugTargets={showDebugTargets}
         />
       )}
     </group>

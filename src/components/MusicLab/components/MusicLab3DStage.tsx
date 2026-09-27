@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Music2,
   User,
+  Target,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
@@ -128,6 +129,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
 
   // Explicit Performance Mode: 'normal' (default T-pose) vs 'violin'
   const [performanceMode, setPerformanceMode] = useState<CharacterPerformanceMode>('normal');
+  const [showDebugTargets, setShowDebugTargets] = useState<boolean>(false);
 
   // Custom user uploaded VRM/GLB model URL
   const [customModelUrl, setCustomModelUrl] = useState<string | null>(null);
@@ -221,7 +223,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
               {performanceMode === 'violin'
-                ? 'Violin Performance Rig • Procedural Bowing & Fingering'
+                ? 'Target-Driven Violin Rig • Two-Bone IK Kinematics'
                 : 'Normal Model Viewer • Authored T-Pose'}
             </p>
           </div>
@@ -255,6 +257,23 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               <span>Violin Performance</span>
             </button>
           </div>
+
+          {/* Optional Debug Targets Toggle */}
+          {performanceMode === 'violin' && (
+            <button
+              type="button"
+              onClick={() => setShowDebugTargets((prev) => !prev)}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                showDebugTargets
+                  ? 'bg-amber-500 text-black border-amber-600 font-bold'
+                  : 'bg-white/80 dark:bg-white/10 text-[#77747D] dark:text-[#A8A4B2] border-[#E7E3DF] dark:border-[#2E2C37]'
+              }`}
+              title="Toggle IK Debug Targets Spheres"
+            >
+              <Target className="h-3.5 w-3.5" />
+              <span>{showDebugTargets ? 'Targets: Visible' : 'Targets: Off'}</span>
+            </button>
+          )}
 
           {/* External VRM / GLB File Input */}
           <input
@@ -315,6 +334,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               position={[0, 0, 0]}
               scale={1.0}
               mode={performanceMode}
+              showDebugTargets={showDebugTargets}
               onModelLoaded={handleModelLoaded}
               onError={handleModelError}
             />
