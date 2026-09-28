@@ -1,9 +1,30 @@
 // TEMPORARY VIOLIN POSE DEBUG
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
+
+export interface DiagnosticTuningValues {
+  // Left Arm Diagnostic Targets & Joint Offsets
+  leftShoulder: { x: number; y: number; z: number };
+  leftElbow: { x: number; y: number; z: number };
+  leftHand: { x: number; y: number; z: number };
+  leftHandTarget: { x: number; y: number; z: number };
+
+  // Right Arm Diagnostic Targets & Joint Offsets
+  rightShoulder: { x: number; y: number; z: number };
+  rightElbow: { x: number; y: number; z: number };
+  rightHand: { x: number; y: number; z: number };
+  rightHandTarget: { x: number; y: number; z: number };
+
+  // Violin Diagnostic World/Local Position and Rotation
+  violinPos: { x: number; y: number; z: number };
+  violinRot: { x: number; y: number; z: number }; // radians
+
+  // Bow Diagnostic World/Local Position and Rotation
+  bowPos: { x: number; y: number; z: number };
+  bowRot: { x: number; y: number; z: number }; // radians
+}
 
 export interface ViolinDebugNumericData {
   leftShoulder: { x: number; y: number; z: number } | null;
@@ -39,20 +60,17 @@ export interface ViolinPoseDebuggerProps {
   rightHandTargetPos: THREE.Vector3;
   bendHintLeftElbow: THREE.Vector3;
   bendHintRightElbow: THREE.Vector3;
+  tuningValues: DiagnosticTuningValues;
   enabled?: boolean;
   onDataUpdate?: (data: ViolinDebugNumericData) => void;
 }
 
 /**
  * Temporary Visual Debugging System for VRM Violin Performance
- * Read-only visualizer that renders:
- * - Actual VRM normalized bone positions (Pink shoulder, Blue elbow, Yellow/Red hand)
- * - Actual bone local XYZ axes gizmos (Red=X, Green=Y, Blue=Z)
- * - Connecting skeletal arm lines
- * - Separate Left/Right IK target rings
- * - Violin & Bow reference anchors + local XYZ axes
- * - Two-Bone IK bend hint vectors
- * - 3D annotations with bone status
+ * Clean 3D viewport visualizer (NO 3D text labels):
+ * - Renders actual bone markers (Pink, Blue, Yellow, Orange, Red) + connecting lines + local axes.
+ * - Renders live editable diagnostic test markers (Wireframe rings, diagnostic test lines, test gizmos).
+ * - Updates instantly when diagnostic values change without modifying production kinematics.
  */
 export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
   vrm,
@@ -62,13 +80,13 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
   rightHandTargetPos,
   bendHintLeftElbow,
   bendHintRightElbow,
+  tuningValues,
   enabled = true,
   onDataUpdate,
 }) => {
-  // Container ref
   const groupRef = useRef<THREE.Group>(null);
 
-  // Line geometries & Line primitives
+  // --- 1. Actual Skeletal Lines ---
   const leftArmLineGeo = useMemo(() => new THREE.BufferGeometry(), []);
   const rightArmLineGeo = useMemo(() => new THREE.BufferGeometry(), []);
   const leftBendLineGeo = useMemo(() => new THREE.BufferGeometry(), []);
@@ -94,7 +112,21 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     return new THREE.Line(rightBendLineGeo, mat);
   }, [rightBendLineGeo]);
 
-  // Marker meshes refs
+  // --- 2. Diagnostic Test Skeletal Lines ---
+  const diagLeftArmLineGeo = useMemo(() => new THREE.BufferGeometry(), []);
+  const diagRightArmLineGeo = useMemo(() => new THREE.BufferGeometry(), []);
+
+  const diagLeftArmLineMesh = useMemo(() => {
+    const mat = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false, transparent: true, opacity: 0.85 });
+    return new THREE.Line(diagLeftArmLineGeo, mat);
+  }, [diagLeftArmLineGeo]);
+
+  const diagRightArmLineMesh = useMemo(() => {
+    const mat = new THREE.LineBasicMaterial({ color: 0xff0055, depthTest: false, transparent: true, opacity: 0.85 });
+    return new THREE.Line(diagRightArmLineGeo, mat);
+  }, [diagRightArmLineGeo]);
+
+  // --- 3. Actual Bone Marker Refs ---
   const markerLeftShoulder = useRef<THREE.Mesh>(null);
   const markerLeftElbow = useRef<THREE.Mesh>(null);
   const markerLeftHand = useRef<THREE.Mesh>(null);
@@ -111,7 +143,21 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
   const markerBowContact = useRef<THREE.Mesh>(null);
   const markerBowGrip = useRef<THREE.Mesh>(null);
 
-  // Axes Helpers refs for 8 arm bones + violin + bow
+  // --- 4. Diagnostic Test Marker Refs ---
+  const diagMarkerLShoulder = useRef<THREE.Mesh>(null);
+  const diagMarkerLElbow = useRef<THREE.Mesh>(null);
+  const diagMarkerLHand = useRef<THREE.Mesh>(null);
+  const diagMarkerLTarget = useRef<THREE.Group>(null);
+
+  const diagMarkerRShoulder = useRef<THREE.Mesh>(null);
+  const diagMarkerRElbow = useRef<THREE.Mesh>(null);
+  const diagMarkerRHand = useRef<THREE.Mesh>(null);
+  const diagMarkerRTarget = useRef<THREE.Group>(null);
+
+  const diagViolinAxes = useRef<THREE.Group>(null);
+  const diagBowAxes = useRef<THREE.Group>(null);
+
+  // --- 5. Axes Helper Refs ---
   const axesLeftShoulder = useRef<THREE.AxesHelper>(null);
   const axesLeftUpperArm = useRef<THREE.AxesHelper>(null);
   const axesLeftLowerArm = useRef<THREE.AxesHelper>(null);
@@ -124,23 +170,6 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
 
   const axesViolin = useRef<THREE.AxesHelper>(null);
   const axesBow = useRef<THREE.AxesHelper>(null);
-
-  // Text label positions state/refs
-  const posLeftShoulder = useRef(new THREE.Vector3());
-  const posLeftUpperArm = useRef(new THREE.Vector3());
-  const posLeftElbow = useRef(new THREE.Vector3());
-  const posLeftHand = useRef(new THREE.Vector3());
-
-  const posRightShoulder = useRef(new THREE.Vector3());
-  const posRightUpperArm = useRef(new THREE.Vector3());
-  const posRightElbow = useRef(new THREE.Vector3());
-  const posRightHand = useRef(new THREE.Vector3());
-
-  const posViolinBody = useRef(new THREE.Vector3());
-  const posViolinNeck = useRef(new THREE.Vector3());
-  const posChinRest = useRef(new THREE.Vector3());
-  const posBowContact = useRef(new THREE.Vector3());
-  const posBowGrip = useRef(new THREE.Vector3());
 
   const lastUpdateRef = useRef<number>(0);
 
@@ -171,7 +200,6 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     const pRElbow = new THREE.Vector3();
     const pRHand = new THREE.Vector3();
 
-    // Helper to sync AxesHelper to Bone World Matrix
     const syncAxes = (axes: THREE.AxesHelper | null, bone: THREE.Object3D | null, outPos: THREE.Vector3) => {
       if (!axes || !bone) {
         if (axes) axes.visible = false;
@@ -194,21 +222,10 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     const hasRElbow = syncAxes(axesRightLowerArm.current, bRightLowerArm, pRElbow);
     const hasRHand = syncAxes(axesRightHand.current, bRightHand, pRHand);
 
-    // If shoulder node is missing, fall back to upper arm world pos for line anchor
     const effectiveLShoulder = hasLShoulder ? pLShoulder : pLUpperArm;
     const effectiveRShoulder = hasRShoulder ? pRShoulder : pRUpperArm;
 
-    posLeftShoulder.current.copy(pLShoulder);
-    posLeftUpperArm.current.copy(pLUpperArm);
-    posLeftElbow.current.copy(pLElbow);
-    posLeftHand.current.copy(pLHand);
-
-    posRightShoulder.current.copy(pRShoulder);
-    posRightUpperArm.current.copy(pRUpperArm);
-    posRightElbow.current.copy(pRElbow);
-    posRightHand.current.copy(pRHand);
-
-    // Update marker positions
+    // Actual bone positions
     if (markerLeftShoulder.current) markerLeftShoulder.current.position.copy(effectiveLShoulder);
     if (markerLeftElbow.current) markerLeftElbow.current.position.copy(pLElbow);
     if (markerLeftHand.current) markerLeftHand.current.position.copy(pLHand);
@@ -219,7 +236,7 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     if (markerRightHand.current) markerRightHand.current.position.copy(pRHand);
     if (markerRightTarget.current) markerRightTarget.current.position.copy(rightHandTargetPos);
 
-    // 3. Update Connecting Skeletal Lines
+    // 3. Update Connecting Skeletal Lines for Actual Bones
     const leftArmPts = [
       effectiveLShoulder.x, effectiveLShoulder.y, effectiveLShoulder.z,
       pLElbow.x, pLElbow.y, pLElbow.z,
@@ -234,7 +251,7 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     ];
     rightArmLineGeo.setAttribute('position', new THREE.Float32BufferAttribute(rightArmPts, 3));
 
-    // 4. Update IK Bend Hint Vectors (lines drawn from upper arm)
+    // 4. Update IK Bend Hint Vectors
     const leftBendEnd = pLUpperArm.clone().addScaledVector(bendHintLeftElbow, 0.18);
     const leftBendPts = [
       pLUpperArm.x, pLUpperArm.y, pLUpperArm.z,
@@ -249,7 +266,44 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
     ];
     rightBendLineGeo.setAttribute('position', new THREE.Float32BufferAttribute(rightBendPts, 3));
 
-    // 5. Extract Violin & Bow Reference Points
+    // 5. Update Diagnostic Test Positions from Tuning Props
+    const tv = tuningValues;
+
+    if (diagMarkerLShoulder.current) diagMarkerLShoulder.current.position.set(tv.leftShoulder.x, tv.leftShoulder.y, tv.leftShoulder.z);
+    if (diagMarkerLElbow.current) diagMarkerLElbow.current.position.set(tv.leftElbow.x, tv.leftElbow.y, tv.leftElbow.z);
+    if (diagMarkerLHand.current) diagMarkerLHand.current.position.set(tv.leftHand.x, tv.leftHand.y, tv.leftHand.z);
+    if (diagMarkerLTarget.current) diagMarkerLTarget.current.position.set(tv.leftHandTarget.x, tv.leftHandTarget.y, tv.leftHandTarget.z);
+
+    const diagLeftArmPts = [
+      tv.leftShoulder.x, tv.leftShoulder.y, tv.leftShoulder.z,
+      tv.leftElbow.x, tv.leftElbow.y, tv.leftElbow.z,
+      tv.leftHand.x, tv.leftHand.y, tv.leftHand.z,
+    ];
+    diagLeftArmLineGeo.setAttribute('position', new THREE.Float32BufferAttribute(diagLeftArmPts, 3));
+
+    if (diagMarkerRShoulder.current) diagMarkerRShoulder.current.position.set(tv.rightShoulder.x, tv.rightShoulder.y, tv.rightShoulder.z);
+    if (diagMarkerRElbow.current) diagMarkerRElbow.current.position.set(tv.rightElbow.x, tv.rightElbow.y, tv.rightElbow.z);
+    if (diagMarkerRHand.current) diagMarkerRHand.current.position.set(tv.rightHand.x, tv.rightHand.y, tv.rightHand.z);
+    if (diagMarkerRTarget.current) diagMarkerRTarget.current.position.set(tv.rightHandTarget.x, tv.rightHandTarget.y, tv.rightHandTarget.z);
+
+    const diagRightArmPts = [
+      tv.rightShoulder.x, tv.rightShoulder.y, tv.rightShoulder.z,
+      tv.rightElbow.x, tv.rightElbow.y, tv.rightElbow.z,
+      tv.rightHand.x, tv.rightHand.y, tv.rightHand.z,
+    ];
+    diagRightArmLineGeo.setAttribute('position', new THREE.Float32BufferAttribute(diagRightArmPts, 3));
+
+    // Diagnostic Test Violin & Bow
+    if (diagViolinAxes.current) {
+      diagViolinAxes.current.position.set(tv.violinPos.x, tv.violinPos.y, tv.violinPos.z);
+      diagViolinAxes.current.rotation.set(tv.violinRot.x, tv.violinRot.y, tv.violinRot.z, 'YXZ');
+    }
+    if (diagBowAxes.current) {
+      diagBowAxes.current.position.set(tv.bowPos.x, tv.bowPos.y, tv.bowPos.z);
+      diagBowAxes.current.rotation.set(tv.bowRot.x, tv.bowRot.y, tv.bowRot.z);
+    }
+
+    // 6. Extract Actual Violin & Bow Reference Points
     const pVBody = new THREE.Vector3();
     const pVNeck = new THREE.Vector3();
     const pChin = new THREE.Vector3();
@@ -279,19 +333,13 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
       }
     }
 
-    posViolinBody.current.copy(pVBody);
-    posViolinNeck.current.copy(pVNeck);
-    posChinRest.current.copy(pChin);
-    posBowContact.current.copy(pBowContact);
-    posBowGrip.current.copy(pBowGrip);
-
     if (markerViolinBody.current) markerViolinBody.current.position.copy(pVBody);
     if (markerViolinNeck.current) markerViolinNeck.current.position.copy(pVNeck);
     if (markerChinRest.current) markerChinRest.current.position.copy(pChin);
     if (markerBowContact.current) markerBowContact.current.position.copy(pBowContact);
     if (markerBowGrip.current) markerBowGrip.current.position.copy(pBowGrip);
 
-    // 6. Throttle numeric data callback updates (~15Hz for UI panel smoothness)
+    // 7. Periodic telemetry callback to UI
     const now = state.clock.elapsedTime;
     if (now - lastUpdateRef.current > 0.066) {
       lastUpdateRef.current = now;
@@ -327,194 +375,179 @@ export const ViolinPoseDebugger: React.FC<ViolinPoseDebuggerProps> = ({
 
   return (
     <group ref={groupRef} name="ViolinPoseDebuggerRoot" renderOrder={1000}>
-      {/* --- Actual Bone Markers --- */}
+      {/* ======================================================== */}
+      {/* 1. ACTUAL SKELETON MARKERS (Solid Colored Spheres) */}
+      {/* ======================================================== */}
       {/* Left Arm: Pink Shoulder, Blue Elbow, Yellow Hand */}
       <mesh ref={markerLeftShoulder}>
-        <sphereGeometry args={[0.018, 16, 16]} />
+        <sphereGeometry args={[0.016, 16, 16]} />
         <meshBasicMaterial color={0xff1493} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#ff69b4] text-[9px] font-mono whitespace-nowrap border border-[#ff1493]/50 pointer-events-none select-none shadow-md">
-            Left Shoulder
-          </div>
-        </Html>
       </mesh>
 
       <mesh ref={markerLeftElbow}>
-        <sphereGeometry args={[0.016, 16, 16]} />
+        <sphereGeometry args={[0.015, 16, 16]} />
         <meshBasicMaterial color={0x0088ff} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#60a5fa] text-[9px] font-mono whitespace-nowrap border border-[#0088ff]/50 pointer-events-none select-none shadow-md">
-            Left LowerArm (Elbow)
-          </div>
-        </Html>
       </mesh>
 
       <mesh ref={markerLeftHand}>
-        <sphereGeometry args={[0.016, 16, 16]} />
+        <sphereGeometry args={[0.015, 16, 16]} />
         <meshBasicMaterial color={0xffd700} depthTest={false} />
-        <Html distanceFactor={4} position={[0, -0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#facc15] text-[9px] font-mono font-bold whitespace-nowrap border border-[#ffd700]/60 pointer-events-none select-none shadow-md">
-            LEFT HAND
-          </div>
-        </Html>
       </mesh>
 
-      {/* Left Hand Target Marker (Large Yellow Ring / Disc) */}
+      {/* Actual Left Hand Target Ring (Yellow Torus) */}
       <group ref={markerLeftTarget}>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.026, 0.0035, 12, 24]} />
+          <torusGeometry args={[0.024, 0.003, 12, 24]} />
           <meshBasicMaterial color={0xffff00} depthTest={false} />
         </mesh>
-        <Html distanceFactor={4} position={[0, 0.04, 0]}>
-          <div className="px-2 py-0.5 rounded bg-yellow-950/90 text-yellow-300 text-[10px] font-mono font-bold whitespace-nowrap border border-yellow-400 pointer-events-none select-none shadow-lg">
-            🎯 LEFT HAND TARGET
-          </div>
-        </Html>
       </group>
 
       {/* Right Arm: Orange Shoulder, Blue Elbow, Red Hand */}
       <mesh ref={markerRightShoulder}>
-        <sphereGeometry args={[0.018, 16, 16]} />
+        <sphereGeometry args={[0.016, 16, 16]} />
         <meshBasicMaterial color={0xff7700} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#fb923c] text-[9px] font-mono whitespace-nowrap border border-[#ff7700]/50 pointer-events-none select-none shadow-md">
-            Right Shoulder
-          </div>
-        </Html>
       </mesh>
 
       <mesh ref={markerRightElbow}>
-        <sphereGeometry args={[0.016, 16, 16]} />
+        <sphereGeometry args={[0.015, 16, 16]} />
         <meshBasicMaterial color={0x0088ff} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#60a5fa] text-[9px] font-mono whitespace-nowrap border border-[#0088ff]/50 pointer-events-none select-none shadow-md">
-            Right LowerArm (Elbow)
-          </div>
-        </Html>
       </mesh>
 
       <mesh ref={markerRightHand}>
-        <sphereGeometry args={[0.016, 16, 16]} />
+        <sphereGeometry args={[0.015, 16, 16]} />
         <meshBasicMaterial color={0xff2222} depthTest={false} />
-        <Html distanceFactor={4} position={[0, -0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#f87171] text-[9px] font-mono font-bold whitespace-nowrap border border-[#ff2222]/60 pointer-events-none select-none shadow-md">
-            RIGHT HAND
-          </div>
-        </Html>
       </mesh>
 
-      {/* Right Hand Target Marker (Large Red Ring) */}
+      {/* Actual Right Hand Target Ring (Red Torus) */}
       <group ref={markerRightTarget}>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.026, 0.0035, 12, 24]} />
+          <torusGeometry args={[0.024, 0.003, 12, 24]} />
           <meshBasicMaterial color={0xff0044} depthTest={false} />
         </mesh>
-        <Html distanceFactor={4} position={[0, 0.04, 0]}>
-          <div className="px-2 py-0.5 rounded bg-red-950/90 text-red-300 text-[10px] font-mono font-bold whitespace-nowrap border border-red-400 pointer-events-none select-none shadow-lg">
-            🎯 RIGHT HAND TARGET
-          </div>
-        </Html>
       </group>
 
-      {/* --- Connecting Arm Skeletal Lines --- */}
+      {/* Connecting Arm Skeletal Lines */}
       <primitive object={leftArmLineMesh} />
       <primitive object={rightArmLineMesh} />
 
-      {/* --- IK Bend Hint Vectors (Dashed/Distinct Lines) --- */}
+      {/* IK Bend Hint Vectors */}
       <primitive object={leftBendLineMesh} />
       <primitive object={rightBendLineMesh} />
 
-      {/* --- Violin Reference Points --- */}
-      {/* Green: Violin Neck Target */}
+      {/* Violin & Bow Reference Points */}
       <mesh ref={markerViolinNeck}>
-        <sphereGeometry args={[0.014, 14, 14]} />
+        <sphereGeometry args={[0.013, 14, 14]} />
         <meshBasicMaterial color={0x00ff66} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#4ade80] text-[9px] font-mono whitespace-nowrap border border-[#00ff66]/50 pointer-events-none select-none shadow-md">
-            Violin Neck Target
-          </div>
-        </Html>
       </mesh>
 
-      {/* Cyan: Violin Body Center */}
       <mesh ref={markerViolinBody}>
-        <sphereGeometry args={[0.015, 14, 14]} />
+        <sphereGeometry args={[0.014, 14, 14]} />
         <meshBasicMaterial color={0x00ffff} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#38bdf8] text-[9px] font-mono whitespace-nowrap border border-[#00ffff]/50 pointer-events-none select-none shadow-md">
-            Violin Body Center
-          </div>
-        </Html>
       </mesh>
 
-      {/* White: Chin Rest Target */}
       <mesh ref={markerChinRest}>
-        <sphereGeometry args={[0.014, 14, 14]} />
+        <sphereGeometry args={[0.013, 14, 14]} />
         <meshBasicMaterial color={0xffffff} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-white text-[9px] font-mono whitespace-nowrap border border-white/50 pointer-events-none select-none shadow-md">
-            Chin Rest Target
-          </div>
-        </Html>
       </mesh>
 
-      {/* Red: Bow Contact Point */}
       <mesh ref={markerBowContact}>
-        <sphereGeometry args={[0.014, 14, 14]} />
+        <sphereGeometry args={[0.013, 14, 14]} />
         <meshBasicMaterial color={0xff0055} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#f43f5e] text-[9px] font-mono whitespace-nowrap border border-[#ff0055]/50 pointer-events-none select-none shadow-md">
-            Bow Contact Point
-          </div>
-        </Html>
       </mesh>
 
-      {/* Orange: Bow Grip Point */}
       <mesh ref={markerBowGrip}>
-        <sphereGeometry args={[0.014, 14, 14]} />
+        <sphereGeometry args={[0.013, 14, 14]} />
         <meshBasicMaterial color={0xffaa00} depthTest={false} />
-        <Html distanceFactor={4} position={[0, 0.03, 0]}>
-          <div className="px-1.5 py-0.5 rounded bg-black/85 text-[#fbbf24] text-[9px] font-mono whitespace-nowrap border border-[#ffaa00]/50 pointer-events-none select-none shadow-md">
-            Bow Grip Point
-          </div>
-        </Html>
       </mesh>
 
-      {/* --- Bone Local XYZ Axes Gizmos (Red=X, Green=Y, Blue=Z) --- */}
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesLeftShoulder} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesLeftUpperArm} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesLeftLowerArm} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesLeftHand} />
+      {/* Actual Bone Local Axes Helpers */}
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesLeftShoulder} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesLeftUpperArm} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesLeftLowerArm} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesLeftHand} />
 
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesRightShoulder} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesRightUpperArm} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesRightLowerArm} />
-      <primitive object={new THREE.AxesHelper(0.09)} ref={axesRightHand} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesRightShoulder} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesRightUpperArm} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesRightLowerArm} />
+      <primitive object={new THREE.AxesHelper(0.08)} ref={axesRightHand} />
 
-      {/* Violin & Bow Local XYZ Axes */}
-      <primitive object={new THREE.AxesHelper(0.12)} ref={axesViolin}>
-        <Html distanceFactor={4} position={[0.13, 0, 0]}>
-          <div className="text-[8px] font-mono text-red-400 font-bold">Violin +X</div>
-        </Html>
-        <Html distanceFactor={4} position={[0, 0.13, 0]}>
-          <div className="text-[8px] font-mono text-emerald-400 font-bold">Violin +Y</div>
-        </Html>
-        <Html distanceFactor={4} position={[0, 0, 0.13]}>
-          <div className="text-[8px] font-mono text-blue-400 font-bold">Violin +Z</div>
-        </Html>
-      </primitive>
+      <primitive object={new THREE.AxesHelper(0.11)} ref={axesViolin} />
+      <primitive object={new THREE.AxesHelper(0.11)} ref={axesBow} />
 
-      <primitive object={new THREE.AxesHelper(0.12)} ref={axesBow}>
-        <Html distanceFactor={4} position={[0.13, 0, 0]}>
-          <div className="text-[8px] font-mono text-red-400 font-bold">Bow +X</div>
-        </Html>
-        <Html distanceFactor={4} position={[0, 0.13, 0]}>
-          <div className="text-[8px] font-mono text-emerald-400 font-bold">Bow +Y</div>
-        </Html>
-        <Html distanceFactor={4} position={[0, 0, 0.13]}>
-          <div className="text-[8px] font-mono text-blue-400 font-bold">Bow +Z</div>
-        </Html>
-      </primitive>
+      {/* ======================================================== */}
+      {/* 2. EDITABLE DIAGNOSTIC TEST MARKERS (Interactive Layer)  */}
+      {/* ======================================================== */}
+      {/* Left Diagnostic Test Markers (Distinct Wireframe & Octahedron shapes) */}
+      <mesh ref={diagMarkerLShoulder}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0xff69b4} wireframe depthTest={false} />
+      </mesh>
+
+      <mesh ref={diagMarkerLElbow}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0x38bdf8} wireframe depthTest={false} />
+      </mesh>
+
+      <mesh ref={diagMarkerLHand}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0xfacc15} wireframe depthTest={false} />
+      </mesh>
+
+      {/* Diagnostic Left Hand Target (Dual Diamond Gizmo) */}
+      <group ref={diagMarkerLTarget}>
+        <mesh>
+          <octahedronGeometry args={[0.032, 0]} />
+          <meshBasicMaterial color={0xffff55} wireframe depthTest={false} />
+        </mesh>
+      </group>
+
+      {/* Right Diagnostic Test Markers */}
+      <mesh ref={diagMarkerRShoulder}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0xfb923c} wireframe depthTest={false} />
+      </mesh>
+
+      <mesh ref={diagMarkerRElbow}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0x38bdf8} wireframe depthTest={false} />
+      </mesh>
+
+      <mesh ref={diagMarkerRHand}>
+        <octahedronGeometry args={[0.02, 0]} />
+        <meshBasicMaterial color={0xf87171} wireframe depthTest={false} />
+      </mesh>
+
+      {/* Diagnostic Right Hand Target */}
+      <group ref={diagMarkerRTarget}>
+        <mesh>
+          <octahedronGeometry args={[0.032, 0]} />
+          <meshBasicMaterial color={0xff4477} wireframe depthTest={false} />
+        </mesh>
+      </group>
+
+      {/* Diagnostic Test Skeletal Lines */}
+      <primitive object={diagLeftArmLineMesh} />
+      <primitive object={diagRightArmLineMesh} />
+
+      {/* Diagnostic Test Violin Transform Gizmo & Ghost Frame */}
+      <group ref={diagViolinAxes}>
+        <primitive object={new THREE.AxesHelper(0.14)} />
+        {/* Subtle wireframe bounding guide for violin orientation testing */}
+        <mesh position={[0, 0.05, 0]}>
+          <boxGeometry args={[0.18, 0.52, 0.05]} />
+          <meshBasicMaterial color={0x00ffff} wireframe transparent opacity={0.35} depthTest={false} />
+        </mesh>
+      </group>
+
+      {/* Diagnostic Test Bow Transform Gizmo & Ghost Frame */}
+      <group ref={diagBowAxes}>
+        <primitive object={new THREE.AxesHelper(0.14)} />
+        {/* Subtle wireframe guide for bow translation and tilt testing */}
+        <mesh position={[0, 0, 0]}>
+          <boxGeometry args={[0.02, 0.72, 0.02]} />
+          <meshBasicMaterial color={0xffaa00} wireframe transparent opacity={0.35} depthTest={false} />
+        </mesh>
+      </group>
     </group>
   );
 };

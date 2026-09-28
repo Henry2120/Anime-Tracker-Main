@@ -4,15 +4,37 @@ import { useFrame } from '@react-three/fiber';
 import { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { createViolinProp, createBowProp, disposePropHierarchy } from './ViolinProp';
 import { solveTwoBoneIK } from '../utils/violinKinematics';
-import { ViolinPoseDebugger, ViolinDebugNumericData } from './ViolinPoseDebugger';
+import { ViolinPoseDebugger, ViolinDebugNumericData, DiagnosticTuningValues } from './ViolinPoseDebugger';
+import { extractCharacterBodyFrame } from '../utils/characterBodyFrame';
+import { calculateViolinBodyAnchors, ViolinBodyAnchors } from '../utils/violinBodyAnchors';
 
 export type CharacterPerformanceMode = 'normal' | 'violin';
+
+export const INITIAL_DIAGNOSTIC_TUNING_VALUES: DiagnosticTuningValues = {
+  leftShoulder: { x: 0.16, y: 1.34, z: 0.02 },
+  leftElbow: { x: 0.38, y: 1.18, z: 0.12 },
+  leftHand: { x: 0.22, y: 1.32, z: 0.32 },
+  leftHandTarget: { x: 0.22, y: 1.32, z: 0.32 },
+
+  rightShoulder: { x: -0.16, y: 1.34, z: 0.02 },
+  rightElbow: { x: -0.32, y: 1.12, z: 0.16 },
+  rightHand: { x: -0.12, y: 1.22, z: 0.35 },
+  rightHandTarget: { x: -0.12, y: 1.22, z: 0.35 },
+
+  violinPos: { x: 0.08, y: 0.05, z: 0.20 },
+  violinRot: { x: -0.25, y: -0.55, z: 0.52 },
+
+  bowPos: { x: 0.08, y: 1.25, z: 0.35 },
+  bowRot: { x: 1.45, y: 0.35, z: -0.75 },
+};
 
 export interface ViolinPerformanceProps {
   vrm: VRM | null;
   mode: CharacterPerformanceMode;
   showDebugTargets?: boolean;
+  tuningValues?: DiagnosticTuningValues;
   onDebugDataUpdate?: (data: ViolinDebugNumericData) => void;
+  onAnchorsUpdate?: (anchors: ViolinBodyAnchors) => void;
 }
 
 interface SavedBoneState {
@@ -27,14 +49,16 @@ interface SavedBoneState {
  * - Anatomical Left Arm: Reaches outward from left shoulder to violin neck with natural elbow positioning.
  * - Anatomical Left Hand: Derives orientation from violin world axes to wrap around neck without inward collapse.
  * - Locked Right Arm/Bow/Strings: Stable bow contact at BowContactPoint with curved frog grip.
- * - Isolated Debugger: Houses ViolinPoseDebugger without changing character kinematics.
+ * - Isolated Debugger: Houses ViolinPoseDebugger with live interactive tuning values.
  * - Zero spring-bone simulation (vrm.update is never called).
  */
 export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
   vrm,
   mode,
   showDebugTargets = false,
+  tuningValues = INITIAL_DIAGNOSTIC_TUNING_VALUES,
   onDebugDataUpdate,
+  onAnchorsUpdate,
 }) => {
   const violinGroupRef = useRef<THREE.Group | null>(null);
   const bowGroupRef = useRef<THREE.Group | null>(null);
@@ -143,12 +167,18 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
       humanoid.getNormalizedBoneNode('upperChest' as VRMHumanBoneName) ||
       humanoid.getNormalizedBoneNode('chest' as VRMHumanBoneName);
 
+    const initialBodyFrame = extractCharacterBodyFrame(vrm);
+    const initialAnchors = calculateViolinBodyAnchors(initialBodyFrame);
+
     if (chestBone) {
       violin.scale.setScalar(1.0);
-      // Clean forward position in front of upper-left chest
-      violin.position.set(0.08, 0.05, 0.20);
-      // Rotation: Neck extends to left-front (+X, +Z), soundboard faces outward (+Z, +Y)
-      violin.rotation.set(-0.25, -0.55, 0.52, 'YXZ');
+      if (initialAnchors) {
+        violin.position.copy(initialAnchors.violinMount.localPosition);
+        violin.rotation.copy(initialAnchors.violinMount.localRotation);
+      } else {
+        violin.position.set(0.08, 0.05, 0.20);
+        violin.rotation.set(-0.25, -0.55, 0.52, 'YXZ');
+      }
       chestBone.add(violin);
     } else {
       violin.scale.setScalar(1.0);
@@ -244,7 +274,6 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
       neck.quaternion.setFromEuler(new THREE.Euler(0.04, 0.15, 0.05));
     }
     if (head) {
-      // Turned and tilted toward left chin rest
       head.quaternion.setFromEuler(new THREE.Euler(0.06, 0.16, 0.10));
     }
 
@@ -253,27 +282,37 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
       leftShoulder.quaternion.setFromEuler(new THREE.Euler(0.06, -0.04, 0.08));
     }
 
-    // Update scene graph matrix for character and violin
+    // Extract Body-Relative Character Frame & Compute Canonical Violin Anchors
+    const bodyFrame = extractCharacterBodyFrame(vrm);
+    const anchors = calculateViolinBodyAnchors(bodyFrame);
+
+    if (anchors) {
+      violin.position.copy(anchors.violinMount.localPosition);
+      violin.rotation.copy(anchors.violinMount.localRotation);
+    }
     violin.updateMatrixWorld(true);
 
     // --- STEP 2: Calculate Key Reference Target Positions in World Space ---
     const violinWorldMatrix = violin.matrixWorld;
 
     // Violin Reference points
-    const violinNeckTargetPos = new THREE.Vector3(0, 0.205, 0.016).applyMatrix4(violinWorldMatrix);
-    const bowContactPointPos = new THREE.Vector3(0, 0.045, 0.045).applyMatrix4(violinWorldMatrix);
+    const violinNeckTargetPos = anchors
+      ? anchors.violinNeckTarget
+      : new THREE.Vector3(0, 0.205, 0.016).applyMatrix4(violinWorldMatrix);
+    const bowContactPointPos = anchors
+      ? anchors.bowContactPoint
+      : new THREE.Vector3(0, 0.045, 0.045).applyMatrix4(violinWorldMatrix);
 
     // Violin world axes
-    const violinDirY = new THREE.Vector3(0, 1, 0).transformDirection(violinWorldMatrix).normalize(); // String/neck direction (+Y scroll)
-    const violinDirZ = new THREE.Vector3(0, 0, 1).transformDirection(violinWorldMatrix).normalize(); // Soundboard normal (+Z front)
-    
-    // Bowing direction perpendicular to strings and parallel to soundboard
+    const violinDirY = new THREE.Vector3(0, 1, 0).transformDirection(violinWorldMatrix).normalize();
+    const violinDirZ = new THREE.Vector3(0, 0, 1).transformDirection(violinWorldMatrix).normalize();
     const bowingDirWorld = new THREE.Vector3().crossVectors(violinDirY, violinDirZ).normalize();
 
-    // --- STEP 3: Solve Left Arm Two-Bone IK (Reaching Outward to Violin Neck) ---
+    // --- STEP 3: Solve Left Arm Two-Bone IK (Reaching Outward to Body-Relative Violin Neck) ---
     if (leftUpperArm && leftLowerArm && leftHand) {
-      // Left Hand Target sits directly on the violin neck/fingerboard
-      const leftHandTargetPos = violinNeckTargetPos.clone().addScaledVector(violinDirZ, -0.012);
+      const leftHandTargetPos = anchors
+        ? anchors.leftHandTarget
+        : violinNeckTargetPos.clone().addScaledVector(violinDirZ, -0.012);
       leftHandTargetPosRef.current.copy(leftHandTargetPos);
       
       const bendHintLeftElbow = bendHintLeftElbowRef.current;
@@ -309,12 +348,10 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
         if (node) node.quaternion.setFromEuler(new THREE.Euler(x, y, z));
       };
 
-      // Thumb opposes the fingers on the underside of the neck
       setBoneRot('leftThumbMetacarpal' as VRMHumanBoneName, 0.12, 0.10, 0.08);
       setBoneRot('leftThumbProximal' as VRMHumanBoneName, 0.32, 0.12, 0.18);
       setBoneRot('leftThumbDistal' as VRMHumanBoneName, 0.22, 0.05, 0.10);
 
-      // Fingers curl over the top and wrap around fingerboard
       setBoneRot('leftIndexProximal' as VRMHumanBoneName, 0.52, 0.05, 0.12);
       setBoneRot('leftIndexIntermediate' as VRMHumanBoneName, 0.60, 0.0, 0.0);
       setBoneRot('leftIndexDistal' as VRMHumanBoneName, 0.32, 0.0, 0.0);
@@ -333,20 +370,25 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
     }
 
     // --- STEP 4: Position and Orient Bow (Resting Directly on Strings) ---
-    const bowUp = bowingDirWorld.clone();
-    const bowForward = violinDirZ.clone().negate();
-    const bowRight = new THREE.Vector3().crossVectors(bowUp, bowForward).normalize();
+    if (anchors) {
+      bow.position.copy(anchors.bowTransform.worldPosition);
+      bow.quaternion.copy(anchors.bowTransform.worldQuaternion);
+    } else {
+      const bowUp = bowingDirWorld.clone();
+      const bowForward = violinDirZ.clone().negate();
+      const bowRight = new THREE.Vector3().crossVectors(bowUp, bowForward).normalize();
 
-    const bowWorldMat = new THREE.Matrix4().makeBasis(bowRight, bowUp, bowForward);
-    const bowWorldQuat = new THREE.Quaternion().setFromRotationMatrix(bowWorldMat);
+      const bowWorldMat = new THREE.Matrix4().makeBasis(bowRight, bowUp, bowForward);
+      const bowWorldQuat = new THREE.Quaternion().setFromRotationMatrix(bowWorldMat);
 
-    // Place bow center so that hair contacts strings at bowContactPointPos
-    bow.position.copy(bowContactPointPos);
-    bow.quaternion.copy(bowWorldQuat);
+      bow.position.copy(bowContactPointPos);
+      bow.quaternion.copy(bowWorldQuat);
+    }
     bow.updateMatrixWorld(true);
 
-    // Bow Frog / Grip world position (Frog is at local y = -0.30 on bow)
-    const bowGripTargetPos = new THREE.Vector3(0, -0.30, 0).applyMatrix4(bow.matrixWorld);
+    const bowGripTargetPos = anchors
+      ? anchors.bowGripTarget
+      : new THREE.Vector3(0, -0.30, 0).applyMatrix4(bow.matrixWorld);
     rightHandTargetPosRef.current.copy(bowGripTargetPos);
 
     // --- STEP 5: Solve Right Arm Two-Bone IK (Gripping Bow Frog) ---
@@ -367,7 +409,7 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
       const handGripAlign = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(0.25, 0.15, -0.35)
       );
-      rightHand.quaternion.copy(bowWorldQuat).multiply(handGripAlign);
+      rightHand.quaternion.copy(bow.quaternion).multiply(handGripAlign);
 
       // Right Fingers: Visibly curled around the bow frog/grip
       const setRightFinger = (name: VRMHumanBoneName, x: number, y: number, z: number) => {
@@ -375,12 +417,10 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
         if (node) node.quaternion.setFromEuler(new THREE.Euler(x, y, z));
       };
 
-      // Thumb opposes the frog from underneath
       setRightFinger('rightThumbMetacarpal' as VRMHumanBoneName, 0.15, -0.1, -0.1);
       setRightFinger('rightThumbProximal' as VRMHumanBoneName, 0.45, -0.15, -0.15);
       setRightFinger('rightThumbDistal' as VRMHumanBoneName, 0.30, -0.05, -0.1);
 
-      // Fingers wrap curved around the stick and frog
       setRightFinger('rightIndexProximal' as VRMHumanBoneName, 0.55, -0.05, -0.08);
       setRightFinger('rightIndexIntermediate' as VRMHumanBoneName, 0.65, 0.0, 0.0);
       setRightFinger('rightIndexDistal' as VRMHumanBoneName, 0.35, 0.0, 0.0);
@@ -395,7 +435,12 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
 
       setRightFinger('rightLittleProximal' as VRMHumanBoneName, 0.45, 0.08, -0.05);
       setRightFinger('rightLittleIntermediate' as VRMHumanBoneName, 0.55, 0.0, 0.0);
-      setRightLittleFinger: setRightFinger('rightLittleDistal' as VRMHumanBoneName, 0.30, 0.0, 0.0);
+      setRightFinger('rightLittleDistal' as VRMHumanBoneName, 0.30, 0.0, 0.0);
+    }
+
+    // Notify listeners with calculated body-relative anchors
+    if (anchors) {
+      onAnchorsUpdate?.(anchors);
     }
 
     // --- STEP 6: Synchronize Normalized Humanoid Bones to Mesh ---
@@ -414,6 +459,7 @@ export const ViolinPerformance: React.FC<ViolinPerformanceProps> = ({
           rightHandTargetPos={rightHandTargetPosRef.current}
           bendHintLeftElbow={bendHintLeftElbowRef.current}
           bendHintRightElbow={bendHintRightElbowRef.current}
+          tuningValues={tuningValues}
           enabled={showDebugTargets}
           onDataUpdate={onDebugDataUpdate}
         />

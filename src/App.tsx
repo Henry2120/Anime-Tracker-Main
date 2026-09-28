@@ -28,18 +28,24 @@ import { AppTheme } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { MalCatalogueSearchResults } from './components/MalCatalogueSearchResults';
 import { SeasonTable } from './components/SeasonTable';
+import { SeasonSelector } from './components/SeasonSelector';
+import { WelcomePage } from './components/WelcomePage';
+import { ViewErrorBoundary } from './components/ViewErrorBoundary';
+import { lazyWithRetry } from './utils/lazyWithRetry';
+import type { EditableAnimeData } from './components/EditMalEntryModal';
+import type { AnimeDetailData } from './components/AnimeDetailModal';
 
-// Lazy-loaded heavy tab views for AniVerse 4.0 Performance Foundation
-const ReleaseCalendar = lazy(() =>
+// Lazy-loaded heavy tab views for AniVerse 4.0 Performance Foundation with dynamic import retry
+const ReleaseCalendar = lazyWithRetry(() =>
   import('./components/ReleaseCalendar').then((m) => ({ default: m.ReleaseCalendar }))
 );
-const StatusDashboard = lazy(() =>
+const StatusDashboard = lazyWithRetry(() =>
   import('./components/StatusDashboard').then((m) => ({ default: m.StatusDashboard }))
 );
-const GeminiInsightsView = lazy(() =>
+const GeminiInsightsView = lazyWithRetry(() =>
   import('./components/GeminiInsightsView').then((m) => ({ default: m.GeminiInsightsView }))
 );
-const SeasonReview = lazy(() =>
+const SeasonReview = lazyWithRetry(() =>
   import('./components/SeasonReview').then((m) => ({ default: m.SeasonReview }))
 );
 
@@ -51,19 +57,15 @@ const TabLoadingFallback: React.FC = () => (
     </span>
   </div>
 );
-import { SeasonSelector } from './components/SeasonSelector';
-import { WelcomePage } from './components/WelcomePage';
-import type { EditableAnimeData } from './components/EditMalEntryModal';
-import type { AnimeDetailData } from './components/AnimeDetailModal';
 
 // Lazily loaded modal components to keep initial bundle lean
-const AboutModal = lazy(() => import('./components/AboutModal').then((m) => ({ default: m.AboutModal })));
-const ExcelExportModal = lazy(() => import('./components/ExcelExportModal').then((m) => ({ default: m.ExcelExportModal })));
-const EditMalEntryModal = lazy(() => import('./components/EditMalEntryModal').then((m) => ({ default: m.EditMalEntryModal })));
-const AnimeDetailModal = lazy(() => import('./components/AnimeDetailModal').then((m) => ({ default: m.AnimeDetailModal })));
+const AboutModal = lazyWithRetry(() => import('./components/AboutModal').then((m) => ({ default: m.AboutModal })));
+const ExcelExportModal = lazyWithRetry(() => import('./components/ExcelExportModal').then((m) => ({ default: m.ExcelExportModal })));
+const EditMalEntryModal = lazyWithRetry(() => import('./components/EditMalEntryModal').then((m) => ({ default: m.EditMalEntryModal })));
+const AnimeDetailModal = lazyWithRetry(() => import('./components/AnimeDetailModal').then((m) => ({ default: m.AnimeDetailModal })));
 
-// Lazily loaded Music Lab world component
-const MusicLabView = lazy(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })));
+// Lazily loaded Music Lab world component with resilient dynamic loading
+const MusicLabView = lazyWithRetry(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })));
 
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
@@ -1743,30 +1745,35 @@ export default function App() {
   if (appMode === 'music') {
     return (
       <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
-        <Suspense
-          fallback={
-            <div className={`min-h-screen w-full flex flex-col items-center justify-center p-4 ${
-              theme === 'dark'
-                ? 'bg-[#141318] text-[#F4F2F7]'
-                : theme === 'sakura'
-                ? 'bg-[#FDF5F7] text-[#25242A]'
-                : 'bg-[#F7F5F2] text-[#25242A]'
-            }`}>
-              <div className="w-10 h-10 rounded-full border-2 border-[#7567C7]/30 border-t-[#7567C7] animate-spin mb-3" />
-              <span className="text-xs font-mono text-[#7567C7] tracking-widest uppercase">
-                Entering Music Lab...
-              </span>
-            </div>
-          }
+        <ViewErrorBoundary
+          viewName="Music Lab"
+          onReset={() => setAppMode('anime')}
         >
-          <MusicLabView
-            onReturnToAnime={() => setAppMode('anime')}
-            onSelectMode={(mode) => setAppMode(mode)}
-            malUser={malUser}
-            theme={theme}
-            onThemeChange={handleThemeChange}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <div className={`min-h-screen w-full flex flex-col items-center justify-center p-4 ${
+                theme === 'dark'
+                  ? 'bg-[#141318] text-[#F4F2F7]'
+                  : theme === 'sakura'
+                  ? 'bg-[#FDF5F7] text-[#25242A]'
+                  : 'bg-[#F7F5F2] text-[#25242A]'
+              }`}>
+                <div className="w-10 h-10 rounded-full border-2 border-[#7567C7]/30 border-t-[#7567C7] animate-spin mb-3" />
+                <span className="text-xs font-mono text-[#7567C7] tracking-widest uppercase">
+                  Entering Music Lab...
+                </span>
+              </div>
+            }
+          >
+            <MusicLabView
+              onReturnToAnime={() => setAppMode('anime')}
+              onSelectMode={(mode) => setAppMode(mode)}
+              malUser={malUser}
+              theme={theme}
+              onThemeChange={handleThemeChange}
+            />
+          </Suspense>
+        </ViewErrorBoundary>
       </div>
     );
   }

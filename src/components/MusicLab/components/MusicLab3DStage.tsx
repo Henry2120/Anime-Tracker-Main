@@ -12,21 +12,32 @@ import {
   CheckCircle2,
   Music2,
   User,
-  Bug,
-  ChevronDown,
-  ChevronUp,
+  Target,
+  Sliders,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
-import { VRMCharacterModel } from './VRMCharacterModel';
+import { VRMCharacterModel, VRMModelLoadedInfo } from './VRMCharacterModel';
 import { CharacterPerformanceMode } from './ViolinPerformance';
-import { ViolinDebugNumericData } from './ViolinPoseDebugger';
+import { Vector3State } from './ViolinPoseSandbox';
+import { PoseSandboxPanel } from './PoseSandboxPanel';
+import { VRMBodyMetrics } from '../utils/vrmMetrics';
+import { ViolinBodyAnchors } from '../utils/violinBodyAnchors';
 
 interface MusicLab3DStageProps {
   theme?: AppTheme;
   className?: string;
   onReturnToEnsemble?: () => void;
 }
+
+// Initial default coordinates for Sandbox Left Arm & Test Violin
+const INITIAL_SHOULDER: Vector3State = { x: 0.14, y: 1.25, z: 0.0 };
+const INITIAL_ELBOW: Vector3State = { x: 0.32, y: 1.06, z: 0.12 };
+const INITIAL_HAND: Vector3State = { x: 0.18, y: 1.25, z: 0.28 };
+
+const INITIAL_VIOLIN_POS: Vector3State = { x: 0.08, y: 1.22, z: 0.20 };
+const INITIAL_VIOLIN_ROT: Vector3State = { x: -0.25, y: -0.55, z: 0.52 };
+const INITIAL_VIOLIN_SCALE = 1.0;
 
 /**
  * Stage Diorama Environment
@@ -132,16 +143,39 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
 
   // Explicit Performance Mode: 'normal' (default T-pose) vs 'violin'
   const [performanceMode, setPerformanceMode] = useState<CharacterPerformanceMode>('normal');
-  
-  // Temporary Violin Pose Debugger Toggle
-  const [showViolinPoseDebug, setShowViolinPoseDebug] = useState<boolean>(false);
-  const [debugData, setDebugData] = useState<ViolinDebugNumericData | null>(null);
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState<boolean>(false);
+  const [showDebugTargets, setShowDebugTargets] = useState<boolean>(false);
+
+  // =========================================================================
+  // Interactive Pose Sandbox State (Purely experimental, zero IK modification)
+  // =========================================================================
+  const [sandboxEnabled, setSandboxEnabled] = useState<boolean>(false);
+  const [leftShoulder, setLeftShoulder] = useState<Vector3State>(INITIAL_SHOULDER);
+  const [leftElbow, setLeftElbow] = useState<Vector3State>(INITIAL_ELBOW);
+  const [leftHand, setLeftHand] = useState<Vector3State>(INITIAL_HAND);
+  const [showActualBones, setShowActualBones] = useState<boolean>(false);
+
+  const [violinPos, setViolinPos] = useState<Vector3State>(INITIAL_VIOLIN_POS);
+  const [violinRot, setViolinRot] = useState<Vector3State>(INITIAL_VIOLIN_ROT);
+  const [violinScale, setViolinScale] = useState<number>(INITIAL_VIOLIN_SCALE);
+
+  const handleResetLeftArm = () => {
+    setLeftShoulder({ ...INITIAL_SHOULDER });
+    setLeftElbow({ ...INITIAL_ELBOW });
+    setLeftHand({ ...INITIAL_HAND });
+  };
+
+  const handleResetViolin = () => {
+    setViolinPos({ ...INITIAL_VIOLIN_POS });
+    setViolinRot({ ...INITIAL_VIOLIN_ROT });
+    setViolinScale(INITIAL_VIOLIN_SCALE);
+  };
 
   // Custom user uploaded VRM/GLB model URL
   const [customModelUrl, setCustomModelUrl] = useState<string | null>(null);
   const [customFileName, setCustomFileName] = useState<string | null>(null);
-  const [modelStatus, setModelStatus] = useState<{ isVRM: boolean; vrmVersion?: string; boneCount?: number } | null>(null);
+  const [modelStatus, setModelStatus] = useState<VRMModelLoadedInfo | null>(null);
+  const [characterMetrics, setCharacterMetrics] = useState<VRMBodyMetrics | null>(null);
+  const [violinAnchors, setViolinAnchors] = useState<ViolinBodyAnchors | null>(null);
   const [loadNotice, setLoadNotice] = useState<string | null>(null);
   const [cameraPreset, setCameraPreset] = useState<'front' | 'threeQuarter' | 'side' | 'faceCloseup' | 'fullBody'>('threeQuarter');
 
@@ -150,17 +184,14 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   const blobUrlRef = useRef<string | null>(null);
 
   // Stable callback handlers
-  const handleModelLoaded = useCallback((info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => {
+  const handleModelLoaded = useCallback((info: VRMModelLoadedInfo) => {
     setModelStatus(info);
+    setCharacterMetrics(info.metrics || null);
     setLoadNotice(null);
   }, []);
 
   const handleModelError = useCallback((msg: string) => {
     setLoadNotice(msg);
-  }, []);
-
-  const handleDebugDataUpdate = useCallback((data: ViolinDebugNumericData) => {
-    setDebugData(data);
   }, []);
 
   // Cleanup Blob URLs on replacement or unmount to avoid memory leaks
@@ -214,11 +245,6 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
     controls.update();
   };
 
-  const formatCoord = (pt?: { x: number; y: number; z: number } | null) => {
-    if (!pt) return 'MISSING';
-    return `[${pt.x >= 0 ? '+' : ''}${pt.x.toFixed(3)}, ${pt.y >= 0 ? '+' : ''}${pt.y.toFixed(3)}, ${pt.z >= 0 ? '+' : ''}${pt.z.toFixed(3)}]`;
-  };
-
   return (
     <div className={`relative w-full rounded-3xl overflow-hidden border shadow-2xl flex flex-col ${containerBg} ${className}`}>
       {/* Top Header Bar */}
@@ -238,7 +264,9 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              {performanceMode === 'violin'
+              {sandboxEnabled
+                ? 'Interactive Pose Sandbox Active • Real-Time Number -> 3D Coordinate Mapping'
+                : performanceMode === 'violin'
                 ? 'Target-Driven Violin Rig • Two-Bone IK Kinematics'
                 : 'Normal Model Viewer • Authored T-Pose'}
             </p>
@@ -274,20 +302,35 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             </button>
           </div>
 
-          {/* Temporary Visual Pose Debugger Toggle */}
-          {performanceMode === 'violin' && (
+          {/* Interactive Pose Sandbox Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setSandboxEnabled((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border shadow-xs ${
+              sandboxEnabled
+                ? 'bg-amber-400 text-black border-amber-500 shadow-amber-500/20'
+                : 'bg-white/80 dark:bg-white/10 text-[#25242A] dark:text-[#F4F2F7] hover:bg-amber-500/15 border-[#E7E3DF] dark:border-[#2E2C37]'
+            }`}
+            title="Open Interactive Pose Sandbox (Editable 3D Points & Test Violin)"
+          >
+            <Sliders className="h-3.5 w-3.5" />
+            <span>{sandboxEnabled ? 'Sandbox: Open' : 'Pose Sandbox'}</span>
+          </button>
+
+          {/* Optional Performance IK Debug Targets Toggle (when performance is active) */}
+          {performanceMode === 'violin' && !sandboxEnabled && (
             <button
               type="button"
-              onClick={() => setShowViolinPoseDebug((prev) => !prev)}
+              onClick={() => setShowDebugTargets((prev) => !prev)}
               className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                showViolinPoseDebug
-                  ? 'bg-amber-500 text-black border-amber-600 font-bold shadow-md ring-2 ring-amber-400/40'
+                showDebugTargets
+                  ? 'bg-amber-500 text-black border-amber-600 font-bold'
                   : 'bg-white/80 dark:bg-white/10 text-[#77747D] dark:text-[#A8A4B2] border-[#E7E3DF] dark:border-[#2E2C37]'
               }`}
-              title="Toggle Temporary Visual Violin Pose Debugger"
+              title="Toggle Performance IK Debug Targets"
             >
-              <Bug className="h-3.5 w-3.5" />
-              <span>{showViolinPoseDebug ? 'Pose Debug: ON' : 'Pose Debug: OFF'}</span>
+              <Target className="h-3.5 w-3.5" />
+              <span>{showDebugTargets ? 'Targets: Visible' : 'Targets: Off'}</span>
             </button>
           )}
 
@@ -323,7 +366,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
       </div>
 
       {/* 3D Canvas Viewport */}
-      <div className="relative w-full h-[520px] sm:h-[600px] bg-gradient-to-b from-transparent to-black/5 dark:to-black/30">
+      <div className="relative w-full h-[480px] sm:h-[580px] bg-gradient-to-b from-transparent to-black/5 dark:to-black/30">
         <Canvas
           shadows
           camera={{ position: [1.6, 1.15, 2.4], fov: 38 }}
@@ -350,10 +393,18 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               position={[0, 0, 0]}
               scale={1.0}
               mode={performanceMode}
-              showDebugTargets={showViolinPoseDebug}
-              onDebugDataUpdate={handleDebugDataUpdate}
+              showDebugTargets={showDebugTargets}
+              sandboxEnabled={sandboxEnabled}
+              sandboxLeftShoulder={leftShoulder}
+              sandboxLeftElbow={leftElbow}
+              sandboxLeftHand={leftHand}
+              sandboxShowActualBones={showActualBones}
+              sandboxViolinPos={violinPos}
+              sandboxViolinRot={violinRot}
+              sandboxViolinScale={violinScale}
               onModelLoaded={handleModelLoaded}
               onError={handleModelError}
+              onAnchorsUpdate={setViolinAnchors}
             />
           </Suspense>
         </Canvas>
@@ -386,6 +437,31 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           ))}
         </div>
 
+        {/* Interactive Pose Sandbox Diagnostics Panel (Floating Right) */}
+        {sandboxEnabled && (
+          <PoseSandboxPanel
+            leftShoulder={leftShoulder}
+            setLeftShoulder={setLeftShoulder}
+            leftElbow={leftElbow}
+            setLeftElbow={setLeftElbow}
+            leftHand={leftHand}
+            setLeftHand={setLeftHand}
+            onResetLeftArm={handleResetLeftArm}
+            showActualBones={showActualBones}
+            setShowActualBones={setShowActualBones}
+            violinPos={violinPos}
+            setViolinPos={setViolinPos}
+            violinRot={violinRot}
+            setViolinRot={setViolinRot}
+            violinScale={violinScale}
+            setViolinScale={setViolinScale}
+            onResetViolin={handleResetViolin}
+            characterMetrics={characterMetrics}
+            violinAnchors={violinAnchors}
+            onClose={() => setSandboxEnabled(false)}
+          />
+        )}
+
         {/* Model Asset Notice / Upload Prompt */}
         {loadNotice && !customModelUrl && (
           <div className="absolute top-14 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-black/80 backdrop-blur-md border border-amber-500/30 text-white text-xs max-w-md shadow-2xl space-y-1.5 text-center z-10">
@@ -407,83 +483,6 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           </div>
         )}
 
-        {/* Temporary Numeric Diagnostics Overlay Panel (Top/Mid Right) */}
-        {showViolinPoseDebug && performanceMode === 'violin' && debugData && (
-          <div className="absolute top-3 right-3 max-w-[340px] w-full max-h-[92%] overflow-y-auto rounded-2xl bg-black/90 backdrop-blur-md border border-amber-500/40 text-white text-[11px] shadow-2xl p-3 space-y-2 z-20 font-mono">
-            <div className="flex items-center justify-between pb-1.5 border-b border-white/15">
-              <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                <Bug className="h-3.5 w-3.5" />
-                <span>VIOLIN POSE DIAGNOSTICS</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPanelCollapsed((prev) => !prev)}
-                className="p-1 text-white/60 hover:text-white transition-colors cursor-pointer"
-              >
-                {isPanelCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-              </button>
-            </div>
-
-            {!isPanelCollapsed && (
-              <div className="space-y-2 text-[10px]">
-                {/* Left Arm Chain */}
-                <div className="p-2 rounded-xl bg-white/5 border border-pink-500/30 space-y-1">
-                  <div className="text-pink-400 font-bold flex items-center justify-between">
-                    <span>LEFT ARM (Actual vs Target)</span>
-                    <span className="text-[9px] text-pink-300/80">Pink → Blue → Yellow</span>
-                  </div>
-                  <div className="text-white/80">
-                    <div>• <strong>SHOULDER:</strong> <span className="text-pink-300">{formatCoord(debugData.leftShoulder)}</span></div>
-                    <div>• <strong>ELBOW:</strong> <span className="text-blue-300">{formatCoord(debugData.leftElbow)}</span></div>
-                    <div>• <strong>ACTUAL HAND:</strong> <span className="text-yellow-300 font-bold">{formatCoord(debugData.leftHand)}</span></div>
-                    <div>• <strong>HAND TARGET:</strong> <span className="text-yellow-400 font-bold">{formatCoord(debugData.leftHandTarget)}</span></div>
-                  </div>
-                </div>
-
-                {/* Right Arm Chain */}
-                <div className="p-2 rounded-xl bg-white/5 border border-orange-500/30 space-y-1">
-                  <div className="text-orange-400 font-bold flex items-center justify-between">
-                    <span>RIGHT ARM (Actual vs Target)</span>
-                    <span className="text-[9px] text-orange-300/80">Orange → Blue → Red</span>
-                  </div>
-                  <div className="text-white/80">
-                    <div>• <strong>SHOULDER:</strong> <span className="text-orange-300">{formatCoord(debugData.rightShoulder)}</span></div>
-                    <div>• <strong>ELBOW:</strong> <span className="text-blue-300">{formatCoord(debugData.rightElbow)}</span></div>
-                    <div>• <strong>ACTUAL HAND:</strong> <span className="text-red-300 font-bold">{formatCoord(debugData.rightHand)}</span></div>
-                    <div>• <strong>HAND TARGET:</strong> <span className="text-red-400 font-bold">{formatCoord(debugData.rightHandTarget)}</span></div>
-                  </div>
-                </div>
-
-                {/* Violin & Bow References */}
-                <div className="p-2 rounded-xl bg-white/5 border border-emerald-500/30 space-y-1">
-                  <div className="text-emerald-400 font-bold">INSTRUMENT ANCHORS</div>
-                  <div className="text-white/80 space-y-0.5">
-                    <div>• <strong>NECK TARGET:</strong> <span className="text-emerald-300">{formatCoord(debugData.violinNeckTarget)}</span></div>
-                    <div>• <strong>BODY CENTER:</strong> <span className="text-cyan-300">{formatCoord(debugData.violinBodyCenter)}</span></div>
-                    <div>• <strong>CHIN REST:</strong> <span className="text-white">{formatCoord(debugData.chinRestTarget)}</span></div>
-                    <div>• <strong>BOW CONTACT:</strong> <span className="text-rose-400">{formatCoord(debugData.bowContactPoint)}</span></div>
-                    <div>• <strong>BOW GRIP:</strong> <span className="text-amber-400">{formatCoord(debugData.bowGripPoint)}</span></div>
-                  </div>
-                </div>
-
-                {/* Bone Presence Status */}
-                <div className="p-1.5 rounded-xl bg-white/5 border border-white/10 text-[9px] flex flex-wrap gap-1">
-                  {Object.entries(debugData.boneStatus).map(([name, exists]) => (
-                    <span
-                      key={name}
-                      className={`px-1.5 py-0.5 rounded ${
-                        exists ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' : 'bg-red-950 text-red-300 border border-red-700/50'
-                      }`}
-                    >
-                      {name}: {exists ? 'OK' : 'MISSING'}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Model Info HUD (Bottom Left) */}
         <div className="absolute bottom-4 left-4 pointer-events-none p-3 rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 text-white text-xs max-w-xs shadow-xl space-y-1 z-10">
           <div className="flex items-center gap-1.5 text-[#C4B9FC] font-bold text-xs">
@@ -496,26 +495,29 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             {modelStatus?.boneCount !== undefined && (
               <div>• <strong className="text-white">Humanoid Bones:</strong> {modelStatus.boneCount}</div>
             )}
-            <div>
-              • <strong className="text-white">State:</strong>{' '}
-              <span className={performanceMode === 'violin' ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-medium'}>
-                {performanceMode === 'violin' ? 'Violin Performance' : 'Normal / T-Pose'}
-              </span>
-            </div>
-            {showViolinPoseDebug && performanceMode === 'violin' && (
+            {characterMetrics && (
               <div>
-                • <strong className="text-amber-400">Debugger:</strong>{' '}
-                <span className="text-amber-300 font-bold">Active (Axes & Markers Visible)</span>
+                • <strong className="text-white">Proportions:</strong> H: {characterMetrics.characterHeight}m
+                {characterMetrics.shoulderWidth ? ` • W: ${characterMetrics.shoulderWidth}m` : ''}
+                {characterMetrics.leftArm.totalArmLength ? ` • Arm: ${characterMetrics.leftArm.totalArmLength}m` : ''}
               </div>
             )}
+            <div>
+              • <strong className="text-white">State:</strong>{' '}
+              <span className={sandboxEnabled ? 'text-amber-300 font-bold' : performanceMode === 'violin' ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-medium'}>
+                {sandboxEnabled ? 'Pose Sandbox Active' : performanceMode === 'violin' ? 'Violin Performance' : 'Normal / T-Pose'}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Interaction Hint (Top Right) */}
-        <div className="absolute bottom-4 right-4 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10 z-10">
-          <Eye className="h-3 w-3" />
-          <span>Left-drag to rotate • Scroll to zoom • Right-drag to pan</span>
-        </div>
+        {!sandboxEnabled && (
+          <div className="absolute top-3 right-3 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10 z-10">
+            <Eye className="h-3 w-3" />
+            <span>Left-drag to rotate • Scroll to zoom • Right-drag to pan</span>
+          </div>
+        )}
       </div>
     </div>
   );
