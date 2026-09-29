@@ -1,14 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { CharacterModelConfig } from '../characters/registry';
-import { ViolinPerformance, CharacterPerformanceMode } from './ViolinPerformance';
-import { extractVRMMetrics, logVRMMetrics } from '../utils/vrmMetrics';
-import { buildCharacterBodyFrame, logCharacterBodyFrame } from '../utils/characterBodyFrame';
-import { buildViolinPerformanceFrame, logViolinPerformanceFrame } from '../utils/violinPerformanceFrame';
-import { buildReferenceCalibration, logReferenceCalibration } from '../utils/violinReferenceCalibration';
-import { buildUniversalViolinAdapter, logUniversalViolinAdapter } from '../utils/violinUniversalAdapter';
+import { ViolinPerformance } from './ViolinPerformance';
+import { ReferencePoseData, RetargetDiagnostics } from './ViolinPoseLab/referenceTypes';
+import { REFERENCE_MODELS } from './ViolinPoseLab/referenceRegistry';
 
 export interface VRMCharacterModelProps {
   modelConfig: CharacterModelConfig;
@@ -16,17 +13,17 @@ export interface VRMCharacterModelProps {
   scale?: number;
   position?: [number, number, number];
   rotation?: [number, number, number];
-  mode?: CharacterPerformanceMode;
-  showDebugTargets?: boolean;
+  reference?: ReferencePoseData;
+  isTPose?: boolean;
+  onDiagnosticsUpdate?: (diag: RetargetDiagnostics) => void;
   onModelLoaded?: (info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => void;
   onError?: (err: string) => void;
+  showSkeleton?: boolean;
 }
 
 /**
- * VRM & GLB Character Model
- * Loads and renders the VRM model once.
- * Toggles target-driven violin performance rig without reloading or recreating the model.
- * Spring-bone simulation is intentionally disabled.
+ * VRM & GLB Target Character Model (`test.vrm`)
+ * Hosts the Violin Reference Matching Lab without recreating the model.
  */
 export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   modelConfig,
@@ -34,10 +31,12 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   scale = 1.0,
   position = [0, 0, 0],
   rotation = [0, 0, 0],
-  mode = 'normal',
-  showDebugTargets = false,
+  reference = REFERENCE_MODELS[0],
+  isTPose = false,
+  onDiagnosticsUpdate,
   onModelLoaded,
   onError,
+  showSkeleton = false,
 }) => {
   const containerRef = useRef<THREE.Group>(null);
   const currentModelSceneRef = useRef<THREE.Group | null>(null);
@@ -46,7 +45,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadedVRM, setLoadedVRM] = useState<VRM | null>(null);
 
-  // Keep stable callback refs to prevent any infinite reload loops
+  // Keep stable callback refs to prevent any reload loops
   const onModelLoadedRef = useRef(onModelLoaded);
   onModelLoadedRef.current = onModelLoaded;
   const onErrorRef = useRef(onError);
@@ -118,18 +117,6 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
           setLoadedVRM(vrm);
           setIsLoading(false);
 
-          // Extract read-only anatomical measurements & performance frame (Stage 1-5 diagnostics)
-          const metrics = extractVRMMetrics(vrm);
-          logVRMMetrics(metrics, modelConfig.name || 'VRM Model');
-          const bodyFrame = buildCharacterBodyFrame(vrm);
-          logCharacterBodyFrame(bodyFrame, modelConfig.name || 'VRM Model');
-          const violinFrame = buildViolinPerformanceFrame(bodyFrame);
-          logViolinPerformanceFrame(violinFrame, modelConfig.name || 'VRM Model');
-          const refCal = buildReferenceCalibration(vrm, bodyFrame);
-          logReferenceCalibration(refCal, modelConfig.name || 'VRM Model');
-          const universalFrame = buildUniversalViolinAdapter(vrm, bodyFrame, metrics, refCal);
-          logUniversalViolinAdapter(universalFrame, modelConfig.name || 'VRM Model');
-
           onModelLoadedRef.current?.({
             isVRM: true,
             vrmVersion: vrm.meta?.metaVersion || '1.0',
@@ -184,7 +171,46 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
         currentModelSceneRef.current = null;
       }
     };
-  }, [activeUrl]); // STRICTLY only depend on activeUrl to avoid infinite reloading
+  }, [activeUrl]);
+
+  // Target skeleton joints extracted live for skeleton visualizer overlay
+  const [targetJoints, setTargetJoints] = useState<{
+    head: THREE.Vector3;
+    neck: THREE.Vector3;
+    spine: THREE.Vector3;
+    lShoulder: THREE.Vector3;
+    lElbow: THREE.Vector3;
+    lWrist: THREE.Vector3;
+    rShoulder: THREE.Vector3;
+    rElbow: THREE.Vector3;
+    rWrist: THREE.Vector3;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!loadedVRM || !showSkeleton) return;
+    const interval = setInterval(() => {
+      const hum = loadedVRM.humanoid;
+      if (!hum) return;
+      const getP = (name: VRMHumanBoneName) => {
+        const n = hum.getNormalizedBoneNode(name);
+        const p = new THREE.Vector3();
+        n?.getWorldPosition(p);
+        return p;
+      };
+      setTargetJoints({
+        head: getP('head' as VRMHumanBoneName),
+        neck: getP('neck' as VRMHumanBoneName),
+        spine: getP('spine' as VRMHumanBoneName),
+        lShoulder: getP('leftShoulder' as VRMHumanBoneName),
+        lElbow: getP('leftLowerArm' as VRMHumanBoneName),
+        lWrist: getP('leftHand' as VRMHumanBoneName),
+        rShoulder: getP('rightShoulder' as VRMHumanBoneName),
+        rElbow: getP('rightLowerArm' as VRMHumanBoneName),
+        rWrist: getP('rightHand' as VRMHumanBoneName),
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [loadedVRM, showSkeleton]);
 
   return (
     <group position={position} rotation={rotation} scale={scale}>
@@ -192,9 +218,79 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
       {loadedVRM && (
         <ViolinPerformance
           vrm={loadedVRM}
-          mode={mode}
-          showDebugTargets={showDebugTargets}
+          reference={reference}
+          isTPose={isTPose}
+          onDiagnosticsUpdate={onDiagnosticsUpdate}
+          showSkeleton={showSkeleton}
         />
+      )}
+
+      {/* Target Skeleton Overlay Visualizer (Purple/Gold markers) */}
+      {showSkeleton && targetJoints && (
+        <group>
+          <mesh position={[targetJoints.head.x, targetJoints.head.y, targetJoints.head.z]}>
+            <sphereGeometry args={[0.032, 16, 16]} />
+            <meshBasicMaterial color="#FFB800" />
+          </mesh>
+          <mesh position={[targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z]}>
+            <sphereGeometry args={[0.025, 16, 16]} />
+            <meshBasicMaterial color="#FFB800" />
+          </mesh>
+          <mesh position={[targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z]}>
+            <sphereGeometry args={[0.028, 16, 16]} />
+            <meshBasicMaterial color="#E066FF" />
+          </mesh>
+          <mesh position={[targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z]}>
+            <sphereGeometry args={[0.026, 16, 16]} />
+            <meshBasicMaterial color="#E066FF" />
+          </mesh>
+          <mesh position={[targetJoints.lWrist.x, targetJoints.lWrist.y, targetJoints.lWrist.z]}>
+            <sphereGeometry args={[0.024, 16, 16]} />
+            <meshBasicMaterial color="#E066FF" />
+          </mesh>
+          <mesh position={[targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z]}>
+            <sphereGeometry args={[0.028, 16, 16]} />
+            <meshBasicMaterial color="#FF5588" />
+          </mesh>
+          <mesh position={[targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z]}>
+            <sphereGeometry args={[0.026, 16, 16]} />
+            <meshBasicMaterial color="#FF5588" />
+          </mesh>
+          <mesh position={[targetJoints.rWrist.x, targetJoints.rWrist.y, targetJoints.rWrist.z]}>
+            <sphereGeometry args={[0.024, 16, 16]} />
+            <meshBasicMaterial color="#FF5588" />
+          </mesh>
+
+          <line>
+            <bufferGeometry>
+              <bufferAttribute
+                attach="attributes-position"
+                args={[
+                  new Float32Array([
+                    targetJoints.spine.x, targetJoints.spine.y, targetJoints.spine.z,
+                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
+                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
+                    targetJoints.head.x, targetJoints.head.y, targetJoints.head.z,
+                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
+                    targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z,
+                    targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z,
+                    targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z,
+                    targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z,
+                    targetJoints.lWrist.x, targetJoints.lWrist.y, targetJoints.lWrist.z,
+                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
+                    targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z,
+                    targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z,
+                    targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z,
+                    targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z,
+                    targetJoints.rWrist.x, targetJoints.rWrist.y, targetJoints.rWrist.z,
+                  ]),
+                  3,
+                ]}
+              />
+            </bufferGeometry>
+            <lineBasicMaterial color="#FFB800" linewidth={3} transparent opacity={0.85} />
+          </line>
+        </group>
       )}
     </group>
   );
