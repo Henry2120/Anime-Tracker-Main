@@ -3,9 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { CharacterModelConfig } from '../characters/registry';
-import { ViolinPerformance } from './ViolinPerformance';
-import { ReferencePoseData, RetargetDiagnostics } from './ViolinPoseLab/referenceTypes';
-import { REFERENCE_MODELS } from './ViolinPoseLab/referenceRegistry';
+import { VRMPoseManager } from './PoseEditor/VRMPoseManager';
+import { JointGizmoVisualizer } from './PoseEditor/JointGizmoVisualizer';
 
 export interface VRMCharacterModelProps {
   modelConfig: CharacterModelConfig;
@@ -13,17 +12,21 @@ export interface VRMCharacterModelProps {
   scale?: number;
   position?: [number, number, number];
   rotation?: [number, number, number];
-  reference?: ReferencePoseData;
-  isTPose?: boolean;
-  onDiagnosticsUpdate?: (diag: RetargetDiagnostics) => void;
+  poseManager?: VRMPoseManager | null;
+  selectedBone?: VRMHumanBoneName | null;
+  onSelectBone?: (boneName: VRMHumanBoneName) => void;
+  showSkeleton?: boolean;
+  showJointMarkers?: boolean;
+  showLocalAxes?: boolean;
+  onGizmoDraggingChange?: (isDragging: boolean) => void;
+  onVRMInstanceReady?: (vrm: VRM, manager: VRMPoseManager) => void;
+  onBoneTransformed?: () => void;
   onModelLoaded?: (info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => void;
   onError?: (err: string) => void;
-  showSkeleton?: boolean;
 }
 
 /**
- * VRM & GLB Target Character Model (`test.vrm`)
- * Hosts the Violin Reference Matching Lab without recreating the model.
+ * VRM & GLB Character Model Viewer with Bone Axis Calibration & Skeleton Inspector
  */
 export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   modelConfig,
@@ -31,12 +34,17 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   scale = 1.0,
   position = [0, 0, 0],
   rotation = [0, 0, 0],
-  reference = REFERENCE_MODELS[0],
-  isTPose = false,
-  onDiagnosticsUpdate,
+  poseManager,
+  selectedBone = null,
+  onSelectBone,
+  showSkeleton = false,
+  showJointMarkers = true,
+  showLocalAxes = true,
+  onGizmoDraggingChange,
+  onVRMInstanceReady,
+  onBoneTransformed,
   onModelLoaded,
   onError,
-  showSkeleton = false,
 }) => {
   const containerRef = useRef<THREE.Group>(null);
   const currentModelSceneRef = useRef<THREE.Group | null>(null);
@@ -44,10 +52,12 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadedVRM, setLoadedVRM] = useState<VRM | null>(null);
+  const [internalPoseManager, setInternalPoseManager] = useState<VRMPoseManager | null>(null);
 
-  // Keep stable callback refs to prevent any reload loops
   const onModelLoadedRef = useRef(onModelLoaded);
   onModelLoadedRef.current = onModelLoaded;
+  const onVRMInstanceReadyRef = useRef(onVRMInstanceReady);
+  onVRMInstanceReadyRef.current = onVRMInstanceReady;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -114,7 +124,9 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
             containerRef.current.add(vrm.scene);
           }
 
+          const manager = new VRMPoseManager(vrm);
           setLoadedVRM(vrm);
+          setInternalPoseManager(manager);
           setIsLoading(false);
 
           onModelLoadedRef.current?.({
@@ -122,6 +134,8 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
             vrmVersion: vrm.meta?.metaVersion || '1.0',
             boneCount: Object.keys(vrm.humanoid?.humanBones || {}).length,
           });
+
+          onVRMInstanceReadyRef.current?.(vrm, manager);
         } else {
           // Standard GLTF / GLB model fallback
           const scene = gltf.scene;
@@ -146,6 +160,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
           }
 
           setLoadedVRM(null);
+          setInternalPoseManager(null);
           setIsLoading(false);
           onModelLoadedRef.current?.({
             isVRM: false,
@@ -166,6 +181,7 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
     return () => {
       isMounted = false;
       setLoadedVRM(null);
+      setInternalPoseManager(null);
       if (currentModelSceneRef.current) {
         VRMUtils.deepDispose(currentModelSceneRef.current);
         currentModelSceneRef.current = null;
@@ -173,124 +189,23 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
     };
   }, [activeUrl]);
 
-  // Target skeleton joints extracted live for skeleton visualizer overlay
-  const [targetJoints, setTargetJoints] = useState<{
-    head: THREE.Vector3;
-    neck: THREE.Vector3;
-    spine: THREE.Vector3;
-    lShoulder: THREE.Vector3;
-    lElbow: THREE.Vector3;
-    lWrist: THREE.Vector3;
-    rShoulder: THREE.Vector3;
-    rElbow: THREE.Vector3;
-    rWrist: THREE.Vector3;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!loadedVRM || !showSkeleton) return;
-    const interval = setInterval(() => {
-      const hum = loadedVRM.humanoid;
-      if (!hum) return;
-      const getP = (name: VRMHumanBoneName) => {
-        const n = hum.getNormalizedBoneNode(name);
-        const p = new THREE.Vector3();
-        n?.getWorldPosition(p);
-        return p;
-      };
-      setTargetJoints({
-        head: getP('head' as VRMHumanBoneName),
-        neck: getP('neck' as VRMHumanBoneName),
-        spine: getP('spine' as VRMHumanBoneName),
-        lShoulder: getP('leftShoulder' as VRMHumanBoneName),
-        lElbow: getP('leftLowerArm' as VRMHumanBoneName),
-        lWrist: getP('leftHand' as VRMHumanBoneName),
-        rShoulder: getP('rightShoulder' as VRMHumanBoneName),
-        rElbow: getP('rightLowerArm' as VRMHumanBoneName),
-        rWrist: getP('rightHand' as VRMHumanBoneName),
-      });
-    }, 100);
-    return () => clearInterval(interval);
-  }, [loadedVRM, showSkeleton]);
+  const activePoseManager = poseManager || internalPoseManager;
 
   return (
     <group position={position} rotation={rotation} scale={scale}>
       <group ref={containerRef} />
-      {loadedVRM && (
-        <ViolinPerformance
+      {loadedVRM && activePoseManager && (
+        <JointGizmoVisualizer
           vrm={loadedVRM}
-          reference={reference}
-          isTPose={isTPose}
-          onDiagnosticsUpdate={onDiagnosticsUpdate}
+          poseManager={activePoseManager}
+          selectedBone={selectedBone}
+          onSelectBone={(name) => onSelectBone?.(name)}
           showSkeleton={showSkeleton}
+          showJointMarkers={showJointMarkers}
+          showLocalAxes={showLocalAxes}
+          onGizmoDraggingChange={(dragging) => onGizmoDraggingChange?.(dragging)}
+          onBoneTransformed={onBoneTransformed}
         />
-      )}
-
-      {/* Target Skeleton Overlay Visualizer (Purple/Gold markers) */}
-      {showSkeleton && targetJoints && (
-        <group>
-          <mesh position={[targetJoints.head.x, targetJoints.head.y, targetJoints.head.z]}>
-            <sphereGeometry args={[0.032, 16, 16]} />
-            <meshBasicMaterial color="#FFB800" />
-          </mesh>
-          <mesh position={[targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z]}>
-            <sphereGeometry args={[0.025, 16, 16]} />
-            <meshBasicMaterial color="#FFB800" />
-          </mesh>
-          <mesh position={[targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z]}>
-            <sphereGeometry args={[0.028, 16, 16]} />
-            <meshBasicMaterial color="#E066FF" />
-          </mesh>
-          <mesh position={[targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z]}>
-            <sphereGeometry args={[0.026, 16, 16]} />
-            <meshBasicMaterial color="#E066FF" />
-          </mesh>
-          <mesh position={[targetJoints.lWrist.x, targetJoints.lWrist.y, targetJoints.lWrist.z]}>
-            <sphereGeometry args={[0.024, 16, 16]} />
-            <meshBasicMaterial color="#E066FF" />
-          </mesh>
-          <mesh position={[targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z]}>
-            <sphereGeometry args={[0.028, 16, 16]} />
-            <meshBasicMaterial color="#FF5588" />
-          </mesh>
-          <mesh position={[targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z]}>
-            <sphereGeometry args={[0.026, 16, 16]} />
-            <meshBasicMaterial color="#FF5588" />
-          </mesh>
-          <mesh position={[targetJoints.rWrist.x, targetJoints.rWrist.y, targetJoints.rWrist.z]}>
-            <sphereGeometry args={[0.024, 16, 16]} />
-            <meshBasicMaterial color="#FF5588" />
-          </mesh>
-
-          <line>
-            <bufferGeometry>
-              <bufferAttribute
-                attach="attributes-position"
-                args={[
-                  new Float32Array([
-                    targetJoints.spine.x, targetJoints.spine.y, targetJoints.spine.z,
-                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
-                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
-                    targetJoints.head.x, targetJoints.head.y, targetJoints.head.z,
-                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
-                    targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z,
-                    targetJoints.lShoulder.x, targetJoints.lShoulder.y, targetJoints.lShoulder.z,
-                    targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z,
-                    targetJoints.lElbow.x, targetJoints.lElbow.y, targetJoints.lElbow.z,
-                    targetJoints.lWrist.x, targetJoints.lWrist.y, targetJoints.lWrist.z,
-                    targetJoints.neck.x, targetJoints.neck.y, targetJoints.neck.z,
-                    targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z,
-                    targetJoints.rShoulder.x, targetJoints.rShoulder.y, targetJoints.rShoulder.z,
-                    targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z,
-                    targetJoints.rElbow.x, targetJoints.rElbow.y, targetJoints.rElbow.z,
-                    targetJoints.rWrist.x, targetJoints.rWrist.y, targetJoints.rWrist.z,
-                  ]),
-                  3,
-                ]}
-              />
-            </bufferGeometry>
-            <lineBasicMaterial color="#FFB800" linewidth={3} transparent opacity={0.85} />
-          </line>
-        </group>
       )}
     </group>
   );
