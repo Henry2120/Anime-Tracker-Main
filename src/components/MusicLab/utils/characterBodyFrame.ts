@@ -1,197 +1,247 @@
 import * as THREE from 'three';
 import { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
-import { extractVRMMetrics, VRMBodyMetrics } from './vrmMetrics';
 
-/**
- * Body-Relative Character Frame (Stage 2: Anatomical Coordinate Frame)
- * 
- * Extracts a complete, structured anatomical coordinate frame from the
- * normalized VRM humanoid skeleton in world space.
- * 
- * Coordinate System:
- * - Operates strictly on Normalized VRM Humanoid Bones (+X Left, -X Right, +Y Up, +Z Forward).
- * - All positions and directions are expressed in Three.js world coordinates.
- * - Units are meters.
- */
-
-export interface CharacterBodyLandmarks {
-  hips: THREE.Vector3;
-  spine: THREE.Vector3;
-  chest: THREE.Vector3;
+export interface AnatomicalLandmarks {
+  hips: THREE.Vector3 | null;
+  spine: THREE.Vector3 | null;
+  chest: THREE.Vector3 | null;
   upperChest: THREE.Vector3 | null;
-  /** Primary thoracic anchor (upperChest if available, otherwise chest) */
+  effectiveUpperChest: THREE.Vector3;
   effectiveChest: THREE.Vector3;
-  neck: THREE.Vector3;
-  head: THREE.Vector3;
-  leftShoulder: THREE.Vector3;
-  leftUpperArm: THREE.Vector3;
-  leftLowerArm: THREE.Vector3;
-  leftHand: THREE.Vector3;
-  rightShoulder: THREE.Vector3;
-  rightUpperArm: THREE.Vector3;
-  rightLowerArm: THREE.Vector3;
-  rightHand: THREE.Vector3;
+  neck: THREE.Vector3 | null;
+  head: THREE.Vector3 | null;
+  leftShoulder: THREE.Vector3 | null;
+  rightShoulder: THREE.Vector3 | null;
+  leftUpperArm: THREE.Vector3 | null;
+  rightUpperArm: THREE.Vector3 | null;
+  leftElbow: THREE.Vector3 | null; // leftLowerArm
+  rightElbow: THREE.Vector3 | null; // rightLowerArm
+  leftWrist: THREE.Vector3 | null; // leftHand
+  rightWrist: THREE.Vector3 | null; // rightHand
 }
 
-export interface CharacterBodyDirections {
-  /** Vertical upward axis from spine/hips to neck */
+export interface BodyDirections {
   up: THREE.Vector3;
-  /** Forward facing direction perpendicular to shoulder axis and up */
+  down: THREE.Vector3;
   forward: THREE.Vector3;
-  /** Leftward direction pointing toward character's left arm (+X) */
+  back: THREE.Vector3;
   left: THREE.Vector3;
-  /** Rightward direction pointing toward character's right arm (-X) */
   right: THREE.Vector3;
-  /** Normalized axis from right shoulder socket to left shoulder socket */
-  shoulderAxis: THREE.Vector3;
+  shoulderAxis: THREE.Vector3; // left-to-right vector
+}
+
+export interface AnatomicalRatios {
+  shoulderWidthToHeight: number | null;
+  leftUpperArmToHeight: number | null;
+  leftForearmToHeight: number | null;
+  leftHandToHeight: number | null;
+  leftTotalReachToHeight: number | null;
+  rightUpperArmToHeight: number | null;
+  rightForearmToHeight: number | null;
+  rightHandToHeight: number | null;
+  rightTotalReachToHeight: number | null;
+  torsoLengthToHeight: number | null;
+  neckLengthToHeight: number | null;
 }
 
 export interface CharacterBodyFrame {
-  /** Key 3D anatomical joint positions in world coordinates */
-  landmarks: CharacterBodyLandmarks;
-  /** Normalized orthogonal body direction vectors */
-  directions: CharacterBodyDirections;
-  /** Extracted body segment measurements */
-  metrics: VRMBodyMetrics;
-  /** World transformation matrix of the effective chest bone */
-  chestWorldMatrix: THREE.Matrix4;
-  /** World orientation quaternion of the effective chest bone */
-  chestWorldQuaternion: THREE.Quaternion;
-  /** Normalized bone node of the effective chest */
-  effectiveChestNode: THREE.Object3D | null;
+  height: number;
+  landmarks: AnatomicalLandmarks;
+  directions: BodyDirections;
+  ratios: AnatomicalRatios;
+  hasUpperChest: boolean;
+  hasShoulders: boolean;
+  usedUpperChestFallback: boolean;
 }
 
 /**
- * Safely reads the world position of a normalized humanoid bone.
+ * Safely extracts world position of a normalized humanoid bone.
  */
-function getBonePos(vrm: VRM, boneName: VRMHumanBoneName, fallbackPos: THREE.Vector3): THREE.Vector3 {
-  const node = vrm.humanoid?.getNormalizedBoneNode(boneName);
-  if (!node) return fallbackPos.clone();
+function getBoneWorldPosition(vrm: VRM, boneName: VRMHumanBoneName): THREE.Vector3 | null {
+  const bone = vrm.humanoid?.getNormalizedBoneNode(boneName);
+  if (!bone) return null;
   const pos = new THREE.Vector3();
-  node.getWorldPosition(pos);
+  bone.getWorldPosition(pos);
   return pos;
 }
 
 /**
- * Extracts a complete, body-relative anatomical frame from a loaded VRM humanoid.
- * 
- * @param vrm Loaded VRM model instance
- * @returns CharacterBodyFrame or null if vrm / humanoid is invalid
+ * Constructs an anatomical body coordinate frame from any loaded VRM humanoid model.
+ * Derives natural coordinate directions (up, forward, right) from the skeleton geometry
+ * rather than assuming fixed world axes.
  */
-export function extractCharacterBodyFrame(vrm: VRM | null): CharacterBodyFrame | null {
-  if (!vrm || !vrm.humanoid) return null;
-
-  // Ensure world matrices are up-to-date across the VRM hierarchy
+export function buildCharacterBodyFrame(vrm: VRM): CharacterBodyFrame {
+  // Ensure world transformations are fully resolved
   vrm.scene.updateMatrixWorld(true);
 
-  const humanoid = vrm.humanoid;
-  const metrics = extractVRMMetrics(vrm);
-  if (!metrics) return null;
+  // 1. Total bounding box height
+  const bbox = new THREE.Box3().setFromObject(vrm.scene);
+  const height = Math.max(0.001, bbox.max.y - bbox.min.y);
 
-  // 1. Fetch Key Bone Nodes
-  const hipsNode = humanoid.getNormalizedBoneNode('hips' as VRMHumanBoneName);
-  const spineNode = humanoid.getNormalizedBoneNode('spine' as VRMHumanBoneName);
-  const chestNode = humanoid.getNormalizedBoneNode('chest' as VRMHumanBoneName);
-  const upperChestNode = humanoid.getNormalizedBoneNode('upperChest' as VRMHumanBoneName);
-  const neckNode = humanoid.getNormalizedBoneNode('neck' as VRMHumanBoneName);
+  // 2. Extract landmark positions in world space
+  const hips = getBoneWorldPosition(vrm, 'hips');
+  const spine = getBoneWorldPosition(vrm, 'spine');
+  const chest = getBoneWorldPosition(vrm, 'chest');
+  const upperChest = getBoneWorldPosition(vrm, 'upperChest');
+  const neck = getBoneWorldPosition(vrm, 'neck');
+  const head = getBoneWorldPosition(vrm, 'head');
 
-  const effectiveChestNode = upperChestNode || chestNode || spineNode || hipsNode;
-  const defaultPos = new THREE.Vector3();
+  const leftShoulder = getBoneWorldPosition(vrm, 'leftShoulder');
+  const rightShoulder = getBoneWorldPosition(vrm, 'rightShoulder');
+  const leftUpperArm = getBoneWorldPosition(vrm, 'leftUpperArm');
+  const rightUpperArm = getBoneWorldPosition(vrm, 'rightUpperArm');
+  const leftElbow = getBoneWorldPosition(vrm, 'leftLowerArm');
+  const rightElbow = getBoneWorldPosition(vrm, 'rightLowerArm');
+  const leftWrist = getBoneWorldPosition(vrm, 'leftHand');
+  const rightWrist = getBoneWorldPosition(vrm, 'rightHand');
 
-  // 2. Extract Landmark World Positions
-  const hips = getBonePos(vrm, 'hips' as VRMHumanBoneName, defaultPos);
-  const spine = getBonePos(vrm, 'spine' as VRMHumanBoneName, hips);
-  const chest = getBonePos(vrm, 'chest' as VRMHumanBoneName, spine);
-  const upperChest = upperChestNode ? getBonePos(vrm, 'upperChest' as VRMHumanBoneName, chest) : null;
-  const effectiveChest = upperChest || chest;
-  const neck = getBonePos(vrm, 'neck' as VRMHumanBoneName, effectiveChest);
-  const head = getBonePos(vrm, 'head' as VRMHumanBoneName, neck);
+  // Fallbacks for effective chest / upper chest
+  const hasUpperChest = upperChest !== null;
+  const usedUpperChestFallback = !hasUpperChest;
+  const effectiveUpperChest = (upperChest || chest || spine || hips || new THREE.Vector3(0, height * 0.75, 0)).clone();
+  const effectiveChest = (chest || spine || hips || new THREE.Vector3(0, height * 0.65, 0)).clone();
 
-  const leftShoulder = getBonePos(vrm, 'leftShoulder' as VRMHumanBoneName, effectiveChest);
-  const leftUpperArm = getBonePos(vrm, 'leftUpperArm' as VRMHumanBoneName, leftShoulder);
-  const leftLowerArm = getBonePos(vrm, 'leftLowerArm' as VRMHumanBoneName, leftUpperArm);
-  const leftHand = getBonePos(vrm, 'leftHand' as VRMHumanBoneName, leftLowerArm);
-
-  const rightShoulder = getBonePos(vrm, 'rightShoulder' as VRMHumanBoneName, effectiveChest);
-  const rightUpperArm = getBonePos(vrm, 'rightUpperArm' as VRMHumanBoneName, rightShoulder);
-  const rightLowerArm = getBonePos(vrm, 'rightLowerArm' as VRMHumanBoneName, rightUpperArm);
-  const rightHand = getBonePos(vrm, 'rightHand' as VRMHumanBoneName, rightLowerArm);
-
-  const landmarks: CharacterBodyLandmarks = {
+  const landmarks: AnatomicalLandmarks = {
     hips,
     spine,
     chest,
     upperChest,
+    effectiveUpperChest,
     effectiveChest,
     neck,
     head,
     leftShoulder,
-    leftUpperArm,
-    leftLowerArm,
-    leftHand,
     rightShoulder,
+    leftUpperArm,
     rightUpperArm,
-    rightLowerArm,
-    rightHand,
+    leftElbow,
+    rightElbow,
+    leftWrist,
+    rightWrist,
   };
 
-  // 3. Compute Anatomical Direction Vectors
-  // Up: along spine from hips/chest to neck
-  let up = new THREE.Vector3().subVectors(neck, chest);
-  if (up.lengthSq() < 1e-6) {
-    up = new THREE.Vector3().subVectors(neck, hips);
-  }
-  if (up.lengthSq() < 1e-6) {
-    up.set(0, 1, 0);
-  } else {
-    up.normalize();
+  // 3. Derive anatomical body directions
+  // Up direction: hips -> effective upper chest / neck
+  let up = new THREE.Vector3(0, 1, 0);
+  if (hips && (neck || effectiveUpperChest)) {
+    const topLandmark = neck || effectiveUpperChest;
+    up.subVectors(topLandmark, hips).normalize();
+  } else if (vrm.scene) {
+    up.set(0, 1, 0).applyQuaternion(vrm.scene.quaternion).normalize();
   }
 
-  // Shoulder Axis (Right Arm Root -> Left Arm Root)
-  let shoulderAxis = new THREE.Vector3().subVectors(leftUpperArm, rightUpperArm);
-  if (shoulderAxis.lengthSq() < 1e-6) {
-    shoulderAxis.set(1, 0, 0);
-  } else {
-    shoulderAxis.normalize();
+  // Shoulder axis / Right direction: left shoulder/arm -> right shoulder/arm
+  let right = new THREE.Vector3(1, 0, 0);
+  const leftAnchor = leftUpperArm || leftShoulder;
+  const rightAnchor = rightUpperArm || rightShoulder;
+
+  if (leftAnchor && rightAnchor) {
+    right.subVectors(rightAnchor, leftAnchor).normalize();
+  } else if (vrm.scene) {
+    right.set(1, 0, 0).applyQuaternion(vrm.scene.quaternion).normalize();
   }
 
-  // Left & Right body directions
-  const left = shoulderAxis.clone();
-  const right = shoulderAxis.clone().negate();
+  // Orthogonalize right vector with respect to up
+  const rightProj = up.clone().multiplyScalar(right.dot(up));
+  right.sub(rightProj).normalize();
 
-  // Forward: orthogonal to shoulder axis and up direction
-  const forward = new THREE.Vector3().crossVectors(shoulderAxis, up).normalize();
+  // Forward direction: anatomical cross product of right x up (Right-handed frame)
+  const forward = new THREE.Vector3().crossVectors(right, up).normalize();
 
-  // Re-orthogonalize Up to ensure an exact orthonormal basis
-  up.crossVectors(forward, shoulderAxis).normalize();
+  const down = up.clone().negate();
+  const left = right.clone().negate();
+  const back = forward.clone().negate();
+  const shoulderAxis = right.clone();
 
-  const directions: CharacterBodyDirections = {
+  const directions: BodyDirections = {
     up,
+    down,
     forward,
+    back,
     left,
     right,
     shoulderAxis,
   };
 
-  // 4. Effective Chest World Matrix & Quaternion
-  const chestWorldMatrix = new THREE.Matrix4();
-  const chestWorldQuaternion = new THREE.Quaternion();
-  if (effectiveChestNode) {
-    effectiveChestNode.updateMatrixWorld(true);
-    chestWorldMatrix.copy(effectiveChestNode.matrixWorld);
-    effectiveChestNode.getWorldQuaternion(chestWorldQuaternion);
-  } else {
-    chestWorldMatrix.makeBasis(left, up, forward);
-    chestWorldMatrix.setPosition(effectiveChest);
-    chestWorldQuaternion.setFromRotationMatrix(chestWorldMatrix);
-  }
+  // 4. Derive anatomical ratios relative to total height
+  const shoulderSpan = leftAnchor && rightAnchor ? leftAnchor.distanceTo(rightAnchor) : null;
+  const shoulderWidthToHeight = shoulderSpan !== null ? shoulderSpan / height : null;
+
+  const leftUpperArmLen = leftUpperArm && leftElbow ? leftUpperArm.distanceTo(leftElbow) : null;
+  const leftForearmLen = leftElbow && leftWrist ? leftElbow.distanceTo(leftWrist) : null;
+  const leftHandLen = leftWrist && getBoneWorldPosition(vrm, 'leftMiddleProximal')
+    ? leftWrist.distanceTo(getBoneWorldPosition(vrm, 'leftMiddleProximal')!)
+    : null;
+  const leftTotalReach = (leftUpperArmLen || 0) + (leftForearmLen || 0) + (leftHandLen || 0);
+
+  const rightUpperArmLen = rightUpperArm && rightElbow ? rightUpperArm.distanceTo(rightElbow) : null;
+  const rightForearmLen = rightElbow && rightWrist ? rightElbow.distanceTo(rightWrist) : null;
+  const rightHandLen = rightWrist && getBoneWorldPosition(vrm, 'rightMiddleProximal')
+    ? rightWrist.distanceTo(getBoneWorldPosition(vrm, 'rightMiddleProximal')!)
+    : null;
+  const rightTotalReach = (rightUpperArmLen || 0) + (rightForearmLen || 0) + (rightHandLen || 0);
+
+  const torsoLen = hips && neck ? hips.distanceTo(neck) : null;
+  const neckLen = neck && head ? neck.distanceTo(head) : null;
+
+  const ratios: AnatomicalRatios = {
+    shoulderWidthToHeight,
+    leftUpperArmToHeight: leftUpperArmLen !== null ? leftUpperArmLen / height : null,
+    leftForearmToHeight: leftForearmLen !== null ? leftForearmLen / height : null,
+    leftHandToHeight: leftHandLen !== null ? leftHandLen / height : null,
+    leftTotalReachToHeight: leftTotalReach > 0 ? leftTotalReach / height : null,
+    rightUpperArmToHeight: rightUpperArmLen !== null ? rightUpperArmLen / height : null,
+    rightForearmToHeight: rightForearmLen !== null ? rightForearmLen / height : null,
+    rightHandToHeight: rightHandLen !== null ? rightHandLen / height : null,
+    rightTotalReachToHeight: rightTotalReach > 0 ? rightTotalReach / height : null,
+    torsoLengthToHeight: torsoLen !== null ? torsoLen / height : null,
+    neckLengthToHeight: neckLen !== null ? neckLen / height : null,
+  };
 
   return {
+    height,
     landmarks,
     directions,
-    metrics,
-    chestWorldMatrix,
-    chestWorldQuaternion,
-    effectiveChestNode,
+    ratios,
+    hasUpperChest,
+    hasShoulders: leftShoulder !== null && rightShoulder !== null,
+    usedUpperChestFallback,
   };
+}
+
+/**
+ * Formats character body frame diagnostics for display or logging.
+ */
+export function formatCharacterBodyFrame(frame: CharacterBodyFrame): string {
+  const fmtVec = (v: THREE.Vector3): string =>
+    `(${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)})`;
+  const fmtRatio = (r: number | null | undefined): string =>
+    r != null ? `${(r * 100).toFixed(1)}%` : 'N/A';
+
+  return [
+    'CHARACTER BODY FRAME',
+    '',
+    `Height: ${frame.height.toFixed(3)}m`,
+    `UpperChest Present: ${frame.hasUpperChest ? 'YES' : 'NO (Using Chest Fallback)'}`,
+    `Shoulders Present: ${frame.hasShoulders ? 'YES' : 'NO'}`,
+    '',
+    'Body Directions (Normalized):',
+    `  Up:      ${fmtVec(frame.directions.up)}`,
+    `  Forward: ${fmtVec(frame.directions.forward)}`,
+    `  Right:   ${fmtVec(frame.directions.right)}`,
+    '',
+    'Anatomical Proportions (% of Height):',
+    `  Shoulder Width: ${fmtRatio(frame.ratios.shoulderWidthToHeight)}`,
+    `  Torso Length:   ${fmtRatio(frame.ratios.torsoLengthToHeight)}`,
+    `  Neck Length:    ${fmtRatio(frame.ratios.neckLengthToHeight)}`,
+    `  Left Arm Reach: ${fmtRatio(frame.ratios.leftTotalReachToHeight)}`,
+    `  Right Arm Reach:${fmtRatio(frame.ratios.rightTotalReachToHeight)}`,
+  ].join('\n');
+}
+
+/**
+ * Diagnostic logger for character body frame.
+ */
+export function logCharacterBodyFrame(frame: CharacterBodyFrame, modelName = 'Loaded Model'): void {
+  console.log(`[MusicLab Body Frame Diagnostics] === ${modelName} ===\n` + formatCharacterBodyFrame(frame));
 }

@@ -4,16 +4,11 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { CharacterModelConfig } from '../characters/registry';
 import { ViolinPerformance, CharacterPerformanceMode } from './ViolinPerformance';
-import { ViolinPoseSandbox, Vector3State } from './ViolinPoseSandbox';
-import { extractVRMMetrics, VRMBodyMetrics } from '../utils/vrmMetrics';
-import { ViolinBodyAnchors } from '../utils/violinBodyAnchors';
-
-export interface VRMModelLoadedInfo {
-  isVRM: boolean;
-  vrmVersion?: string;
-  boneCount?: number;
-  metrics?: VRMBodyMetrics | null;
-}
+import { extractVRMMetrics, logVRMMetrics } from '../utils/vrmMetrics';
+import { buildCharacterBodyFrame, logCharacterBodyFrame } from '../utils/characterBodyFrame';
+import { buildViolinPerformanceFrame, logViolinPerformanceFrame } from '../utils/violinPerformanceFrame';
+import { buildReferenceCalibration, logReferenceCalibration } from '../utils/violinReferenceCalibration';
+import { buildUniversalViolinAdapter, logUniversalViolinAdapter } from '../utils/violinUniversalAdapter';
 
 export interface VRMCharacterModelProps {
   modelConfig: CharacterModelConfig;
@@ -23,17 +18,7 @@ export interface VRMCharacterModelProps {
   rotation?: [number, number, number];
   mode?: CharacterPerformanceMode;
   showDebugTargets?: boolean;
-  onAnchorsUpdate?: (anchors: ViolinBodyAnchors) => void;
-  // Interactive Pose Sandbox Props
-  sandboxEnabled?: boolean;
-  sandboxLeftShoulder?: Vector3State;
-  sandboxLeftElbow?: Vector3State;
-  sandboxLeftHand?: Vector3State;
-  sandboxShowActualBones?: boolean;
-  sandboxViolinPos?: Vector3State;
-  sandboxViolinRot?: Vector3State;
-  sandboxViolinScale?: number;
-  onModelLoaded?: (info: VRMModelLoadedInfo) => void;
+  onModelLoaded?: (info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => void;
   onError?: (err: string) => void;
 }
 
@@ -41,7 +26,6 @@ export interface VRMCharacterModelProps {
  * VRM & GLB Character Model
  * Loads and renders the VRM model once.
  * Toggles target-driven violin performance rig without reloading or recreating the model.
- * Optionally hosts the interactive Pose Sandbox.
  * Spring-bone simulation is intentionally disabled.
  */
 export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
@@ -52,17 +36,8 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   rotation = [0, 0, 0],
   mode = 'normal',
   showDebugTargets = false,
-  sandboxEnabled = false,
-  sandboxLeftShoulder = { x: 0.14, y: 1.25, z: 0.0 },
-  sandboxLeftElbow = { x: 0.32, y: 1.06, z: 0.12 },
-  sandboxLeftHand = { x: 0.18, y: 1.25, z: 0.28 },
-  sandboxShowActualBones = false,
-  sandboxViolinPos = { x: 0.08, y: 1.22, z: 0.20 },
-  sandboxViolinRot = { x: -0.25, y: -0.55, z: 0.52 },
-  sandboxViolinScale = 1.0,
   onModelLoaded,
   onError,
-  onAnchorsUpdate,
 }) => {
   const containerRef = useRef<THREE.Group>(null);
   const currentModelSceneRef = useRef<THREE.Group | null>(null);
@@ -140,16 +115,25 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
             containerRef.current.add(vrm.scene);
           }
 
-          // Extract read-only character body metrics from normalized skeleton
-          const metrics = extractVRMMetrics(vrm);
-
           setLoadedVRM(vrm);
           setIsLoading(false);
+
+          // Extract read-only anatomical measurements & performance frame (Stage 1-5 diagnostics)
+          const metrics = extractVRMMetrics(vrm);
+          logVRMMetrics(metrics, modelConfig.name || 'VRM Model');
+          const bodyFrame = buildCharacterBodyFrame(vrm);
+          logCharacterBodyFrame(bodyFrame, modelConfig.name || 'VRM Model');
+          const violinFrame = buildViolinPerformanceFrame(bodyFrame);
+          logViolinPerformanceFrame(violinFrame, modelConfig.name || 'VRM Model');
+          const refCal = buildReferenceCalibration(vrm, bodyFrame);
+          logReferenceCalibration(refCal, modelConfig.name || 'VRM Model');
+          const universalFrame = buildUniversalViolinAdapter(vrm, bodyFrame, metrics, refCal);
+          logUniversalViolinAdapter(universalFrame, modelConfig.name || 'VRM Model');
+
           onModelLoadedRef.current?.({
             isVRM: true,
             vrmVersion: vrm.meta?.metaVersion || '1.0',
             boneCount: Object.keys(vrm.humanoid?.humanBones || {}).length,
-            metrics,
           });
         } else {
           // Standard GLTF / GLB model fallback
@@ -205,27 +189,11 @@ export const VRMCharacterModel: React.FC<VRMCharacterModelProps> = ({
   return (
     <group position={position} rotation={rotation} scale={scale}>
       <group ref={containerRef} />
-      {/* Real Violin Performance (untouched) */}
       {loadedVRM && (
         <ViolinPerformance
           vrm={loadedVRM}
           mode={mode}
-          showDebugTargets={showDebugTargets && !sandboxEnabled}
-          onAnchorsUpdate={onAnchorsUpdate}
-        />
-      )}
-      {/* Interactive Pose Sandbox (completely separate, zero IK, direct state-driven) */}
-      {sandboxEnabled && (
-        <ViolinPoseSandbox
-          vrm={loadedVRM}
-          enabled={sandboxEnabled}
-          leftShoulder={sandboxLeftShoulder}
-          leftElbow={sandboxLeftElbow}
-          leftHand={sandboxLeftHand}
-          showActualBones={sandboxShowActualBones}
-          violinPos={sandboxViolinPos}
-          violinRot={sandboxViolinRot}
-          violinScale={sandboxViolinScale}
+          showDebugTargets={showDebugTargets}
         />
       )}
     </group>

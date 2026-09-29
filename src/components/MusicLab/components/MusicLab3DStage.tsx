@@ -13,31 +13,17 @@ import {
   Music2,
   User,
   Target,
-  Sliders,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
-import { VRMCharacterModel, VRMModelLoadedInfo } from './VRMCharacterModel';
+import { VRMCharacterModel } from './VRMCharacterModel';
 import { CharacterPerformanceMode } from './ViolinPerformance';
-import { Vector3State } from './ViolinPoseSandbox';
-import { PoseSandboxPanel } from './PoseSandboxPanel';
-import { VRMBodyMetrics } from '../utils/vrmMetrics';
-import { ViolinBodyAnchors } from '../utils/violinBodyAnchors';
 
 interface MusicLab3DStageProps {
   theme?: AppTheme;
   className?: string;
   onReturnToEnsemble?: () => void;
 }
-
-// Initial default coordinates for Sandbox Left Arm & Test Violin
-const INITIAL_SHOULDER: Vector3State = { x: 0.14, y: 1.25, z: 0.0 };
-const INITIAL_ELBOW: Vector3State = { x: 0.32, y: 1.06, z: 0.12 };
-const INITIAL_HAND: Vector3State = { x: 0.18, y: 1.25, z: 0.28 };
-
-const INITIAL_VIOLIN_POS: Vector3State = { x: 0.08, y: 1.22, z: 0.20 };
-const INITIAL_VIOLIN_ROT: Vector3State = { x: -0.25, y: -0.55, z: 0.52 };
-const INITIAL_VIOLIN_SCALE = 1.0;
 
 /**
  * Stage Diorama Environment
@@ -145,37 +131,10 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   const [performanceMode, setPerformanceMode] = useState<CharacterPerformanceMode>('normal');
   const [showDebugTargets, setShowDebugTargets] = useState<boolean>(false);
 
-  // =========================================================================
-  // Interactive Pose Sandbox State (Purely experimental, zero IK modification)
-  // =========================================================================
-  const [sandboxEnabled, setSandboxEnabled] = useState<boolean>(false);
-  const [leftShoulder, setLeftShoulder] = useState<Vector3State>(INITIAL_SHOULDER);
-  const [leftElbow, setLeftElbow] = useState<Vector3State>(INITIAL_ELBOW);
-  const [leftHand, setLeftHand] = useState<Vector3State>(INITIAL_HAND);
-  const [showActualBones, setShowActualBones] = useState<boolean>(false);
-
-  const [violinPos, setViolinPos] = useState<Vector3State>(INITIAL_VIOLIN_POS);
-  const [violinRot, setViolinRot] = useState<Vector3State>(INITIAL_VIOLIN_ROT);
-  const [violinScale, setViolinScale] = useState<number>(INITIAL_VIOLIN_SCALE);
-
-  const handleResetLeftArm = () => {
-    setLeftShoulder({ ...INITIAL_SHOULDER });
-    setLeftElbow({ ...INITIAL_ELBOW });
-    setLeftHand({ ...INITIAL_HAND });
-  };
-
-  const handleResetViolin = () => {
-    setViolinPos({ ...INITIAL_VIOLIN_POS });
-    setViolinRot({ ...INITIAL_VIOLIN_ROT });
-    setViolinScale(INITIAL_VIOLIN_SCALE);
-  };
-
   // Custom user uploaded VRM/GLB model URL
   const [customModelUrl, setCustomModelUrl] = useState<string | null>(null);
   const [customFileName, setCustomFileName] = useState<string | null>(null);
-  const [modelStatus, setModelStatus] = useState<VRMModelLoadedInfo | null>(null);
-  const [characterMetrics, setCharacterMetrics] = useState<VRMBodyMetrics | null>(null);
-  const [violinAnchors, setViolinAnchors] = useState<ViolinBodyAnchors | null>(null);
+  const [modelStatus, setModelStatus] = useState<{ isVRM: boolean; vrmVersion?: string; boneCount?: number } | null>(null);
   const [loadNotice, setLoadNotice] = useState<string | null>(null);
   const [cameraPreset, setCameraPreset] = useState<'front' | 'threeQuarter' | 'side' | 'faceCloseup' | 'fullBody'>('threeQuarter');
 
@@ -184,9 +143,8 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   const blobUrlRef = useRef<string | null>(null);
 
   // Stable callback handlers
-  const handleModelLoaded = useCallback((info: VRMModelLoadedInfo) => {
+  const handleModelLoaded = useCallback((info: { isVRM: boolean; vrmVersion?: string; boneCount?: number }) => {
     setModelStatus(info);
-    setCharacterMetrics(info.metrics || null);
     setLoadNotice(null);
   }, []);
 
@@ -264,9 +222,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              {sandboxEnabled
-                ? 'Interactive Pose Sandbox Active • Real-Time Number -> 3D Coordinate Mapping'
-                : performanceMode === 'violin'
+              {performanceMode === 'violin'
                 ? 'Target-Driven Violin Rig • Two-Bone IK Kinematics'
                 : 'Normal Model Viewer • Authored T-Pose'}
             </p>
@@ -302,23 +258,8 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             </button>
           </div>
 
-          {/* Interactive Pose Sandbox Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setSandboxEnabled((prev) => !prev)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border shadow-xs ${
-              sandboxEnabled
-                ? 'bg-amber-400 text-black border-amber-500 shadow-amber-500/20'
-                : 'bg-white/80 dark:bg-white/10 text-[#25242A] dark:text-[#F4F2F7] hover:bg-amber-500/15 border-[#E7E3DF] dark:border-[#2E2C37]'
-            }`}
-            title="Open Interactive Pose Sandbox (Editable 3D Points & Test Violin)"
-          >
-            <Sliders className="h-3.5 w-3.5" />
-            <span>{sandboxEnabled ? 'Sandbox: Open' : 'Pose Sandbox'}</span>
-          </button>
-
           {/* Optional Performance IK Debug Targets Toggle (when performance is active) */}
-          {performanceMode === 'violin' && !sandboxEnabled && (
+          {performanceMode === 'violin' && (
             <button
               type="button"
               onClick={() => setShowDebugTargets((prev) => !prev)}
@@ -394,17 +335,8 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               scale={1.0}
               mode={performanceMode}
               showDebugTargets={showDebugTargets}
-              sandboxEnabled={sandboxEnabled}
-              sandboxLeftShoulder={leftShoulder}
-              sandboxLeftElbow={leftElbow}
-              sandboxLeftHand={leftHand}
-              sandboxShowActualBones={showActualBones}
-              sandboxViolinPos={violinPos}
-              sandboxViolinRot={violinRot}
-              sandboxViolinScale={violinScale}
               onModelLoaded={handleModelLoaded}
               onError={handleModelError}
-              onAnchorsUpdate={setViolinAnchors}
             />
           </Suspense>
         </Canvas>
@@ -436,31 +368,6 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             </button>
           ))}
         </div>
-
-        {/* Interactive Pose Sandbox Diagnostics Panel (Floating Right) */}
-        {sandboxEnabled && (
-          <PoseSandboxPanel
-            leftShoulder={leftShoulder}
-            setLeftShoulder={setLeftShoulder}
-            leftElbow={leftElbow}
-            setLeftElbow={setLeftElbow}
-            leftHand={leftHand}
-            setLeftHand={setLeftHand}
-            onResetLeftArm={handleResetLeftArm}
-            showActualBones={showActualBones}
-            setShowActualBones={setShowActualBones}
-            violinPos={violinPos}
-            setViolinPos={setViolinPos}
-            violinRot={violinRot}
-            setViolinRot={setViolinRot}
-            violinScale={violinScale}
-            setViolinScale={setViolinScale}
-            onResetViolin={handleResetViolin}
-            characterMetrics={characterMetrics}
-            violinAnchors={violinAnchors}
-            onClose={() => setSandboxEnabled(false)}
-          />
-        )}
 
         {/* Model Asset Notice / Upload Prompt */}
         {loadNotice && !customModelUrl && (
@@ -495,29 +402,20 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             {modelStatus?.boneCount !== undefined && (
               <div>• <strong className="text-white">Humanoid Bones:</strong> {modelStatus.boneCount}</div>
             )}
-            {characterMetrics && (
-              <div>
-                • <strong className="text-white">Proportions:</strong> H: {characterMetrics.characterHeight}m
-                {characterMetrics.shoulderWidth ? ` • W: ${characterMetrics.shoulderWidth}m` : ''}
-                {characterMetrics.leftArm.totalArmLength ? ` • Arm: ${characterMetrics.leftArm.totalArmLength}m` : ''}
-              </div>
-            )}
             <div>
               • <strong className="text-white">State:</strong>{' '}
-              <span className={sandboxEnabled ? 'text-amber-300 font-bold' : performanceMode === 'violin' ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-medium'}>
-                {sandboxEnabled ? 'Pose Sandbox Active' : performanceMode === 'violin' ? 'Violin Performance' : 'Normal / T-Pose'}
+              <span className={performanceMode === 'violin' ? 'text-emerald-400 font-bold' : 'text-zinc-300 font-medium'}>
+                {performanceMode === 'violin' ? 'Violin Performance' : 'Normal / T-Pose'}
               </span>
             </div>
           </div>
         </div>
 
         {/* Interaction Hint (Top Right) */}
-        {!sandboxEnabled && (
-          <div className="absolute top-3 right-3 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10 z-10">
-            <Eye className="h-3 w-3" />
-            <span>Left-drag to rotate • Scroll to zoom • Right-drag to pan</span>
-          </div>
-        )}
+        <div className="absolute top-3 right-3 pointer-events-none px-2.5 py-1 rounded-lg bg-black/50 backdrop-blur-xs text-white/80 text-[10px] font-mono flex items-center gap-1.5 border border-white/10 z-10">
+          <Eye className="h-3 w-3" />
+          <span>Left-drag to rotate • Scroll to zoom • Right-drag to pan</span>
+        </div>
       </div>
     </div>
   );
