@@ -1,6 +1,6 @@
 import React, { Suspense, useState, useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
 import { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import {
@@ -20,24 +20,74 @@ import {
   CircleDot,
   Compass,
   Play,
+  Pause,
   Activity,
   Check,
   Music,
+  Zap,
+  Gauge,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { DEFAULT_CHARACTER_ID, getCharacterConfig } from '../characters/registry';
+import { PlaybackState, MusicAnalysisResult } from '../types';
 import { VRMCharacterModel } from './VRMCharacterModel';
 import { VRMPoseManager } from './PoseEditor/VRMPoseManager';
 import { EDITABLE_BONES, SavedPose } from './PoseEditor/poseEditorTypes';
 import { inspectBoneLocalFrame, BoneLocalFrameData } from './PoseEditor/BoneAxisInspector';
 import { VIOLINIST_BASE_POSE, AnatomicalViolinistPoseParams } from './PoseEditor/anatomicalPosePreset';
 import { ViolinAndBowProps, InstrumentDiagnosticsData } from './InstrumentProps/ViolinAndBowProps';
+import { ViolinMusicMotionEngine, MusicalMotionState } from './Animation/ViolinMusicMotionEngine';
 
 interface MusicLab3DStageProps {
   theme?: AppTheme;
   className?: string;
+  playback?: PlaybackState;
+  analysisResult?: MusicAnalysisResult | null;
+  onTogglePlayPause?: () => void;
   onReturnToEnsemble?: () => void;
 }
+
+/**
+ * Real-Time Music Motion Animator Component for React Three Fiber Canvas
+ */
+interface ViolinistPerformanceAnimatorProps {
+  vrm: VRM | null;
+  poseManager: VRMPoseManager | null;
+  activePreset: 'tpose' | 'violinistBase';
+  baseParams: AnatomicalViolinistPoseParams;
+  playback: PlaybackState;
+  analysisResult: MusicAnalysisResult | null;
+  motionEngine: ViolinMusicMotionEngine;
+  onMotionStateUpdate?: (st: MusicalMotionState) => void;
+}
+
+const ViolinistPerformanceAnimator: React.FC<ViolinistPerformanceAnimatorProps> = ({
+  vrm,
+  poseManager,
+  activePreset,
+  baseParams,
+  playback,
+  analysisResult,
+  motionEngine,
+  onMotionStateUpdate,
+}) => {
+  useFrame((_, delta) => {
+    if (!vrm || !poseManager || activePreset !== 'violinistBase') return;
+
+    // 1. Evaluate motion state from authoritative playback clock & analysis
+    const motionState = motionEngine.update(playback, analysisResult, delta);
+
+    // 2. Derive effective pose parameters = baseParams + offsets(motionState)
+    const effectiveParams = motionEngine.computePoseParams(baseParams, motionState);
+
+    // 3. Apply to VRM skeleton deterministically
+    poseManager.applyViolinistBasePose(effectiveParams);
+
+    onMotionStateUpdate?.(motionState);
+  });
+
+  return null;
+};
 
 /**
  * Studio Diorama Stage Environment
@@ -127,6 +177,9 @@ const StageDioramaEnvironment: React.FC<{ theme: AppTheme }> = ({ theme }) => {
 export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   theme = 'light',
   className = '',
+  playback,
+  analysisResult,
+  onTogglePlayPause,
   onReturnToEnsemble,
 }) => {
   const isDark = theme === 'dark';
@@ -155,6 +208,70 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
 
   // Active Anatomical Pose Parameters
   const [currentPoseParams, setCurrentPoseParams] = useState<AnatomicalViolinistPoseParams>(VIOLINIST_BASE_POSE);
+
+  // Music-Driven Performance Motion Engine State
+  const motionEngineRef = useRef<ViolinMusicMotionEngine>(new ViolinMusicMotionEngine());
+  const [motionState, setMotionState] = useState<MusicalMotionState | null>(null);
+
+  // Standalone in-stage playback simulation when no global song is playing
+  const [internalPlaying, setInternalPlaying] = useState<boolean>(false);
+  const [internalTime, setInternalTime] = useState<number>(0);
+  const [testBpm, setTestBpm] = useState<number>(120);
+  const [testIntensity, setTestIntensity] = useState<number>(0.75);
+
+  // Simulation timer for standalone in-stage performance testing
+  useEffect(() => {
+    if (!internalPlaying) return;
+    let animId: number;
+    let lastStamp = performance.now();
+
+    const tick = (stamp: number) => {
+      const dt = (stamp - lastStamp) / 1000;
+      lastStamp = stamp;
+      setInternalTime((prev) => (prev + dt) % 180);
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [internalPlaying]);
+
+  // Resolve authoritative playback state
+  const hasExternalAudio = Boolean(playback && (playback.isPlaying || playback.duration > 0));
+  const activePlayback: PlaybackState = hasExternalAudio && playback
+    ? playback
+    : {
+        currentTime: internalTime,
+        duration: 180,
+        progress: internalTime / 180,
+        isPlaying: internalPlaying,
+      };
+
+  const activeAnalysis: MusicAnalysisResult | null = hasExternalAudio
+    ? analysisResult || null
+    : {
+        duration: 180,
+        bpm: testBpm,
+        detectedInstruments: [],
+        sections: [
+          {
+            start: 0,
+            end: 180,
+            label: 'Test Performance',
+            intensity: testIntensity,
+            activeInstruments: ['violin'],
+          },
+        ],
+        analysisSource: 'manual',
+      };
+
+  const handleTogglePerformance = () => {
+    if (hasExternalAudio && onTogglePlayPause) {
+      onTogglePlayPause();
+    } else {
+      setInternalPlaying((prev) => !prev);
+    }
+  };
 
   // Inspector Live Frame Data & Diagnostics
   const [frameData, setFrameData] = useState<BoneLocalFrameData | null>(null);
@@ -611,6 +728,16 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           />
 
           <Suspense fallback={null}>
+            <ViolinistPerformanceAnimator
+              vrm={vrmInstance}
+              poseManager={poseManager}
+              activePreset={activePreset}
+              baseParams={currentPoseParams}
+              playback={activePlayback}
+              analysisResult={activeAnalysis}
+              motionEngine={motionEngineRef.current}
+              onMotionStateUpdate={setMotionState}
+            />
             <VRMCharacterModel
               modelConfig={characterConfig}
               customModelUrl={customModelUrl}
@@ -1148,6 +1275,130 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               />
             </div>
           </div>
+        </div>
+
+        {/* Live Music-Driven Performance Bar (Bottom Left) */}
+        <div className="absolute bottom-4 left-4 p-3 rounded-2xl bg-black/85 backdrop-blur-md border border-[#00E5FF]/40 text-white text-xs max-w-xs sm:max-w-sm shadow-2xl space-y-2 z-20 font-mono">
+          <div className="flex items-center justify-between border-b border-white/10 pb-1.5 text-[#00E5FF] font-bold">
+            <span className="flex items-center gap-1.5 text-xs">
+              <Zap className="h-3.5 w-3.5 text-[#00E5FF] animate-pulse" />
+              <span>Music Motion Engine</span>
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activePlayback.isPlaying
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse'
+                  : 'bg-zinc-800 text-zinc-400'
+              }`}
+            >
+              {activePlayback.isPlaying ? 'PLAYING ♪' : 'SETTLED'}
+            </span>
+          </div>
+
+          {/* Transport & Timeline Info */}
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={handleTogglePerformance}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                activePlayback.isPlaying
+                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                  : 'bg-[#7567C7] hover:bg-[#6455B8] text-white shadow-md'
+              }`}
+            >
+              {activePlayback.isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 fill-white" />}
+              <span>{activePlayback.isPlaying ? 'Pause' : 'Start Music'}</span>
+            </button>
+
+            <div className="text-[11px] font-mono text-zinc-300">
+              <span className="text-white font-bold">
+                {Math.floor((activePlayback.currentTime || 0) / 60)}:
+                {(Math.floor((activePlayback.currentTime || 0) % 60)).toString().padStart(2, '0')}
+              </span>
+              <span className="text-zinc-500"> / </span>
+              <span className="text-zinc-400">
+                {Math.floor((activePlayback.duration || 180) / 60)}:
+                {(Math.floor((activePlayback.duration || 180) % 60)).toString().padStart(2, '0')}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-[10px] font-bold text-[#B9B0F2]">
+              <Gauge className="h-3 w-3" />
+              <span>{motionState ? Math.round(motionState.bpm) : activeAnalysis?.bpm || testBpm} BPM</span>
+            </div>
+          </div>
+
+          {/* Live Intensity & Dynamics Gauge */}
+          <div className="space-y-1 pt-1 border-t border-white/10">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-zinc-400">Dynamics (Amplitude):</span>
+              <span className="font-bold text-[#00E5FF]">
+                {motionState ? Math.round(motionState.smoothedIntensity * 100) : 0}%
+                {motionState && (
+                  <span className="text-[9px] ml-1 text-zinc-400 font-normal">
+                    (
+                    {motionState.smoothedIntensity < 0.3
+                      ? 'Piano'
+                      : motionState.smoothedIntensity < 0.6
+                      ? 'Mezzo'
+                      : motionState.smoothedIntensity < 0.8
+                      ? 'Forte'
+                      : 'Fortissimo'}
+                    )
+                  </span>
+                )}
+              </span>
+            </div>
+            {/* Intensity progress bar */}
+            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#00E5FF] via-[#7567C7] to-[#F472B6] transition-all duration-100 rounded-full"
+                style={{ width: `${Math.round((motionState?.smoothedIntensity || 0) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Bowing Stroke Status */}
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
+            <span>Bowing Stroke:</span>
+            <span
+              className={`font-bold ${
+                motionState && motionState.bowStroke > 0 ? 'text-emerald-400' : 'text-amber-400'
+              }`}
+            >
+              {motionState ? (motionState.bowStroke > 0 ? '▾ Down-bow' : '▴ Up-bow') : 'Idle'}
+            </span>
+          </div>
+
+          {/* Standalone simulation controls (if no external audio is active) */}
+          {!hasExternalAudio && (
+            <div className="pt-1.5 border-t border-white/10 space-y-1 text-[9px] text-zinc-400">
+              <div className="flex items-center justify-between">
+                <span>Tempo: {testBpm} BPM</span>
+                <input
+                  type="range"
+                  min="60"
+                  max="180"
+                  step="1"
+                  value={testBpm}
+                  onChange={(e) => setTestBpm(parseInt(e.target.value))}
+                  className="w-24 accent-[#7567C7] cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Intensity: {Math.round(testIntensity * 100)}%</span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={testIntensity}
+                  onChange={(e) => setTestIntensity(parseFloat(e.target.value))}
+                  className="w-24 accent-[#00E5FF] cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Interaction Hint (Top Right) */}

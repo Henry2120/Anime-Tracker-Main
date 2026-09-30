@@ -583,6 +583,19 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
             instrumentIntensities={instrumentIntensities}
             theme={theme}
             isPlaying={playback.isPlaying}
+            playback={playback}
+            analysisResult={analysisResult}
+            onTogglePlayPause={() => {
+              if (sourceType === 'local_audio' && audioPlayerRef.current) {
+                if (playback.isPlaying) {
+                  audioPlayerRef.current.pause();
+                } else {
+                  audioPlayerRef.current.play();
+                }
+              } else {
+                setPlayback((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+              }
+            }}
             onSelectInstrument={handleToggleInstrument}
           />
         </div>

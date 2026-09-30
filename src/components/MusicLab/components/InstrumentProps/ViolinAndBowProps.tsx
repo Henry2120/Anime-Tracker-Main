@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM } from '@pixiv/three-vrm';
 import {
@@ -172,22 +173,26 @@ export const ViolinAndBowProps: React.FC<ViolinAndBowPropsProps> = ({
     return solveInstrumentFitting(anatomicalLandmarks);
   }, [anatomicalLandmarks]);
 
-  // Apply solved deterministic transforms onto ViolinRoot and BowRoot
-  useEffect(() => {
-    if (!fitSolution) return;
+  // Real-time animation frame update: keeps violin and bow firmly registered to posed landmarks
+  useFrame(() => {
+    if (!vrm || activePreset !== 'violinistBase' || !isAssetLoaded) return;
+    const landmarks = extractAnatomicalLandmarks(vrm);
+    if (!landmarks) return;
+    const solution = solveInstrumentFitting(landmarks);
+    if (!solution) return;
 
     if (violinRootRef.current) {
-      violinRootRef.current.position.copy(fitSolution.violinPosition);
-      violinRootRef.current.quaternion.copy(fitSolution.violinQuaternion);
+      violinRootRef.current.position.copy(solution.violinPosition);
+      violinRootRef.current.quaternion.copy(solution.violinQuaternion);
       violinRootRef.current.updateMatrixWorld(true);
     }
 
     if (bowRootRef.current) {
-      bowRootRef.current.position.copy(fitSolution.bowPosition);
-      bowRootRef.current.quaternion.copy(fitSolution.bowQuaternion);
+      bowRootRef.current.position.copy(solution.bowPosition);
+      bowRootRef.current.quaternion.copy(solution.bowQuaternion);
       bowRootRef.current.updateMatrixWorld(true);
     }
-  }, [fitSolution, activePreset, isAssetLoaded]);
+  });
 
   // Evaluate comprehensive diagnostics
   const diagnostics = useMemo<InstrumentDiagnosticsData | null>(() => {

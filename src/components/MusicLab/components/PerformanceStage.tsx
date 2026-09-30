@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { MusicInstrument } from '../types';
+import { MusicInstrument, PlaybackState, MusicAnalysisResult } from '../types';
 import { AppTheme } from '../../../types/theme';
 import { MusicianFigure } from './MusicianFigure';
 import { getInstrumentDefinition } from '../instruments/registry';
@@ -12,6 +12,9 @@ interface PerformanceStageProps {
   instrumentIntensities?: Record<string, number>; // Section/timeline dynamic intensities
   theme: AppTheme;
   isPlaying: boolean;
+  playback?: PlaybackState;
+  analysisResult?: MusicAnalysisResult | null;
+  onTogglePlayPause?: () => void;
   className?: string;
   onSelectInstrument?: (instrument: MusicInstrument) => void;
 }
@@ -22,6 +25,9 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
   instrumentIntensities = {},
   theme,
   isPlaying,
+  playback,
+  analysisResult,
+  onTogglePlayPause,
   className = '',
   onSelectInstrument,
 }) => {
@@ -169,6 +175,9 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
         <MusicLab3DStage
           theme={theme}
           className={className}
+          playback={playback}
+          analysisResult={analysisResult}
+          onTogglePlayPause={onTogglePlayPause}
           onReturnToEnsemble={() => setStageViewMode('2d')}
         />
       ) : (
