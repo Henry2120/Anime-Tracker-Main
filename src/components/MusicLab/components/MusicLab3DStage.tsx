@@ -1328,20 +1328,38 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             </div>
           </div>
 
-          {/* Live Intensity & Dynamics Gauge */}
+          {/* Audio Source & Live Dynamics Info */}
           <div className="space-y-1 pt-1 border-t border-white/10">
             <div className="flex items-center justify-between text-[10px]">
-              <span className="text-zinc-400">Dynamics (Amplitude):</span>
+              <span className="text-zinc-400">Audio Source:</span>
+              <span className="font-bold text-[#B9B0F2]">
+                {motionState?.dynamicsSource === 'timeline'
+                  ? 'Precomputed Audio Stream'
+                  : motionState?.dynamicsSource === 'section'
+                  ? 'Gemini Section Fallback'
+                  : 'Manual Test Mode'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-zinc-400">Violin Energy:</span>
+              <span className="font-bold text-amber-300">
+                {motionState ? Math.round(motionState.violinEnergy * 100) : 0}%
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-zinc-400">Dynamics:</span>
               <span className="font-bold text-[#00E5FF]">
-                {motionState ? Math.round(motionState.smoothedIntensity * 100) : 0}%
+                {motionState ? Math.round(motionState.effectivePerformanceEnergy * 100) : 0}%
                 {motionState && (
                   <span className="text-[9px] ml-1 text-zinc-400 font-normal">
                     (
-                    {motionState.smoothedIntensity < 0.3
+                    {motionState.effectivePerformanceEnergy < 0.3
                       ? 'Piano'
-                      : motionState.smoothedIntensity < 0.6
+                      : motionState.effectivePerformanceEnergy < 0.6
                       ? 'Mezzo'
-                      : motionState.smoothedIntensity < 0.8
+                      : motionState.effectivePerformanceEnergy < 0.8
                       ? 'Forte'
                       : 'Fortissimo'}
                     )
@@ -1349,16 +1367,32 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
                 )}
               </span>
             </div>
+
             {/* Intensity progress bar */}
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden relative">
               <div
                 className="h-full bg-gradient-to-r from-[#00E5FF] via-[#7567C7] to-[#F472B6] transition-all duration-100 rounded-full"
-                style={{ width: `${Math.round((motionState?.smoothedIntensity || 0) * 100)}%` }}
+                style={{ width: `${Math.round((motionState?.effectivePerformanceEnergy || 0) * 100)}%` }}
               />
             </div>
           </div>
 
-          {/* Bowing Stroke Status */}
+          {/* Attack / Transient Onset & Bowing Stroke Status */}
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
+            <span>Attack / Onset:</span>
+            <span
+              className={`font-bold transition-colors ${
+                motionState && motionState.attackStrength > 0.25
+                  ? 'text-[#00E5FF] animate-pulse font-extrabold'
+                  : 'text-zinc-500'
+              }`}
+            >
+              {motionState && motionState.attackStrength > 0.25
+                ? `⚡ ${Math.round(motionState.attackStrength * 100)}% (ONSET: YES)`
+                : 'Sustained (ONSET: NO)'}
+            </span>
+          </div>
+
           <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
             <span>Bowing Stroke:</span>
             <span

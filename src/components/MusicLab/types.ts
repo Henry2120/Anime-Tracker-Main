@@ -165,12 +165,20 @@ export interface MusicSection {
   intensity: number; // 0.0 to 1.0
 }
 
+export interface AudioDynamicsPoint {
+  time: number;              // Timestamp in seconds
+  intensity: number;         // 0.0 to 1.0 (percentile-normalized instantaneous energy)
+  transientStrength: number; // 0.0 to 1.0 (attack / onset strength)
+  violinEnergy: number;      // 0.0 to 1.0 (bowed-string spectral band prominence)
+}
+
 export interface MusicAnalysisResult {
   duration: number;
   bpm?: number;
   detectedInstruments: DetectedInstrument[];
   instrumentActivities?: InstrumentActivity[];
   sections: MusicSection[];
+  dynamicsTimeline?: AudioDynamicsPoint[]; // High-resolution (~50ms) time-varying dynamics curve
   analysisSource: 'gemini_ai' | 'local_web_audio' | 'metadata_heuristic' | 'manual';
   notes?: string;
   title?: string;

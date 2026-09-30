@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PlaybackState, MusicAnalysisResult } from '../../types';
+import { PlaybackState, MusicAnalysisResult, AudioDynamicsPoint } from '../../types';
 import { AnatomicalViolinistPoseParams } from '../PoseEditor/anatomicalPosePreset';
 
 export interface MusicalMotionState {
@@ -16,10 +16,13 @@ export interface MusicalMotionState {
   bowPosition: number;        // -1 (tip / down-bow turnaround) to +1 (frog / up-bow turnaround)
   bowVelocity: number;        // Rate of bow travel with smooth deceleration at endpoints
   
-  // Dynamics and energy
-  rawIntensity: number;       // 0..1 from current musical section / activity
-  smoothedIntensity: number; // 0..1 smoothed over time (attack/decay)
-  phraseMultiplier: number;  // 0.85..1.15 phrase-level expressive arc
+  // Real-time time-varying audio dynamics
+  rawInstantaneousIntensity: number; // 0..1 exact local audio energy at currentTime
+  smoothedIntensity: number;         // 0..1 smoothed over time (attack/decay)
+  attackStrength: number;            // 0..1 transient onset spike
+  violinEnergy: number;              // 0..1 bowed-string harmonic energy
+  effectivePerformanceEnergy: number;// 0..1 combined dynamic + transient energy driving physical amplitude
+  dynamicsSource: 'timeline' | 'section' | 'fallback';
   isPlaying: boolean;
   
   // Kinematic layer outputs
@@ -36,50 +39,166 @@ export interface MusicalMotionState {
 /**
  * Continuous Layered Performance-Motion Engine for Violinist
  *
- * Implements a realistic physical kinetic chain:
- * Music Timing / Phrase -> Bow Stroke Trajectory -> Arm Follow-Through -> Shoulder -> Torso -> Head
+ * Implements a realistic physical kinetic chain driven by real-time audio dynamics:
+ * Time-Varying Audio Dynamics -> Bow Stroke Trajectory -> Arm Follow-Through -> Shoulder -> Torso -> Head
  *
  * Base Pose + Continuous Performance Offsets = Final Performance Pose
  */
 export class ViolinMusicMotionEngine {
   private smoothedIntensity = 0.0;
+  private attackEnergy = 0.0;
   private currentBowPos = 0.0;
   private currentBowVel = 0.0;
 
-  // Smoothing configuration (Attack / Decay in 1/sec)
-  private readonly attackRate = 4.2;
-  private readonly decayRate = 2.4;
+  // Temporal smoothing configuration (Attack / Decay in 1/sec)
+  private readonly attackRate = 5.5;  // Fast dynamic response to crescendos
+  private readonly decayRate = 2.8;   // Smooth natural decrescendo & release
+  private readonly attackDecay = 8.0; // Rapid transient onset decay
 
   // Kinetic Layer Movement Ranges (Maximum degrees offset at maximum intensity 1.0)
-  // Designed for visible, natural anime violinist performance without breaking anatomical limits
+  // Reaches full, expressive fortissimo anime violinist performance at peak energy
   public static readonly MOTION_RANGES = {
     // 1. Right Arm / Bowing (Primary performance engine)
-    rightElbowFlex: 24.0,       // ±24°: Extends to ~38° in down-bow, flexes to ~80° at frog
-    rightArmForward: 9.5,       // ±9.5°: Forward stroke travel along bowing plane
-    rightArmRaise: 6.5,         // ±6.5°: Elevation change across the stroke
-    rightForearmTwist: 8.0,     // ±8.0°: String plane pronation / supination follow-through
-    rightShoulderRaise: 3.8,    // ±3.8°: Clavicle elevation on up-bow & phrase crescendo
-    rightShoulderForward: 2.8,  // ±2.8°: Shoulder girdle follow-through
+    rightElbowFlex: 28.0,       // ±28°: Extends to ~34° in down-bow tip, flexes to ~90° at frog
+    rightArmForward: 12.0,      // ±12.0°: Forward stroke travel along bowing plane
+    rightArmRaise: 8.0,         // ±8.0°: Elevation change across the stroke
+    rightForearmTwist: 9.5,     // ±9.5°: String plane pronation / supination follow-through
+    rightShoulderRaise: 4.5,    // ±4.5°: Clavicle elevation on up-bow & phrase crescendo
+    rightShoulderForward: 3.5,  // ±3.5°: Shoulder girdle follow-through
 
     // 2. Torso (Slower phrase-level body sway and expressive weight shifts)
-    torsoSideLean: 7.0,         // ±7.0°: Lateral roll sway over 4-beat/8-beat measures
-    torsoTwist: 4.8,            // ±4.8°: Axial yaw twist following bowing momentum
-    torsoForwardLean: 3.5,      // +3.5°: Expressive forward pitch on downbeats / climaxes
+    torsoSideLean: 8.5,         // ±8.5°: Lateral roll sway over 4-beat/8-beat measures
+    torsoTwist: 6.0,            // ±6.0°: Axial yaw twist following bowing momentum
+    torsoForwardLean: 4.5,      // +4.5°: Expressive forward pitch on downbeats / climaxes
 
-    // 3. Head & Neck (Expressive musical inclination, NOT a 1-beat metronome twitch)
-    headNod: 4.5,               // +4.5°: Expressive downward nod on phrase emphasis
-    headTilt: 4.0,              // ±4.0°: Listening tilt toward violin
-    headTurn: 2.8,              // ±2.8°: Subtle gaze direction along fingerboard
+    // 3. Head & Neck (Expressive musical phrasing, NOT a 1-beat metronome twitch)
+    headNod: 5.5,               // +5.5°: Expressive downward nod on phrase emphasis
+    headTilt: 4.5,              // ±4.5°: Listening tilt toward violin
+    headTurn: 3.2,              // ±3.2°: Subtle gaze direction along fingerboard
 
     // 4. Left Arm (Stable violin neck support with minute sympathetic torso follow)
-    leftArmRaise: 1.0,          // ±1.0°: Sympathetic breathing follow-through
+    leftArmRaise: 1.2,          // ±1.2°: Sympathetic breathing follow-through
     leftArmForward: 0.8,        // ±0.8°: Minute posture compliance
     leftShoulderRaise: 0.8,     // ±0.8°: Natural relaxed shoulder support
 
     // 5. Right Wrist (Subtle supple compliance at turnaround points - grip remains locked)
-    rightWristBend: 2.0,        // ±2.0°: Supple wrist arch cushion at frog / tip
-    rightWristTurn: 1.5,        // ±1.5°: Subtle wrist turn
+    rightWristBend: 2.2,        // ±2.2°: Supple wrist arch cushion at frog / tip
+    rightWristTurn: 1.8,        // ±1.8°: Subtle wrist turn
   };
+
+  /**
+   * Retrieves instantaneous time-varying audio dynamics for any point on the playback timeline
+   */
+  public getDynamicsAtTime(
+    currentTime: number,
+    analysis: MusicAnalysisResult | null,
+    isPlaying: boolean
+  ): {
+    intensity: number;
+    transientStrength: number;
+    violinEnergy: number;
+    source: 'timeline' | 'section' | 'fallback';
+  } {
+    if (!isPlaying || currentTime < 0) {
+      return { intensity: 0, transientStrength: 0, violinEnergy: 0, source: 'fallback' };
+    }
+
+    // 1. Primary: High-resolution (~50ms) time-varying audio dynamics curve
+    if (analysis && analysis.dynamicsTimeline && analysis.dynamicsTimeline.length > 0) {
+      const timeline = analysis.dynamicsTimeline;
+      const hopSeconds = 0.05;
+      const frameFloat = currentTime / hopSeconds;
+      const index0 = Math.max(0, Math.min(timeline.length - 1, Math.floor(frameFloat)));
+      const index1 = Math.min(timeline.length - 1, index0 + 1);
+
+      const p0 = timeline[index0];
+      const p1 = timeline[index1];
+
+      if (p0 && p1 && index1 > index0) {
+        const alpha = frameFloat - index0;
+        return {
+          intensity: THREE.MathUtils.lerp(p0.intensity, p1.intensity, alpha),
+          transientStrength: THREE.MathUtils.lerp(p0.transientStrength, p1.transientStrength, alpha),
+          violinEnergy: THREE.MathUtils.lerp(p0.violinEnergy, p1.violinEnergy, alpha),
+          source: 'timeline',
+        };
+      } else if (p0) {
+        return {
+          intensity: p0.intensity,
+          transientStrength: p0.transientStrength,
+          violinEnergy: p0.violinEnergy,
+          source: 'timeline',
+        };
+      }
+    }
+
+    // 2. Secondary fallback: High-level section / instrument activity data (for YouTube Gemini analysis)
+    if (analysis && analysis.sections && analysis.sections.length > 0) {
+      const sections = analysis.sections;
+      let activeIndex = -1;
+      for (let i = 0; i < sections.length; i++) {
+        if (currentTime >= sections[i].start && currentTime <= sections[i].end) {
+          activeIndex = i;
+          break;
+        }
+      }
+
+      if (activeIndex >= 0) {
+        const currSec = sections[activeIndex];
+        const isViolinActive = currSec.activeInstruments?.includes('violin') ?? true;
+        const targetInt = isViolinActive ? currSec.intensity : currSec.intensity * 0.45;
+
+        // Smooth 1.5-second cross-fade around section boundaries
+        const blendWindow = 1.5;
+        let blendedInt = targetInt;
+
+        if (currentTime - currSec.start < blendWindow && activeIndex > 0) {
+          const prevSec = sections[activeIndex - 1];
+          const prevViolin = prevSec.activeInstruments?.includes('violin') ?? true;
+          const prevInt = prevViolin ? prevSec.intensity : prevSec.intensity * 0.45;
+          const alpha = (currentTime - currSec.start) / blendWindow;
+          // Smooth Hermite blend
+          const smoothAlpha = alpha * alpha * (3 - 2 * alpha);
+          blendedInt = THREE.MathUtils.lerp(prevInt, targetInt, smoothAlpha);
+        } else if (currSec.end - currentTime < blendWindow && activeIndex < sections.length - 1) {
+          const nextSec = sections[activeIndex + 1];
+          const nextViolin = nextSec.activeInstruments?.includes('violin') ?? true;
+          const nextInt = nextViolin ? nextSec.intensity : nextSec.intensity * 0.45;
+          const alpha = (currSec.end - currentTime) / blendWindow;
+          const smoothAlpha = alpha * alpha * (3 - 2 * alpha);
+          blendedInt = THREE.MathUtils.lerp(nextInt, targetInt, smoothAlpha);
+        }
+
+        return {
+          intensity: blendedInt,
+          transientStrength: 0.12,
+          violinEnergy: blendedInt,
+          source: 'section',
+        };
+      }
+    } else if (analysis && analysis.instrumentActivities && analysis.instrumentActivities.length > 0) {
+      const dur = analysis.duration || 1;
+      const progress = THREE.MathUtils.clamp(currentTime / dur, 0, 1);
+      const violinActivity = analysis.instrumentActivities.find(
+        (a) => a.instrumentId === 'violin' && progress >= a.startPercent && progress <= a.endPercent
+      );
+      const actInt = violinActivity ? violinActivity.intensity : 0.55;
+      return {
+        intensity: actInt,
+        transientStrength: 0.1,
+        violinEnergy: actInt,
+        source: 'section',
+      };
+    }
+
+    // 3. Baseline fallback when playing without track metadata
+    return {
+      intensity: 0.65,
+      transientStrength: 0.1,
+      violinEnergy: 0.65,
+      source: 'fallback',
+    };
+  }
 
   /**
    * Evaluates the continuous musical motion state from playback clock and analysis data
@@ -102,51 +221,44 @@ export class ViolinMusicMotionEngine {
     const beatPhase = (currentTime / beatDuration) % 1.0;
     const measurePhase = (currentTime / (beatDuration * 4)) % 1.0;
     const phrasePhase = (currentTime / (beatDuration * 16)) % 1.0;
-    // Bowing stroke cycle: 2 beats per full down-up cycle (1 beat down-bow, 1 beat up-bow)
     const strokeDuration = beatDuration * 2;
     const bowStrokePhase = (currentTime / strokeDuration) % 1.0;
 
-    // 2. INTENSITY & PHRASE DYNAMICS (Controls motion amplitude & energy)
-    let rawIntensity = 0.0;
+    // 2. QUERY TIME-VARYING AUDIO DYNAMICS AT CURRENT PLAYBACK TIME
+    const dyn = this.getDynamicsAtTime(currentTime, analysis, isPlaying);
+    const rawInstantaneousIntensity = THREE.MathUtils.clamp(dyn.intensity, 0.0, 1.0);
+    const attackStrength = THREE.MathUtils.clamp(dyn.transientStrength, 0.0, 1.0);
+    const violinEnergy = THREE.MathUtils.clamp(dyn.violinEnergy, 0.0, 1.0);
+    const dynamicsSource = dyn.source;
+
+    // Temporal smoothing of continuous dynamics (attack/decay)
     if (isPlaying) {
-      if (analysis && analysis.sections && analysis.sections.length > 0) {
-        const activeSection = analysis.sections.find(
-          (s) => currentTime >= s.start && currentTime <= s.end
-        );
-        if (activeSection) {
-          const isViolinActive = activeSection.activeInstruments?.includes('violin') ?? true;
-          rawIntensity = isViolinActive ? activeSection.intensity : activeSection.intensity * 0.45;
-        } else {
-          rawIntensity = 0.6;
-        }
-      } else if (analysis && analysis.instrumentActivities && analysis.instrumentActivities.length > 0) {
-        const dur = analysis.duration || 1;
-        const progress = THREE.MathUtils.clamp(currentTime / dur, 0, 1);
-        const violinActivity = analysis.instrumentActivities.find(
-          (a) => a.instrumentId === 'violin' && progress >= a.startPercent && progress <= a.endPercent
-        );
-        rawIntensity = violinActivity ? violinActivity.intensity : 0.55;
-      } else {
-        rawIntensity = 0.65;
-      }
+      const rate = rawInstantaneousIntensity >= this.smoothedIntensity ? this.attackRate : this.decayRate;
+      const blendFactor = 1.0 - Math.exp(-rate * dt);
+      this.smoothedIntensity += (rawInstantaneousIntensity - this.smoothedIntensity) * blendFactor;
+
+      // Transient attack energy decay
+      this.attackEnergy = Math.max(
+        attackStrength,
+        this.attackEnergy * Math.exp(-this.attackDecay * dt)
+      );
     } else {
-      rawIntensity = 0.0;
+      // Settle smoothly to 0 on pause
+      const blendFactor = 1.0 - Math.exp(-this.decayRate * 2.0 * dt);
+      this.smoothedIntensity += (0.0 - this.smoothedIntensity) * blendFactor;
+      this.attackEnergy = 0.0;
     }
 
-    rawIntensity = THREE.MathUtils.clamp(rawIntensity, 0.0, 1.0);
-
-    // Temporal smoothing with distinct attack and decay rates
-    const rate = rawIntensity >= this.smoothedIntensity ? this.attackRate : this.decayRate;
-    const blendFactor = 1.0 - Math.exp(-rate * dt);
-    this.smoothedIntensity += (rawIntensity - this.smoothedIntensity) * blendFactor;
     if (this.smoothedIntensity < 0.0001) {
       this.smoothedIntensity = 0.0;
     }
 
-    // Phrase-level expressive arc (subtle ±15% breathing variation across 16 beats)
-    const phraseMultiplier = isPlaying
-      ? 1.0 + 0.15 * Math.sin(phrasePhase * Math.PI * 2)
-      : 1.0;
+    // Combined effective performance energy: sustained dynamics + transient attack punch
+    const effectivePerformanceEnergy = THREE.MathUtils.clamp(
+      this.smoothedIntensity + this.attackEnergy * 0.35,
+      0.0,
+      1.0
+    );
 
     // 3. CONTINUOUS BOW STROKE TRAJECTORY (Smooth acceleration / deceleration)
     // Non-linear continuous piecewise cubic Hermite curve with zero turnaround jerk
@@ -156,17 +268,19 @@ export class ViolinMusicMotionEngine {
     if (bowStrokePhase < 0.5) {
       // Down-bow stroke (0.0 -> 0.5): Travels from frog (+1.0) to tip (-1.0)
       const u = bowStrokePhase / 0.5; // 0..1
-      // Smooth cubic curve: 1 - 2 * (3u^2 - 2u^3)
+      // Cubic easing: 1 - 2 * (3u^2 - 2u^3)
       targetBowPos = 1.0 - 2.0 * (3.0 * u * u - 2.0 * u * u * u);
-      // Derivative (velocity): -12 * u * (1 - u)
-      targetBowVel = -12.0 * u * (1.0 - u);
+      // Velocity with attack acceleration boost
+      const baseVel = -12.0 * u * (1.0 - u);
+      targetBowVel = baseVel * (1.0 + this.attackEnergy * 0.5);
     } else {
       // Up-bow stroke (0.5 -> 1.0): Returns from tip (-1.0) to frog (+1.0)
       const u = (bowStrokePhase - 0.5) / 0.5; // 0..1
-      // Smooth cubic curve: -1 + 2 * (3u^2 - 2u^3)
+      // Cubic easing: -1 + 2 * (3u^2 - 2u^3)
       targetBowPos = -1.0 + 2.0 * (3.0 * u * u - 2.0 * u * u * u);
-      // Derivative (velocity): +12 * u * (1 - u)
-      targetBowVel = 12.0 * u * (1.0 - u);
+      // Velocity with attack acceleration boost
+      const baseVel = 12.0 * u * (1.0 - u);
+      targetBowVel = baseVel * (1.0 + this.attackEnergy * 0.5);
     }
 
     this.currentBowPos = targetBowPos;
@@ -174,25 +288,31 @@ export class ViolinMusicMotionEngine {
 
     // 4. KINETIC CHAIN LAYERS WITH PHASE RELATIONSHIPS
 
-    // Torso: Slow measure-level sway (4-beat period) with subtle 8-beat harmonic
+    // Torso: Slow measure-level sway (4-beat period) with subtle phrase harmonic
     const measureAngle = measurePhase * Math.PI * 2;
     const phraseAngle = phrasePhase * Math.PI * 2;
     const beatAngle = beatPhase * Math.PI * 2;
 
-    // Torso Side-Lean (Roll): Sweeping weight shift with slight phrase modulation
+    // Torso Side-Lean (Roll): Sweeping weight shift responsive to performance energy
     const torsoSway = Math.sin(measureAngle) * 0.85 + Math.sin(phraseAngle) * 0.25;
-    // Torso Twist (Yaw): Follows bowing stroke with natural phase lag (0.2 rad delay)
+    // Torso Twist (Yaw): Follows bowing stroke with natural phase lag (0.3 rad delay)
     const torsoTwist = Math.sin(measureAngle + 0.3) * 0.7 + Math.cos(phraseAngle) * 0.3;
-    // Torso Lean (Pitch): Downbeat rhythmic breathing
-    const torsoLean = Math.max(0, Math.sin(beatAngle)) * 0.6 + Math.max(0, Math.sin(measureAngle)) * 0.4;
+    // Torso Lean (Pitch): Downbeat rhythmic breathing + attack impulse
+    const torsoLean =
+      Math.max(0, Math.sin(beatAngle)) * 0.6 +
+      Math.max(0, Math.sin(measureAngle)) * 0.4 +
+      this.attackEnergy * 0.25;
 
     // Head & Neck: Expressive phrase arc (moves in graceful sympathy with the music)
-    const headNod = Math.max(0, Math.sin(measureAngle + 0.4)) * 0.7 + Math.max(0, Math.sin(phraseAngle)) * 0.3;
+    const headNod =
+      Math.max(0, Math.sin(measureAngle + 0.4)) * 0.7 +
+      Math.max(0, Math.sin(phraseAngle)) * 0.3 +
+      this.attackEnergy * 0.2;
     const headTilt = -Math.sin(measureAngle + 0.2) * 0.75 - Math.sin(phraseAngle) * 0.25;
     const headTurn = Math.cos(measureAngle) * 0.65;
 
     // Shoulder & Arm Follow-Through
-    const shoulderLift = targetBowPos * 0.6 + Math.sin(measureAngle) * 0.4;
+    const shoulderLift = targetBowPos * 0.6 + Math.sin(measureAngle) * 0.4 + this.attackEnergy * 0.2;
     const armFollowThrough = -targetBowVel * 0.25;
 
     return {
@@ -205,9 +325,12 @@ export class ViolinMusicMotionEngine {
       bowStrokePhase,
       bowPosition: this.currentBowPos,
       bowVelocity: this.currentBowVel,
-      rawIntensity,
+      rawInstantaneousIntensity,
       smoothedIntensity: this.smoothedIntensity,
-      phraseMultiplier,
+      attackStrength: this.attackEnergy,
+      violinEnergy,
+      effectivePerformanceEnergy,
+      dynamicsSource,
       isPlaying,
       torsoSway,
       torsoTwist,
@@ -228,7 +351,7 @@ export class ViolinMusicMotionEngine {
     baseParams: AnatomicalViolinistPoseParams,
     state: MusicalMotionState
   ): AnatomicalViolinistPoseParams {
-    const energy = state.smoothedIntensity * state.phraseMultiplier;
+    const energy = state.effectivePerformanceEnergy;
 
     // When stopped or settled, return exact calibrated baseline
     if (energy <= 0.0001) {
@@ -325,6 +448,7 @@ export class ViolinMusicMotionEngine {
    */
   public reset() {
     this.smoothedIntensity = 0.0;
+    this.attackEnergy = 0.0;
     this.currentBowPos = 0.0;
     this.currentBowVel = 0.0;
   }
