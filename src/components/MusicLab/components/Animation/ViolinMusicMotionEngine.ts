@@ -7,72 +7,82 @@ export interface MusicalMotionState {
   currentTime: number;
   bpm: number;
   beatDuration: number;
-  beatPhase: number;       // 0..1 per single beat
-  measurePhase: number;    // 0..1 per 4-beat measure
-  bowStrokePhase: number;  // 0..1 per 2-beat bowing stroke cycle
+  beatPhase: number;          // 0..1 per single beat
+  measurePhase: number;       // 0..1 per 4-beat measure
+  phrasePhase: number;        // 0..1 per 16-beat musical phrase
+  bowStrokePhase: number;     // 0..1 per 2-beat bowing stroke cycle
+  
+  // Dynamic trajectory states (continuous velocity & acceleration)
+  bowPosition: number;        // -1 (tip / down-bow turnaround) to +1 (frog / up-bow turnaround)
+  bowVelocity: number;        // Rate of bow travel with smooth deceleration at endpoints
   
   // Dynamics and energy
   rawIntensity: number;       // 0..1 from current musical section / activity
   smoothedIntensity: number; // 0..1 smoothed over time (attack/decay)
+  phraseMultiplier: number;  // 0.85..1.15 phrase-level expressive arc
   isPlaying: boolean;
   
-  // Motion amplitude and components
-  torsoSway: number;        // -1..1
-  torsoTwist: number;       // -1..1
-  torsoLean: number;        // -1..1
-  headNod: number;          // -1..1
-  headTilt: number;         // -1..1
-  headTurn: number;         // -1..1
-  bowStroke: number;        // -1 (up-bow) to +1 (down-bow)
-  bowEnergy: number;        // 0..1
-  fingerSpring: number;     // -1..1
+  // Kinematic layer outputs
+  torsoSway: number;          // -1..1 lateral weight shift (roll)
+  torsoTwist: number;         // -1..1 axial torso turn (yaw)
+  torsoLean: number;          // 0..1 rhythmic forward pitch
+  headNod: number;            // 0..1 expressive downward nod
+  headTilt: number;           // -1..1 expressive listening tilt
+  headTurn: number;           // -1..1 gaze direction
+  shoulderLift: number;       // -1..1 right shoulder elevation
+  armFollowThrough: number;   // -1..1 kinetic arm follow
 }
 
 /**
- * Core Music-Driven 3D Motion Engine for Violinist Performance
+ * Continuous Layered Performance-Motion Engine for Violinist
  *
- * Translates playback timeline, BPM tempo, and musical section intensity into
- * deterministic, phase-based, biologically constrained skeletal motion layers.
+ * Implements a realistic physical kinetic chain:
+ * Music Timing / Phrase -> Bow Stroke Trajectory -> Arm Follow-Through -> Shoulder -> Torso -> Head
+ *
+ * Base Pose + Continuous Performance Offsets = Final Performance Pose
  */
 export class ViolinMusicMotionEngine {
   private smoothedIntensity = 0.0;
-  private lastTime = 0.0;
+  private currentBowPos = 0.0;
+  private currentBowVel = 0.0;
 
-  // Temporal smoothing configuration (attack / decay rates in 1/sec)
-  private attackRate = 3.8;
-  private decayRate = 2.4;
+  // Smoothing configuration (Attack / Decay in 1/sec)
+  private readonly attackRate = 4.2;
+  private readonly decayRate = 2.4;
 
-  // Motion Amplitude Bounds (maximum degrees offset at intensity = 1.0)
-  public static readonly MAX_OFFSETS = {
-    // Torso: Rhythmic sway and expressive breathing
-    torsoSideLean: 2.4,     // ±2.4° roll sway on 4-beat measure
-    torsoTwist: 1.6,        // ±1.6° yaw twist
-    torsoForwardLean: 2.0,  // +2.0° pitch nod on downbeats
+  // Kinetic Layer Movement Ranges (Maximum degrees offset at maximum intensity 1.0)
+  // Designed for visible, natural anime violinist performance without breaking anatomical limits
+  public static readonly MOTION_RANGES = {
+    // 1. Right Arm / Bowing (Primary performance engine)
+    rightElbowFlex: 24.0,       // ±24°: Extends to ~38° in down-bow, flexes to ~80° at frog
+    rightArmForward: 9.5,       // ±9.5°: Forward stroke travel along bowing plane
+    rightArmRaise: 6.5,         // ±6.5°: Elevation change across the stroke
+    rightForearmTwist: 8.0,     // ±8.0°: String plane pronation / supination follow-through
+    rightShoulderRaise: 3.8,    // ±3.8°: Clavicle elevation on up-bow & phrase crescendo
+    rightShoulderForward: 2.8,  // ±2.8°: Shoulder girdle follow-through
 
-    // Head: Subtle musical nodding and neck tilt in harmony with torso
-    headNod: 2.4,           // ±2.4° nod on downbeats
-    headTilt: 1.8,          // ±1.8° tilt
-    headTurn: 1.2,          // ±1.2° turn
+    // 2. Torso (Slower phrase-level body sway and expressive weight shifts)
+    torsoSideLean: 7.0,         // ±7.0°: Lateral roll sway over 4-beat/8-beat measures
+    torsoTwist: 4.8,            // ±4.8°: Axial yaw twist following bowing momentum
+    torsoForwardLean: 3.5,      // +3.5°: Expressive forward pitch on downbeats / climaxes
 
-    // Right Arm / Bowing: Cyclic down-bow / up-bow stroke
-    rightElbowFlex: 12.0,   // ±12.0° elbow stroke (extends in down-bow, flexes in up-bow)
-    rightArmRaise: 4.2,     // ±4.2° bowing elevation
-    rightArmForward: 5.0,   // ±5.0° forward stroke travel
-    rightForearmTwist: 3.5, // ±3.5° bowing forearm pronation compensation
+    // 3. Head & Neck (Expressive musical inclination, NOT a 1-beat metronome twitch)
+    headNod: 4.5,               // +4.5°: Expressive downward nod on phrase emphasis
+    headTilt: 4.0,              // ±4.0°: Listening tilt toward violin
+    headTurn: 2.8,              // ±2.8°: Subtle gaze direction along fingerboard
 
-    // Left Arm: Stable support posture with subtle sympathetic breathing
-    leftArmRaise: 0.8,      // ±0.8° sympathetic torso breathing
-    leftArmForward: 0.6,    // ±0.6°
+    // 4. Left Arm (Stable violin neck support with minute sympathetic torso follow)
+    leftArmRaise: 1.0,          // ±1.0°: Sympathetic breathing follow-through
+    leftArmForward: 0.8,        // ±0.8°: Minute posture compliance
+    leftShoulderRaise: 0.8,     // ±0.8°: Natural relaxed shoulder support
 
-    // Right Wrist & Fingers: Dynamic compliant flexibility on bow stroke reversal
-    rightWristBend: 3.5,    // ±3.5° wrist flexion at frog/tip turnarounds
-    rightWristTurn: 2.5,    // ±2.5°
-    rightFingerCurl: 5.0,   // ±5.0° dynamic finger spring
-    rightThumbOpposition: 3.0, // ±3.0°
+    // 5. Right Wrist (Subtle supple compliance at turnaround points - grip remains locked)
+    rightWristBend: 2.0,        // ±2.0°: Supple wrist arch cushion at frog / tip
+    rightWristTurn: 1.5,        // ±1.5°: Subtle wrist turn
   };
 
   /**
-   * Evaluates the current musical motion state from playback clock and analysis data
+   * Evaluates the continuous musical motion state from playback clock and analysis data
    */
   public update(
     playback: PlaybackState,
@@ -81,34 +91,33 @@ export class ViolinMusicMotionEngine {
   ): MusicalMotionState {
     const isPlaying = Boolean(playback.isPlaying);
     const currentTime = Math.max(0, playback.currentTime || 0);
-    const dt = Math.max(0.001, Math.min(0.1, delta));
+    const dt = Math.max(0.001, Math.min(0.05, delta));
 
-    // 1. TEMPO / SPEED: BPM to musical beat duration
+    // 1. TEMPO / TIMING (BPM controls speed of musical phases)
     const rawBpm = analysis?.bpm && analysis.bpm > 30 && analysis.bpm < 300 ? analysis.bpm : 120;
     const bpm = THREE.MathUtils.clamp(rawBpm, 50, 220);
-    const beatDuration = 60 / bpm; // seconds per beat
+    const beatDuration = 60 / bpm; // seconds per musical beat
 
-    // 2. PHASE-BASED RHYTHMIC TIMING: Continuous periodic phases
-    // beatPhase: 0..1 per single beat
+    // Multi-tier musical phase clocks
     const beatPhase = (currentTime / beatDuration) % 1.0;
-    // measurePhase: 0..1 per 4-beat bar
     const measurePhase = (currentTime / (beatDuration * 4)) % 1.0;
-    // bowStrokePhase: 0..1 per 2-beat bowing cycle (1 beat down-bow, 1 beat up-bow)
-    const bowStrokePhase = (currentTime / (beatDuration * 2)) % 1.0;
+    const phrasePhase = (currentTime / (beatDuration * 16)) % 1.0;
+    // Bowing stroke cycle: 2 beats per full down-up cycle (1 beat down-bow, 1 beat up-bow)
+    const strokeDuration = beatDuration * 2;
+    const bowStrokePhase = (currentTime / strokeDuration) % 1.0;
 
-    // 3. INTENSITY: Resolve raw target intensity from active sections / activities
+    // 2. INTENSITY & PHRASE DYNAMICS (Controls motion amplitude & energy)
     let rawIntensity = 0.0;
     if (isPlaying) {
       if (analysis && analysis.sections && analysis.sections.length > 0) {
-        // Find current active section
         const activeSection = analysis.sections.find(
           (s) => currentTime >= s.start && currentTime <= s.end
         );
         if (activeSection) {
           const isViolinActive = activeSection.activeInstruments?.includes('violin') ?? true;
-          rawIntensity = isViolinActive ? activeSection.intensity : activeSection.intensity * 0.4;
+          rawIntensity = isViolinActive ? activeSection.intensity : activeSection.intensity * 0.45;
         } else {
-          rawIntensity = 0.55;
+          rawIntensity = 0.6;
         }
       } else if (analysis && analysis.instrumentActivities && analysis.instrumentActivities.length > 0) {
         const dur = analysis.duration || 1;
@@ -116,44 +125,75 @@ export class ViolinMusicMotionEngine {
         const violinActivity = analysis.instrumentActivities.find(
           (a) => a.instrumentId === 'violin' && progress >= a.startPercent && progress <= a.endPercent
         );
-        rawIntensity = violinActivity ? violinActivity.intensity : 0.5;
+        rawIntensity = violinActivity ? violinActivity.intensity : 0.55;
       } else {
-        // Default musical active baseline when playing without metadata
-        rawIntensity = 0.6;
+        rawIntensity = 0.65;
       }
     } else {
-      // Stopped / Paused: Target intensity decays to zero
       rawIntensity = 0.0;
     }
 
     rawIntensity = THREE.MathUtils.clamp(rawIntensity, 0.0, 1.0);
 
-    // 4. TEMPORAL INTENSITY SMOOTHING (Attack / Decay)
+    // Temporal smoothing with distinct attack and decay rates
     const rate = rawIntensity >= this.smoothedIntensity ? this.attackRate : this.decayRate;
     const blendFactor = 1.0 - Math.exp(-rate * dt);
     this.smoothedIntensity += (rawIntensity - this.smoothedIntensity) * blendFactor;
-    if (this.smoothedIntensity < 0.0005) {
+    if (this.smoothedIntensity < 0.0001) {
       this.smoothedIntensity = 0.0;
     }
 
-    // 5. PHASE HARMONICS (Smooth trigonometric curves)
-    const beatAngle = beatPhase * Math.PI * 2;
+    // Phrase-level expressive arc (subtle ±15% breathing variation across 16 beats)
+    const phraseMultiplier = isPlaying
+      ? 1.0 + 0.15 * Math.sin(phrasePhase * Math.PI * 2)
+      : 1.0;
+
+    // 3. CONTINUOUS BOW STROKE TRAJECTORY (Smooth acceleration / deceleration)
+    // Non-linear continuous piecewise cubic Hermite curve with zero turnaround jerk
+    let targetBowPos = 0.0;
+    let targetBowVel = 0.0;
+
+    if (bowStrokePhase < 0.5) {
+      // Down-bow stroke (0.0 -> 0.5): Travels from frog (+1.0) to tip (-1.0)
+      const u = bowStrokePhase / 0.5; // 0..1
+      // Smooth cubic curve: 1 - 2 * (3u^2 - 2u^3)
+      targetBowPos = 1.0 - 2.0 * (3.0 * u * u - 2.0 * u * u * u);
+      // Derivative (velocity): -12 * u * (1 - u)
+      targetBowVel = -12.0 * u * (1.0 - u);
+    } else {
+      // Up-bow stroke (0.5 -> 1.0): Returns from tip (-1.0) to frog (+1.0)
+      const u = (bowStrokePhase - 0.5) / 0.5; // 0..1
+      // Smooth cubic curve: -1 + 2 * (3u^2 - 2u^3)
+      targetBowPos = -1.0 + 2.0 * (3.0 * u * u - 2.0 * u * u * u);
+      // Derivative (velocity): +12 * u * (1 - u)
+      targetBowVel = 12.0 * u * (1.0 - u);
+    }
+
+    this.currentBowPos = targetBowPos;
+    this.currentBowVel = targetBowVel;
+
+    // 4. KINETIC CHAIN LAYERS WITH PHASE RELATIONSHIPS
+
+    // Torso: Slow measure-level sway (4-beat period) with subtle 8-beat harmonic
     const measureAngle = measurePhase * Math.PI * 2;
-    const bowAngle = bowStrokePhase * Math.PI * 2;
+    const phraseAngle = phrasePhase * Math.PI * 2;
+    const beatAngle = beatPhase * Math.PI * 2;
 
-    const torsoSway = Math.sin(measureAngle);
-    const torsoTwist = Math.cos(measureAngle);
-    const torsoLean = Math.sin(beatAngle) * 0.5 + 0.5;
+    // Torso Side-Lean (Roll): Sweeping weight shift with slight phrase modulation
+    const torsoSway = Math.sin(measureAngle) * 0.85 + Math.sin(phraseAngle) * 0.25;
+    // Torso Twist (Yaw): Follows bowing stroke with natural phase lag (0.2 rad delay)
+    const torsoTwist = Math.sin(measureAngle + 0.3) * 0.7 + Math.cos(phraseAngle) * 0.3;
+    // Torso Lean (Pitch): Downbeat rhythmic breathing
+    const torsoLean = Math.max(0, Math.sin(beatAngle)) * 0.6 + Math.max(0, Math.sin(measureAngle)) * 0.4;
 
-    const headNod = Math.sin(beatAngle + 0.35);
-    const headTilt = -Math.sin(measureAngle + 0.25);
-    const headTurn = Math.cos(measureAngle);
+    // Head & Neck: Expressive phrase arc (moves in graceful sympathy with the music)
+    const headNod = Math.max(0, Math.sin(measureAngle + 0.4)) * 0.7 + Math.max(0, Math.sin(phraseAngle)) * 0.3;
+    const headTilt = -Math.sin(measureAngle + 0.2) * 0.75 - Math.sin(phraseAngle) * 0.25;
+    const headTurn = Math.cos(measureAngle) * 0.65;
 
-    const bowStroke = Math.sin(bowAngle); // -1 (up-bow) to +1 (down-bow)
-    const bowEnergy = this.smoothedIntensity;
-    const fingerSpring = -Math.cos(bowAngle);
-
-    this.lastTime = currentTime;
+    // Shoulder & Arm Follow-Through
+    const shoulderLift = targetBowPos * 0.6 + Math.sin(measureAngle) * 0.4;
+    const armFollowThrough = -targetBowVel * 0.25;
 
     return {
       currentTime,
@@ -161,9 +201,13 @@ export class ViolinMusicMotionEngine {
       beatDuration,
       beatPhase,
       measurePhase,
+      phrasePhase,
       bowStrokePhase,
+      bowPosition: this.currentBowPos,
+      bowVelocity: this.currentBowVel,
       rawIntensity,
       smoothedIntensity: this.smoothedIntensity,
+      phraseMultiplier,
       isPlaying,
       torsoSway,
       torsoTwist,
@@ -171,94 +215,108 @@ export class ViolinMusicMotionEngine {
       headNod,
       headTilt,
       headTurn,
-      bowStroke,
-      bowEnergy,
-      fingerSpring,
+      shoulderLift,
+      armFollowThrough,
     };
   }
 
   /**
    * Computes the final effective performance pose parameters:
-   * Effective Pose = Base Pose + Clamped Motion Offsets(motionState)
+   * Final Pose = Calibrated Base Pose + Layered Performance Trajectories(motionState)
    */
   public computePoseParams(
     baseParams: AnatomicalViolinistPoseParams,
     state: MusicalMotionState
   ): AnatomicalViolinistPoseParams {
-    const s = state.smoothedIntensity;
+    const energy = state.smoothedIntensity * state.phraseMultiplier;
 
-    if (s <= 0.0001) {
+    // When stopped or settled, return exact calibrated baseline
+    if (energy <= 0.0001) {
       return { ...baseParams };
     }
 
-    const MO = ViolinMusicMotionEngine.MAX_OFFSETS;
+    const MR = ViolinMusicMotionEngine.MOTION_RANGES;
 
-    // 1. Torso Motion Offsets
-    const dTorsoLean = state.torsoSway * MO.torsoSideLean * s;
-    const dTorsoTwist = state.torsoTwist * MO.torsoTwist * s;
-    const dTorsoForward = state.torsoLean * MO.torsoForwardLean * s;
+    // 1. Torso Offsets (Expressive measure sway & posture breathing)
+    const dTorsoSideLean = state.torsoSway * MR.torsoSideLean * energy;
+    const dTorsoTwist = state.torsoTwist * MR.torsoTwist * energy;
+    const dTorsoForwardLean = state.torsoLean * MR.torsoForwardLean * energy;
 
-    // 2. Head Motion Offsets
-    const dHeadNod = state.headNod * MO.headNod * s;
-    const dHeadTilt = state.headTilt * MO.headTilt * s;
-    const dHeadTurn = state.headTurn * MO.headTurn * s;
+    // 2. Head & Neck Offsets (Expressive musical phrasing)
+    const dHeadNod = state.headNod * MR.headNod * energy;
+    const dHeadTilt = state.headTilt * MR.headTilt * energy;
+    const dHeadTurn = state.headTurn * MR.headTurn * energy;
 
-    // 3. Right Arm / Bowing Stroke Offsets
-    // In down-bow (state.bowStroke > 0), arm extends and moves forward; in up-bow, arm flexes and retracts
-    const dRightElbowFlex = -state.bowStroke * MO.rightElbowFlex * s;
-    const dRightArmRaise = -Math.cos(state.bowStrokePhase * Math.PI * 2) * MO.rightArmRaise * s;
-    const dRightArmForward = state.bowStroke * MO.rightArmForward * s;
-    const dRightForearmTwist = -state.bowStroke * MO.rightForearmTwist * s;
+    // 3. Right Arm / Bowing Kinetic Chain (Primary motion)
+    // Bow position (-1 = tip, +1 = frog):
+    // In down-bow (pos -> -1), elbow extends; in up-bow (pos -> +1), elbow flexes toward frog
+    const dRightElbowFlex = state.bowPosition * MR.rightElbowFlex * energy;
+    // Forward travel along bowing plane
+    const dRightArmForward = -state.bowPosition * MR.rightArmForward * energy;
+    // Elevation adjustments (arm drops slightly at tip, elevates at frog)
+    const dRightArmRaise = state.bowPosition * MR.rightArmRaise * energy;
+    // Forearm pronation / supination to maintain string contact plane
+    const dRightForearmTwist = -state.bowPosition * MR.rightForearmTwist * energy;
+    // Shoulder girdle elevation follow-through
+    const dRightShoulderRaise = state.shoulderLift * MR.rightShoulderRaise * energy;
+    const dRightShoulderForward = state.shoulderLift * MR.rightShoulderForward * energy;
 
-    // 4. Left Arm Subtle Sympathetic Breathing (Preserving neck cradle stability)
-    const dLeftArmRaise = state.torsoSway * MO.leftArmRaise * s;
-    const dLeftArmForward = state.torsoTwist * MO.leftArmForward * s;
+    // 4. Right Wrist Supple Turnaround Cushion (Grip remains locked)
+    const dRightWristBend = (1.0 - Math.abs(state.bowPosition)) * MR.rightWristBend * energy;
+    const dRightWristTurn = state.bowPosition * MR.rightWristTurn * energy;
 
-    // 5. Right Wrist & Hand Compliant Cushioning
-    const dRightWristBend = Math.cos(state.bowStrokePhase * Math.PI * 2) * MO.rightWristBend * s;
-    const dRightWristTurn = state.bowStroke * MO.rightWristTurn * s;
-    const dRightFingerCurl = state.fingerSpring * MO.rightFingerCurl * s;
-    const dRightThumbOppose = state.fingerSpring * MO.rightThumbOpposition * s;
+    // 5. Left Arm Subtle Sympathetic Follow-Through (Preserving violin support contact)
+    const dLeftArmRaise = state.torsoSway * MR.leftArmRaise * energy;
+    const dLeftArmForward = state.torsoTwist * MR.leftArmForward * energy;
+    const dLeftShoulderRaise = state.torsoSway * MR.leftShoulderRaise * energy;
 
     return {
       ...baseParams,
       // Torso
       torsoTwist: baseParams.torsoTwist + dTorsoTwist,
-      torsoSideLean: baseParams.torsoSideLean + dTorsoLean,
-      torsoForwardLean: (baseParams.torsoForwardLean || 0) + dTorsoForward,
+      torsoSideLean: baseParams.torsoSideLean + dTorsoSideLean,
+      torsoForwardLean: (baseParams.torsoForwardLean || 0) + dTorsoForwardLean,
 
       // Head
       headTurn: baseParams.headTurn + dHeadTurn,
       headTilt: baseParams.headTilt + dHeadTilt,
       headNod: baseParams.headNod + dHeadNod,
 
-      // Left Arm
+      // Left Shoulder & Arm (Support chain - neck support locked)
+      leftShoulderRaise: baseParams.leftShoulderRaise + dLeftShoulderRaise,
+      leftShoulderForward: baseParams.leftShoulderForward,
       leftArmRaise: baseParams.leftArmRaise + dLeftArmRaise,
       leftArmForward: baseParams.leftArmForward + dLeftArmForward,
       leftArmTwist: baseParams.leftArmTwist,
       leftElbowFlex: baseParams.leftElbowFlex,
       leftForearmTwist: baseParams.leftForearmTwist,
 
-      // Left Hand (Firmly Locked)
+      // Left Hand (100% LOCKED to preserve violin cradle)
       leftWristTurn: baseParams.leftWristTurn,
       leftWristBend: baseParams.leftWristBend,
       leftWristSideTilt: baseParams.leftWristSideTilt,
       leftFingerCurl: baseParams.leftFingerCurl,
       leftThumbOpposition: baseParams.leftThumbOpposition,
 
-      // Right Arm
+      // Right Shoulder
+      rightShoulderRaise: baseParams.rightShoulderRaise + dRightShoulderRaise,
+      rightShoulderForward: baseParams.rightShoulderForward + dRightShoulderForward,
+
+      // Right Arm (Bowing engine)
       rightArmRaise: baseParams.rightArmRaise + dRightArmRaise,
       rightArmForward: baseParams.rightArmForward + dRightArmForward,
       rightArmTwist: baseParams.rightArmTwist,
       rightElbowFlex: baseParams.rightElbowFlex + dRightElbowFlex,
       rightForearmTwist: baseParams.rightForearmTwist + dRightForearmTwist,
 
-      // Right Hand & Grip
+      // Right Wrist (Supple cushioning only)
       rightWristTurn: baseParams.rightWristTurn + dRightWristTurn,
       rightWristBend: baseParams.rightWristBend + dRightWristBend,
       rightWristSideTilt: baseParams.rightWristSideTilt,
-      rightFingerCurl: THREE.MathUtils.clamp(baseParams.rightFingerCurl + dRightFingerCurl, 0, 90),
-      rightThumbOpposition: THREE.MathUtils.clamp(baseParams.rightThumbOpposition + dRightThumbOppose, 0, 70),
+
+      // Right Fingers & Thumb (100% LOCKED to calibrated bow grip)
+      rightFingerCurl: baseParams.rightFingerCurl,
+      rightThumbOpposition: baseParams.rightThumbOpposition,
     };
   }
 
@@ -267,6 +325,7 @@ export class ViolinMusicMotionEngine {
    */
   public reset() {
     this.smoothedIntensity = 0.0;
-    this.lastTime = 0.0;
+    this.currentBowPos = 0.0;
+    this.currentBowVel = 0.0;
   }
 }

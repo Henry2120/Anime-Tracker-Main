@@ -1363,10 +1363,14 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             <span>Bowing Stroke:</span>
             <span
               className={`font-bold ${
-                motionState && motionState.bowStroke > 0 ? 'text-emerald-400' : 'text-amber-400'
+                motionState && motionState.bowVelocity < 0 ? 'text-emerald-400' : 'text-amber-400'
               }`}
             >
-              {motionState ? (motionState.bowStroke > 0 ? '▾ Down-bow' : '▴ Up-bow') : 'Idle'}
+              {motionState
+                ? motionState.bowVelocity < 0
+                  ? '▾ Down-bow (Accelerating)'
+                  : '▴ Up-bow (Retracting)'
+                : 'Idle'}
             </span>
           </div>
 
