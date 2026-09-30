@@ -62,7 +62,7 @@ export const VIOLINIST_BASE_POSE: AnatomicalViolinistPoseParams = {
   leftForearmTwist: 15,  // +15°: supinated forearm for instrument support
 
   // 5. Left Support Hand & Fingers: Natural open cradle posture with palm facing upward/inward
-  leftWristTurn: -95,    // -95°: calibrated supination rotating palm upward & inward toward neck cradle
+  leftWristTurn: -94,    // -94°: calibrated supination rotating palm upward & inward toward neck cradle
   leftWristBend: -4,     // -4°: natural straight continuation of forearm with slight anatomical relief
   leftWristSideTilt: 2,  // +2°: neutral anatomical alignment with forearm
   leftFingerCurl: 22,    // +22°: relaxed progressive curve across finger joints
@@ -79,12 +79,12 @@ export const VIOLINIST_BASE_POSE: AnatomicalViolinistPoseParams = {
   rightElbowFlex: 62,    // +62°: natural bowing arm bend
   rightForearmTwist: 65, // +65°: relaxed pronated forearm for violin bow grip
 
-  // 8. Right Grip Hand & Fingers: Natural relaxed bow grip preparation shape
-  rightWristTurn: 75,    // +75°: pronated wrist orienting palm downward toward bow
+  // 8. Right Grip Hand & Fingers: Accepted Canonical Parameters
+  rightWristTurn: -45,   // -45°: accepted canonical right wrist turn
   rightWristBend: 8,     // +8°: gentle relaxed wrist arch for bow hold
   rightWristSideTilt: 0, // 0°: neutral anatomical alignment with forearm
-  rightFingerCurl: 38,   // +38°: relaxed progressive curve around future cylindrical grip
-  rightThumbOpposition: 32,// +32°: opposes fingers in natural bow grip
+  rightFingerCurl: 90,   // +90°: accepted canonical finger curl around bow
+  rightThumbOpposition: 60,// +60°: accepted canonical thumb opposition for bow hold
 };
 
 /**
@@ -93,11 +93,11 @@ export const VIOLINIST_BASE_POSE: AnatomicalViolinistPoseParams = {
  */
 export const CANONICAL_RIGHT_BOW_GRIP = {
   rightForearmTwist: 65,
-  rightWristTurn: 75,
+  rightWristTurn: -45,
   rightWristBend: 8,
   rightWristSideTilt: 0,
-  rightFingerCurl: 38,
-  rightThumbOpposition: 32,
+  rightFingerCurl: 90,
+  rightThumbOpposition: 60,
   // Signed Anatomical Hand Frame Reference
   handOrientation: {
     palmSide: 'PALMAR' as const,
@@ -181,10 +181,12 @@ export function applyAnatomicalViolinistPose(
   manager.setAnatomicalMotion('rightLowerArm' as VRMHumanBoneName, 'flexion', params.rightElbowFlex);
   manager.setAnatomicalMotion('rightLowerArm' as VRMHumanBoneName, 'twist', params.rightForearmTwist);
 
-  // 8. Right Grip Hand & Fingers
+  // 8. Right Wrist (Hand orientation)
   manager.setAnatomicalMotion('rightHand' as VRMHumanBoneName, 'turn', params.rightWristTurn);
   manager.setAnatomicalMotion('rightHand' as VRMHumanBoneName, 'bend', params.rightWristBend);
   manager.setAnatomicalMotion('rightHand' as VRMHumanBoneName, 'sideTilt', params.rightWristSideTilt);
-  manager.setAnatomicalMotion('rightHand' as VRMHumanBoneName, 'fingerCurl', params.rightFingerCurl);
-  manager.setAnatomicalMotion('rightHand' as VRMHumanBoneName, 'thumbOpposition', params.rightThumbOpposition);
+
+  // 9. Right Fingers & Thumb (Articulated relative to established wrist hierarchy)
+  manager.applyFingers('right', params.rightFingerCurl);
+  manager.applyThumb('right', params.rightThumbOpposition);
 }

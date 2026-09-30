@@ -56,12 +56,16 @@ export interface AnatomicalContactLandmarks {
   leftIndexProximal: THREE.Vector3;
   leftHandCradleTarget: THREE.Vector3;
   rightWristPos: THREE.Vector3;
+  rightElbowPos: THREE.Vector3;
   rightThumbDistal: THREE.Vector3;
   rightIndexProximal: THREE.Vector3;
   rightIndexIntermediate: THREE.Vector3;
   rightMiddleProximal: THREE.Vector3;
   rightMiddleIntermediate: THREE.Vector3;
+  rightRingProximal: THREE.Vector3;
+  rightRingIntermediate: THREE.Vector3;
   rightLittleProximal: THREE.Vector3;
+  rightLittleDistal: THREE.Vector3;
   rightGripTarget: THREE.Vector3;
   rightPalmCenter: THREE.Vector3;
   rightBowGripFrame: {
@@ -169,12 +173,16 @@ export function extractAnatomicalLandmarks(vrm: VRM): AnatomicalContactLandmarks
   const leftIndexProximal = getBonePos('leftIndexProximal');
 
   const rightWristPos = getBonePos('rightHand');
+  const rightElbowPos = getBonePos('rightLowerArm');
   const rightThumbDistal = getBonePos('rightThumbDistal');
   const rightIndexProximal = getBonePos('rightIndexProximal');
   const rightIndexIntermediate = getBonePos('rightIndexIntermediate');
   const rightMiddleProximal = getBonePos('rightMiddleProximal');
   const rightMiddleIntermediate = getBonePos('rightMiddleIntermediate');
+  const rightRingProximal = getBonePos('rightRingProximal');
+  const rightRingIntermediate = getBonePos('rightRingIntermediate');
   const rightLittleProximal = getBonePos('rightLittleProximal');
+  const rightLittleDistal = getBonePos('rightLittleDistal');
 
   // Dynamic Chin Target derived from head bone world rotation & position:
   const headQuat = new THREE.Quaternion();
@@ -223,12 +231,16 @@ export function extractAnatomicalLandmarks(vrm: VRM): AnatomicalContactLandmarks
     leftIndexProximal,
     leftHandCradleTarget,
     rightWristPos,
+    rightElbowPos,
     rightThumbDistal,
     rightIndexProximal,
     rightIndexIntermediate,
     rightMiddleProximal,
     rightMiddleIntermediate,
+    rightRingProximal,
+    rightRingIntermediate,
     rightLittleProximal,
+    rightLittleDistal,
     rightGripTarget,
     rightPalmCenter,
     rightBowGripFrame: {
@@ -427,44 +439,45 @@ export function evaluateDiagnostics(
   const rightHandChiralityValid = chiralityDet > 0.5;
   const rightHandChirality: 'VALID' | 'INVALID' = rightHandChiralityValid ? 'VALID' : 'INVALID';
 
-  // Derive Desired Bow Hand Frame from RightBowGripFrame basis
+  // Derive Desired Bow Hand Frame directly from Hand-to-Bow geometry (NO ARBITRARY FORMULAS)
+  const palmCenter = landmarks.rightPalmCenter;
+  const vPalmToBow = new THREE.Vector3().subVectors(bowFrogGripPos, palmCenter).normalize();
+  const desiredPalmNormal = vPalmToBow.clone();
+
+  // Grip basis for reference contact targets
   const gripQuat = solution.rightBowGripWorldQuat;
   const Ux = new THREE.Vector3(1, 0, 0).applyQuaternion(gripQuat).normalize();
   const Uy = new THREE.Vector3(0, 1, 0).applyQuaternion(gripQuat).normalize();
   const Uz = new THREE.Vector3(0, 0, 1).applyQuaternion(gripQuat).normalize();
 
-  const desiredPalmNormal = new THREE.Vector3()
-    .addScaledVector(Uz, -0.90)
-    .addScaledVector(Ux, -0.35)
-    .addScaledVector(Uy, 0.25)
-    .normalize();
+  // Forearm continuity: wrist to elbow vector
+  const vForearm = new THREE.Vector3().subVectors(landmarks.rightWristPos, landmarks.rightElbowPos).normalize();
   const desiredHandAxis = new THREE.Vector3()
-    .addScaledVector(Uz, -0.18)
-    .addScaledVector(Uy, 0.22)
-    .addScaledVector(Ux, -0.10)
+    .subVectors(vForearm, desiredPalmNormal.clone().multiplyScalar(vForearm.dot(desiredPalmNormal)))
     .normalize();
 
-  // Palm Side Test: Dot product between current palm normal and desired palm normal
+  // Palm Side Test: Dot product between current palm normal and true palm-to-bow direction
   const palmNormalDotProduct = currentPalmNormal.dot(desiredPalmNormal);
   const palmSideValid = palmNormalDotProduct > 0;
   const palmSide: 'PALMAR' | 'DORSAL' = palmSideValid ? 'PALMAR' : 'DORSAL';
 
   const palmOrientationErrorDeg = (currentPalmNormal.angleTo(desiredPalmNormal) * 180) / Math.PI;
 
-  // Wrist to hand angle
-  const vForearm = new THREE.Vector3().subVectors(landmarks.rightWristPos, landmarks.shoulderShelfTarget).normalize();
+  // Real Forearm to Hand angle
   const wristToHandBendAngleDeg = (vForearm.angleTo(vHandLong) * 180) / Math.PI;
 
-  // Finger contact target errors relative to bow stick & frog
-  const targetThumb = bowFrogGripPos.clone().addScaledVector(Ux, -0.003).addScaledVector(Uy, -0.005).addScaledVector(Uz, -0.007);
-  const targetIndex = bowFrogGripPos.clone().addScaledVector(Ux, 0.008).addScaledVector(Uy, 0.024).addScaledVector(Uz, 0.010);
-  const targetMiddle = bowFrogGripPos.clone().addScaledVector(Ux, 0.008).addScaledVector(Uy, 0.003).addScaledVector(Uz, 0.009);
+  // Finger contact targets relative to authoritative BowFrogGripFrame
+  const targetThumb = bowFrogGripPos.clone().addScaledVector(Ux, -0.003).addScaledVector(Uy, -0.004).addScaledVector(Uz, -0.006);
+  const targetIndex = bowFrogGripPos.clone().addScaledVector(Ux, 0.008).addScaledVector(Uy, 0.024).addScaledVector(Uz, 0.006);
+  const targetMiddle = bowFrogGripPos.clone().addScaledVector(Ux, 0.008).addScaledVector(Uy, 0.004).addScaledVector(Uz, 0.006);
+  const targetRing = bowFrogGripPos.clone().addScaledVector(Ux, 0.006).addScaledVector(Uy, -0.014).addScaledVector(Uz, 0.005);
+  const targetLittle = bowFrogGripPos.clone().addScaledVector(Ux, 0.001).addScaledVector(Uy, -0.026).addScaledVector(Uz, 0.007);
 
   const thumbContactErrorMm = landmarks.rightThumbDistal.distanceTo(targetThumb) * 1000;
   const indexContactErrorMm = landmarks.rightIndexIntermediate.distanceTo(targetIndex) * 1000;
   const middleContactErrorMm = landmarks.rightMiddleIntermediate.distanceTo(targetMiddle) * 1000;
-  const ringContactErrorMm = 1.2;
-  const pinkyContactErrorMm = 1.5;
+  const ringContactErrorMm = landmarks.rightRingIntermediate.distanceTo(targetRing) * 1000;
+  const pinkyContactErrorMm = landmarks.rightLittleDistal.distanceTo(targetLittle) * 1000;
 
   // Finger spacing & intersection checks
   const fingerSpacingMm = landmarks.rightIndexProximal.distanceTo(landmarks.rightMiddleProximal) * 1000;
