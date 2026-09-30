@@ -4,15 +4,39 @@ import { EDITABLE_BONES, SavedPose, JointMarkerInfo, BoneTransformSnapshot } fro
 import { AnatomicalViolinistPoseParams, VIOLINIST_BASE_POSE, applyAnatomicalViolinistPose } from './anatomicalPosePreset';
 import { extractAnatomicalLandmarks, solveInstrumentFitting } from '../InstrumentProps/ViolinCalibration';
 
+export interface RestHandAnatomy {
+  restWristPos: THREE.Vector3;
+  restKnucklesCenter: THREE.Vector3;
+  vRestHandLong: THREE.Vector3;
+  vRestRadial: THREE.Vector3;
+  vRestPalmar: THREE.Vector3;
+  vRestDorsal: THREE.Vector3;
+  qRestHandWorld: THREE.Quaternion;
+  fingerJointHinges: Map<VRMHumanBoneName, {
+    vBoneRestWorld: THREE.Vector3;
+    vHingeRestWorld: THREE.Vector3;
+    vHingeRestLocal: THREE.Vector3;
+    vSplayRestLocal: THREE.Vector3;
+  }>;
+  thumbJointHinges: {
+    metaOpposeLocal: THREE.Vector3;
+    metaFlexLocal: THREE.Vector3;
+    proxFlexLocal: THREE.Vector3;
+    distFlexLocal: THREE.Vector3;
+  };
+}
+
 export class VRMPoseManager {
   private vrm: VRM;
   private authoredRestTransforms: Map<VRMHumanBoneName, BoneTransformSnapshot> = new Map();
+  private restHandAnatomy: RestHandAnatomy | null = null;
   private savedPoseInMemory: SavedPose | null = null;
   private activePoseName: string = 'Neutral T-Pose';
 
   constructor(vrm: VRM) {
     this.vrm = vrm;
     this.cacheAuthoredRestTransforms();
+    this.measureRestHandAnatomy();
   }
 
   /**
@@ -32,6 +56,153 @@ export class VRMPoseManager {
         });
       }
     });
+  }
+
+  /**
+   * Measures the actual immutable authored rest anatomy and local joint hinge axes of THIS VRM skeleton
+   */
+  public measureRestHandAnatomy(): RestHandAnatomy | null {
+    const humanoid = this.vrm.humanoid;
+    if (!humanoid) return null;
+
+    // Reset to clean authored T-pose to measure rest anatomy
+    this.resetToTPose();
+
+    const getWPos = (name: VRMHumanBoneName): THREE.Vector3 => {
+      const node = humanoid.getNormalizedBoneNode(name);
+      const pos = new THREE.Vector3();
+      if (node) node.getWorldPosition(pos);
+      return pos;
+    };
+
+    const getWQuat = (name: VRMHumanBoneName): THREE.Quaternion => {
+      const node = humanoid.getNormalizedBoneNode(name);
+      const q = new THREE.Quaternion();
+      if (node) node.getWorldQuaternion(q);
+      return q;
+    };
+
+    const restWristPos = getWPos('rightHand' as VRMHumanBoneName);
+    const rIndexProx = getWPos('rightIndexProximal' as VRMHumanBoneName);
+    const rIndexInter = getWPos('rightIndexIntermediate' as VRMHumanBoneName);
+    const rIndexDist = getWPos('rightIndexDistal' as VRMHumanBoneName);
+
+    const rMiddleProx = getWPos('rightMiddleProximal' as VRMHumanBoneName);
+    const rMiddleInter = getWPos('rightMiddleIntermediate' as VRMHumanBoneName);
+    const rMiddleDist = getWPos('rightMiddleDistal' as VRMHumanBoneName);
+
+    const rRingProx = getWPos('rightRingProximal' as VRMHumanBoneName);
+    const rRingInter = getWPos('rightRingIntermediate' as VRMHumanBoneName);
+    const rRingDist = getWPos('rightRingDistal' as VRMHumanBoneName);
+
+    const rLittleProx = getWPos('rightLittleProximal' as VRMHumanBoneName);
+    const rLittleInter = getWPos('rightLittleIntermediate' as VRMHumanBoneName);
+    const rLittleDist = getWPos('rightLittleDistal' as VRMHumanBoneName);
+
+    const rThumbMeta = getWPos('rightThumbMetacarpal' as VRMHumanBoneName);
+    const rThumbProx = getWPos('rightThumbProximal' as VRMHumanBoneName);
+    const rThumbDist = getWPos('rightThumbDistal' as VRMHumanBoneName);
+
+    const restKnucklesCenter = new THREE.Vector3()
+      .add(rIndexProx)
+      .add(rMiddleProx)
+      .add(rRingProx)
+      .add(rLittleProx)
+      .multiplyScalar(0.25);
+
+    const vRestHandLong = new THREE.Vector3().subVectors(restKnucklesCenter, restWristPos).normalize();
+    const vRestRadial = new THREE.Vector3().subVectors(rIndexProx, rLittleProx).normalize();
+
+    // Palmar normal for anatomical right hand: cross(radial, longitudinal) points into palm
+    let vRestPalmar = new THREE.Vector3().crossVectors(vRestRadial, vRestHandLong).normalize();
+    let vRestDorsal = vRestPalmar.clone().negate();
+
+    // Verify sign with thumb: thumb sits in palmar-radial space
+    const vThumbFromWrist = new THREE.Vector3().subVectors(rThumbDist, restWristPos);
+    if (vThumbFromWrist.dot(vRestPalmar) < -0.01) {
+      vRestPalmar.negate();
+      vRestDorsal.negate();
+    }
+
+    const qRestHandWorld = getWQuat('rightHand' as VRMHumanBoneName);
+
+    // Compute joint flexion hinges for all 4 fingers
+    const fingerJointHinges = new Map<VRMHumanBoneName, {
+      vBoneRestWorld: THREE.Vector3;
+      vHingeRestWorld: THREE.Vector3;
+      vHingeRestLocal: THREE.Vector3;
+      vSplayRestLocal: THREE.Vector3;
+    }>();
+
+    const measureFingerJoint = (boneName: VRMHumanBoneName, childPos: THREE.Vector3) => {
+      const pos = getWPos(boneName);
+      const qWorld = getWQuat(boneName);
+      const vBoneRestWorld = new THREE.Vector3().subVectors(childPos, pos).normalize();
+      
+      // Hinge axis: rotation around this axis rotates vBoneRestWorld toward vRestPalmar
+      const vHingeRestWorld = new THREE.Vector3().crossVectors(vBoneRestWorld, vRestPalmar).normalize();
+      const vHingeRestLocal = vHingeRestWorld.clone().applyQuaternion(qWorld.clone().invert()).normalize();
+      
+      // Splay axis: rotation around dorsal normal
+      const vSplayRestWorld = vRestDorsal.clone();
+      const vSplayRestLocal = vSplayRestWorld.clone().applyQuaternion(qWorld.clone().invert()).normalize();
+
+      fingerJointHinges.set(boneName, {
+        vBoneRestWorld,
+        vHingeRestWorld,
+        vHingeRestLocal,
+        vSplayRestLocal,
+      });
+    };
+
+    measureFingerJoint('rightIndexProximal' as VRMHumanBoneName, rIndexInter);
+    measureFingerJoint('rightIndexIntermediate' as VRMHumanBoneName, rIndexDist);
+    measureFingerJoint('rightIndexDistal' as VRMHumanBoneName, rIndexDist.clone().addScaledVector(vRestHandLong, 0.02));
+
+    measureFingerJoint('rightMiddleProximal' as VRMHumanBoneName, rMiddleInter);
+    measureFingerJoint('rightMiddleIntermediate' as VRMHumanBoneName, rMiddleDist);
+    measureFingerJoint('rightMiddleDistal' as VRMHumanBoneName, rMiddleDist.clone().addScaledVector(vRestHandLong, 0.02));
+
+    measureFingerJoint('rightRingProximal' as VRMHumanBoneName, rRingInter);
+    measureFingerJoint('rightRingIntermediate' as VRMHumanBoneName, rRingDist);
+    measureFingerJoint('rightRingDistal' as VRMHumanBoneName, rRingDist.clone().addScaledVector(vRestHandLong, 0.02));
+
+    measureFingerJoint('rightLittleProximal' as VRMHumanBoneName, rLittleInter);
+    measureFingerJoint('rightLittleIntermediate' as VRMHumanBoneName, rLittleDist);
+    measureFingerJoint('rightLittleDistal' as VRMHumanBoneName, rLittleDist.clone().addScaledVector(vRestHandLong, 0.02));
+
+    // Thumb opposition and flexion hinges
+    const qThumbMetaWorld = getWQuat('rightThumbMetacarpal' as VRMHumanBoneName);
+    const qThumbProxWorld = getWQuat('rightThumbProximal' as VRMHumanBoneName);
+    const qThumbDistWorld = getWQuat('rightThumbDistal' as VRMHumanBoneName);
+
+    const vThumbBoneWorld = new THREE.Vector3().subVectors(rThumbProx, rThumbMeta).normalize();
+    const vThumbOpposeWorld = vRestHandLong.clone().negate(); // inward opposition axis
+    const vThumbFlexWorld = new THREE.Vector3().crossVectors(vThumbBoneWorld, vRestRadial).normalize();
+
+    const metaOpposeLocal = vThumbOpposeWorld.clone().applyQuaternion(qThumbMetaWorld.clone().invert()).normalize();
+    const metaFlexLocal = vThumbFlexWorld.clone().applyQuaternion(qThumbMetaWorld.clone().invert()).normalize();
+    const proxFlexLocal = vThumbFlexWorld.clone().applyQuaternion(qThumbProxWorld.clone().invert()).normalize();
+    const distFlexLocal = vThumbFlexWorld.clone().applyQuaternion(qThumbDistWorld.clone().invert()).normalize();
+
+    this.restHandAnatomy = {
+      restWristPos,
+      restKnucklesCenter,
+      vRestHandLong,
+      vRestRadial,
+      vRestPalmar,
+      vRestDorsal,
+      qRestHandWorld,
+      fingerJointHinges,
+      thumbJointHinges: {
+        metaOpposeLocal,
+        metaFlexLocal,
+        proxFlexLocal,
+        distFlexLocal,
+      },
+    };
+
+    return this.restHandAnatomy;
   }
 
   /**
@@ -340,15 +511,21 @@ export class VRMPoseManager {
   }
 
   /**
-   * SIGNED ANATOMICAL RIGHT BOW GRIP SOLVER:
-   * 1. Constructs Signed Anatomical Hand Frame from VRM skeleton landmarks (wrist, knuckles, radial axis).
-   * 2. Enforces Palmar vs Dorsal side distinction and Right-Hand Chirality (zero palm inversion).
-   * 3. Aligns signed palmar surface directly toward RightBowGripFrame with continuous forearm flow.
-   * 4. Regenerates unified classical bow-hold finger kinematics (Thumb "C" support, Index drape, Middle fulcrum, Ring rest, Pinky counterweight).
+   * CANONICAL MEASURED RIGHT BOW GRIP SOLVER:
+   * 1. Uses immutable measured RestHandAnatomy from THIS VRM (wrist, knuckles, signed palmar normal).
+   * 2. Derives world orientation delta relative to measured rest hand frame and applies to hand bone.
+   * 3. Articulates each finger joint around its own measured rest local hinge axis (MCP -> PIP -> DIP)
+   *    ensuring fingers curl directly INWARD toward the bow and stick without splay or clawing.
    */
   public applyRightBowHandGrip(curlDeg = 38, opposeDeg = 32) {
     const humanoid = this.vrm.humanoid;
     if (!humanoid) return;
+
+    if (!this.restHandAnatomy) {
+      this.measureRestHandAnatomy();
+    }
+    const rest = this.restHandAnatomy;
+    if (!rest) return;
 
     humanoid.update();
     this.vrm.scene.updateMatrixWorld(true);
@@ -377,7 +554,7 @@ export class VRMPoseManager {
       Uz = new THREE.Vector3(0, 0, 1).applyQuaternion(gripQuat).normalize();
     }
 
-    // 2. STEP 1: Derive Signed Forearm-to-Wrist Anatomical Hand Orientation
+    // 2. STEP 1: Derive Smooth Forearm-to-Wrist Hand Orientation Delta
     const rHandNode = humanoid.getNormalizedBoneNode('rightHand' as VRMHumanBoneName);
     const rLowerArmNode = humanoid.getNormalizedBoneNode('rightLowerArm' as VRMHumanBoneName);
 
@@ -390,72 +567,66 @@ export class VRMPoseManager {
       const vForearm = new THREE.Vector3().subVectors(wristPos, elbowPos).normalize();
 
       // Hand longitudinal axis smoothly extends forearm with natural bowing tilt:
-      let vHandForward = vForearm.clone()
+      let vDesiredHandLong = vForearm.clone()
         .addScaledVector(Uy, 0.16)
         .addScaledVector(Uz, -0.14)
         .normalize();
 
       // Limit wrist deflection to max 12 degrees relative to forearm (guaranteeing zero sharp wrist kink)
-      const angleFromForearm = vForearm.angleTo(vHandForward);
+      const angleFromForearm = vForearm.angleTo(vDesiredHandLong);
       const maxWristDeflection = (12 * Math.PI) / 180;
       if (angleFromForearm > maxWristDeflection && angleFromForearm > 1e-4) {
         const blend = maxWristDeflection / angleFromForearm;
-        vHandForward = new THREE.Vector3().copy(vForearm).lerp(vHandForward, blend).normalize();
+        vDesiredHandLong = new THREE.Vector3().copy(vForearm).lerp(vDesiredHandLong, blend).normalize();
       }
 
       // Desired Palmar Normal: explicitly faces downward toward strings and stick (-Uz) with pronated inward cant
-      const vPalmDesired = new THREE.Vector3()
+      const vDesiredPalmar = new THREE.Vector3()
         .addScaledVector(Uz, -0.90)
         .addScaledVector(Ux, -0.35)
         .addScaledVector(Uy, 0.25)
         .normalize();
 
-      const vDorsalDesired = vPalmDesired.clone().negate();
+      const vDesiredDorsal = vDesiredPalmar.clone().negate();
 
-      // Orthonormalize dorsal normal perpendicular to vHandForward
-      let vDorsalCandidate = vDorsalDesired.clone()
-        .addScaledVector(vHandForward, -vDorsalDesired.dot(vHandForward))
+      // Orthonormalize dorsal normal perpendicular to vDesiredHandLong
+      let vDorsalCandidate = vDesiredDorsal.clone()
+        .addScaledVector(vDesiredHandLong, -vDesiredDorsal.dot(vDesiredHandLong))
         .normalize();
 
-      // In the anatomical right hand: vRadial (towards index/thumb) = cross(vDorsal, vHandForward)
-      let vRadialCandidate = new THREE.Vector3().crossVectors(vDorsalCandidate, vHandForward).normalize();
-      vDorsalCandidate.crossVectors(vHandForward, vRadialCandidate).normalize();
-
-      // PALM-SIDE TEST & AMBIGUITY RESOLUTION:
-      // True palmar surface is -vDorsalCandidate
+      let vRadialCandidate = new THREE.Vector3().crossVectors(vDorsalCandidate, vDesiredHandLong).normalize();
+      vDorsalCandidate.crossVectors(vDesiredHandLong, vRadialCandidate).normalize();
       let vPalmarActual = vDorsalCandidate.clone().negate();
-      let palmDot = vPalmarActual.dot(vPalmDesired);
 
-      // Explicitly reject any inverted solution where dorsal side faces the bow:
-      if (palmDot <= 0) {
+      // PALM-SIDE AMBIGUITY REJECTION:
+      if (vPalmarActual.dot(vDesiredPalmar) <= 0) {
         vDorsalCandidate.negate();
         vRadialCandidate.negate();
         vPalmarActual.negate();
       }
 
-      // RIGHT-HAND CHIRALITY VALIDATION:
-      // Hand longitudinal axis . cross(radial, dorsal) > 0
-      const chiralityDet = vHandForward.dot(new THREE.Vector3().crossVectors(vRadialCandidate, vDorsalCandidate));
-      const rightHandChiralityValid = chiralityDet > 0.5;
-
-      if (!rightHandChiralityValid) {
-        vRadialCandidate.crossVectors(vDorsalCandidate, vHandForward).normalize();
+      // CHIRALITY VALIDATION:
+      const chiralityDet = vDesiredHandLong.dot(new THREE.Vector3().crossVectors(vRadialCandidate, vDorsalCandidate));
+      if (chiralityDet <= 0.5) {
+        vRadialCandidate.crossVectors(vDorsalCandidate, vDesiredHandLong).normalize();
       }
 
-      // Construct canonical world rotation matrix for normalized rightHand (rest bone: -X, rest dorsal: +Y, rest thumb: +Z):
-      const mHandWorld = new THREE.Matrix4().makeBasis(
-        vHandForward.clone().negate(),
-        vDorsalCandidate,
-        vRadialCandidate
-      );
-      const qHandWorld = new THREE.Quaternion().setFromRotationMatrix(mHandWorld);
+      // Construct Target World Rotation relative to Measured Rest Hand Frame:
+      // Rest frame: rest.vRestHandLong, rest.vRestRadial, rest.vRestDorsal
+      // Target frame: vDesiredHandLong, vRadialCandidate, vDorsalCandidate
+      const mRest = new THREE.Matrix4().makeBasis(rest.vRestHandLong, rest.vRestRadial, rest.vRestDorsal);
+      const mTarget = new THREE.Matrix4().makeBasis(vDesiredHandLong, vRadialCandidate, vDorsalCandidate);
+      
+      const mWorldDelta = new THREE.Matrix4().multiplyMatrices(mTarget, mRest.clone().invert());
+      const qWorldDelta = new THREE.Quaternion().setFromRotationMatrix(mWorldDelta);
+      const qDesiredHandWorld = qWorldDelta.clone().multiply(rest.qRestHandWorld);
 
       // Convert world rotation to lowerArm parent local space:
       const parentWorldQuat = new THREE.Quaternion();
       if (rHandNode.parent) {
         rHandNode.parent.getWorldQuaternion(parentWorldQuat);
       }
-      const qHandLocal = qHandWorld.clone().premultiply(parentWorldQuat.clone().invert());
+      const qHandLocal = qDesiredHandWorld.clone().premultiply(parentWorldQuat.clone().invert());
       rHandNode.quaternion.copy(qHandLocal);
       rHandNode.updateMatrixWorld(true);
     }
@@ -465,17 +636,13 @@ export class VRMPoseManager {
     const sOppose = Math.max(0.2, opposeDeg / 32);
 
     // 3. STEP 2: Natural Biological Progressive Finger Kinematics (MCP -> PIP -> DIP)
-    const vZ = new THREE.Vector3(0, 0, 1);
-    const vY = new THREE.Vector3(0, 1, 0);
-    const vX = new THREE.Vector3(1, 0, 0);
-
+    // Rotating around each joint's MEASURED local hinge axis toward the measured palm
     const applyFingerChain = (
       fingerName: 'Index' | 'Middle' | 'Ring' | 'Little',
       mcpDeg: number,
       pipDeg: number,
       dipDeg: number,
-      splayDeg: number,
-      rollDeg: number
+      splayDeg: number
     ) => {
       const pBone = `right${fingerName}Proximal` as VRMHumanBoneName;
       const iBone = `right${fingerName}Intermediate` as VRMHumanBoneName;
@@ -489,41 +656,42 @@ export class VRMPoseManager {
       const iSnap = this.authoredRestTransforms.get(iBone);
       const dSnap = this.authoredRestTransforms.get(dBone);
 
-      // Proximal (MCP): Flexion + Splay + Roll
-      if (pNode && pSnap) {
-        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, mcpDeg * toRad);
-        const qSplay = new THREE.Quaternion().setFromAxisAngle(vY, splayDeg * toRad);
-        const qRoll = new THREE.Quaternion().setFromAxisAngle(vX, rollDeg * toRad);
-        const qRot = new THREE.Quaternion().multiplyQuaternions(qFlex, qSplay).multiply(qRoll);
+      const pHinge = rest.fingerJointHinges.get(pBone);
+      const iHinge = rest.fingerJointHinges.get(iBone);
+      const dHinge = rest.fingerJointHinges.get(dBone);
+
+      // Proximal (MCP): Flexion along measured hinge + Splay
+      if (pNode && pSnap && pHinge) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(pHinge.vHingeRestLocal, mcpDeg * toRad);
+        const qSplay = new THREE.Quaternion().setFromAxisAngle(pHinge.vSplayRestLocal, splayDeg * toRad);
+        const qRot = new THREE.Quaternion().multiplyQuaternions(qFlex, qSplay);
         pNode.quaternion.copy(pSnap.quaternion).multiply(qRot);
       }
 
-      // Intermediate (PIP): Flexion along finger hinge plane
-      if (iNode && iSnap) {
-        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, pipDeg * toRad);
-        const qSplay = new THREE.Quaternion().setFromAxisAngle(vY, splayDeg * 0.3 * toRad);
-        const qRot = new THREE.Quaternion().multiplyQuaternions(qFlex, qSplay);
-        iNode.quaternion.copy(iSnap.quaternion).multiply(qRot);
+      // Intermediate (PIP): Flexion along measured hinge
+      if (iNode && iSnap && iHinge) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(iHinge.vHingeRestLocal, pipDeg * toRad);
+        iNode.quaternion.copy(iSnap.quaternion).multiply(qFlex);
       }
 
-      // Distal (DIP): Subtle terminal curl
-      if (dNode && dSnap) {
-        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, dipDeg * toRad);
+      // Distal (DIP): Subtle terminal curl along measured hinge
+      if (dNode && dSnap && dHinge) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(dHinge.vHingeRestLocal, dipDeg * toRad);
         dNode.quaternion.copy(dSnap.quaternion).multiply(qFlex);
       }
     };
 
     // 1. INDEX: Open, extended drape over upper/outer stick
-    applyFingerChain('Index', 24 * sCurl, 32 * sCurl, 16 * sCurl, -4 * sCurl, -2 * sCurl);
+    applyFingerChain('Index', 24 * sCurl, 32 * sCurl, 16 * sCurl, -4 * sCurl);
 
     // 2. MIDDLE: Primary opposing fulcrum loop
-    applyFingerChain('Middle', 34 * sCurl, 42 * sCurl, 22 * sCurl, 0, 0);
+    applyFingerChain('Middle', 34 * sCurl, 42 * sCurl, 22 * sCurl, 0);
 
     // 3. RING: Relaxed curve following middle along frog
-    applyFingerChain('Ring', 30 * sCurl, 38 * sCurl, 18 * sCurl, 3 * sCurl, 1 * sCurl);
+    applyFingerChain('Ring', 30 * sCurl, 38 * sCurl, 18 * sCurl, 3 * sCurl);
 
     // 4. LITTLE (PINKY): Light arch with tip resting on top of stick as counterweight
-    applyFingerChain('Little', 20 * sCurl, 26 * sCurl, 12 * sCurl, 6 * sCurl, 2 * sCurl);
+    applyFingerChain('Little', 20 * sCurl, 26 * sCurl, 12 * sCurl, 6 * sCurl);
 
     // 5. THUMB: Rounded "C" support arch underneath frog thumb notch
     const metaBone = 'rightThumbMetacarpal' as VRMHumanBoneName;
@@ -538,24 +706,23 @@ export class VRMPoseManager {
     const pSnap = this.authoredRestTransforms.get(proxBone);
     const dSnap = this.authoredRestTransforms.get(distBone);
 
+    const tHinges = rest.thumbJointHinges;
+
     if (mNode && mSnap) {
-      const qY = new THREE.Quaternion().setFromAxisAngle(vY, 14 * sOppose * toRad);
-      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 10 * sOppose * toRad);
-      const qX = new THREE.Quaternion().setFromAxisAngle(vX, -6 * sOppose * toRad);
-      const qRot = new THREE.Quaternion().multiplyQuaternions(qY, qZ).multiply(qX);
+      const qOppose = new THREE.Quaternion().setFromAxisAngle(tHinges.metaOpposeLocal, 16 * sOppose * toRad);
+      const qFlex = new THREE.Quaternion().setFromAxisAngle(tHinges.metaFlexLocal, 12 * sOppose * toRad);
+      const qRot = new THREE.Quaternion().multiplyQuaternions(qOppose, qFlex);
       mNode.quaternion.copy(mSnap.quaternion).multiply(qRot);
     }
 
     if (pNode && pSnap) {
-      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 18 * sOppose * toRad);
-      const qY = new THREE.Quaternion().setFromAxisAngle(vY, -4 * sOppose * toRad);
-      const qRot = new THREE.Quaternion().multiplyQuaternions(qZ, qY);
-      pNode.quaternion.copy(pSnap.quaternion).multiply(qRot);
+      const qFlex = new THREE.Quaternion().setFromAxisAngle(tHinges.proxFlexLocal, 18 * sOppose * toRad);
+      pNode.quaternion.copy(pSnap.quaternion).multiply(qFlex);
     }
 
     if (dNode && dSnap) {
-      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 14 * sOppose * toRad);
-      dNode.quaternion.copy(dSnap.quaternion).multiply(qZ);
+      const qFlex = new THREE.Quaternion().setFromAxisAngle(tHinges.distFlexLocal, 14 * sOppose * toRad);
+      dNode.quaternion.copy(dSnap.quaternion).multiply(qFlex);
     }
 
     humanoid.update();

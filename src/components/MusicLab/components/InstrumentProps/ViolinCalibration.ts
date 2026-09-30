@@ -197,12 +197,14 @@ export function extractAnatomicalLandmarks(vrm: VRM): AnatomicalContactLandmarks
     .multiplyScalar(0.5)
     .add(new THREE.Vector3(-0.002, 0.005, -0.005));
 
-  // PART 1: Right hand bow grip frame origin
-  // Located at the physical web/pocket formed by the thumb against opposing index and middle fingers
-  const pIndexGrip = new THREE.Vector3().addVectors(rightIndexProximal, rightIndexIntermediate).multiplyScalar(0.5);
-  const pMiddleGrip = new THREE.Vector3().addVectors(rightMiddleProximal, rightMiddleIntermediate).multiplyScalar(0.5);
-  const pOpposing = new THREE.Vector3().addVectors(pIndexGrip, pMiddleGrip).multiplyScalar(0.5);
-  const rightGripTarget = new THREE.Vector3().addVectors(rightThumbDistal, pOpposing).multiplyScalar(0.5);
+  // PART 1: Authoritative Right hand bow grip target derived independently of dynamic moving fingers:
+  // Derived from the stable right wrist position and hand orientation along the forearm/metacarpal corridor:
+  const rKnucklesCenter = new THREE.Vector3()
+    .addVectors(rightIndexProximal, rightLittleProximal)
+    .multiplyScalar(0.5);
+  const vHandAxis = new THREE.Vector3().subVectors(rKnucklesCenter, rightWristPos).normalize();
+  // The classical frog grip canal sits at the carpal-metacarpal / thumb-index web junction:
+  const rightGripTarget = rightWristPos.clone().addScaledVector(vHandAxis, 0.048).add(new THREE.Vector3(0, -0.005, 0.008));
 
   // Right palm center (used to verify NO bow stick penetration through the palm):
   const rightPalmCenter = new THREE.Vector3(
