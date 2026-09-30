@@ -777,18 +777,112 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
                 </div>
 
                 <div className="text-[#F59E0B] font-bold border-b border-white/10 pb-0.5 pt-1 flex justify-between">
-                  <span>Bow & Grip Fit</span>
-                  <span className="text-emerald-400 font-semibold">PASS</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Frog Pos:</span>
-                  <span className="text-amber-400 font-bold">
-                    ({instrumentDiagnostics.bowFrogPos.x.toFixed(2)}, {instrumentDiagnostics.bowFrogPos.y.toFixed(2)}, {instrumentDiagnostics.bowFrogPos.z.toFixed(2)})
+                  <span>Right Hand Bow Hold & Palm Side Test</span>
+                  <span className={instrumentDiagnostics.palmSideValid && instrumentDiagnostics.rightHandChiralityValid ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                    {instrumentDiagnostics.palmSideValid && instrumentDiagnostics.rightHandChiralityValid ? 'PASS' : 'FAIL'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Frog to RHand Grip:</span>
-                  <span className="text-emerald-400 font-bold">{(instrumentDiagnostics.bowFrogToGripDist * 1000).toFixed(1)} mm</span>
+                  <span className="text-zinc-400">Palm Side:</span>
+                  <span className={instrumentDiagnostics.palmSide === 'PALMAR' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                    {instrumentDiagnostics.palmSide}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Palm Side Valid:</span>
+                  <span className={instrumentDiagnostics.palmSideValid ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                    {instrumentDiagnostics.palmSideValid ? 'YES' : 'NO'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Right-Hand Chirality:</span>
+                  <span className={instrumentDiagnostics.rightHandChirality === 'VALID' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                    {instrumentDiagnostics.rightHandChirality}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Palm Normal Dot:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.palmNormalDotProduct.toFixed(3)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Wrist-to-Hand Bend:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.wristToHandBendAngleDeg.toFixed(1)}°</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Right Wrist:</span>
+                  <span className="text-zinc-400">
+                    ({instrumentDiagnostics.rightWristPos.x.toFixed(2)}, {instrumentDiagnostics.rightWristPos.y.toFixed(2)}, {instrumentDiagnostics.rightWristPos.z.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">R Thumb Distal:</span>
+                  <span className="text-amber-400 font-bold">
+                    ({instrumentDiagnostics.rightThumbDistalPos.x.toFixed(2)}, {instrumentDiagnostics.rightThumbDistalPos.y.toFixed(2)}, {instrumentDiagnostics.rightThumbDistalPos.z.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">R Index Prox:</span>
+                  <span className="text-amber-400 font-bold">
+                    ({instrumentDiagnostics.rightIndexProximalPos.x.toFixed(2)}, {instrumentDiagnostics.rightIndexProximalPos.y.toFixed(2)}, {instrumentDiagnostics.rightIndexProximalPos.z.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">RightBowGripFrame:</span>
+                  <span className="text-emerald-400 font-bold">
+                    ({instrumentDiagnostics.rightBowGripPos.x.toFixed(2)}, {instrumentDiagnostics.rightBowGripPos.y.toFixed(2)}, {instrumentDiagnostics.rightBowGripPos.z.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">BowFrogGripFrame:</span>
+                  <span className="text-emerald-400 font-bold">
+                    ({instrumentDiagnostics.bowFrogGripPos.x.toFixed(2)}, {instrumentDiagnostics.bowFrogGripPos.y.toFixed(2)}, {instrumentDiagnostics.bowFrogGripPos.z.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Grip Coincidence Dist:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.gripFrameDistMm.toFixed(1)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Grip Angle Error:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.gripFrameAngleErrorDeg.toFixed(2)}°</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Palm Normal Error:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.palmOrientationErrorDeg.toFixed(1)}°</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Thumb Contact Error:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.thumbContactErrorMm.toFixed(1)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Index Contact Error:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.indexContactErrorMm.toFixed(1)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Middle Contact Error:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.middleContactErrorMm.toFixed(1)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Finger Spacing:</span>
+                  <span className="text-emerald-400 font-bold">{instrumentDiagnostics.fingerSpacingMm.toFixed(1)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Anatomical Alignment:</span>
+                  <span className={instrumentDiagnostics.fingerAnatomicalAlignmentPass ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                    {instrumentDiagnostics.fingerAnatomicalAlignmentPass ? 'PASS' : 'WARN'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Bow Inside Fingers:</span>
+                  <span className={instrumentDiagnostics.bowInsideGripRegion ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                    {instrumentDiagnostics.bowInsideGripRegion ? 'YES' : 'NO'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Bow Through Palm:</span>
+                  <span className={instrumentDiagnostics.bowThroughPalm ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                    {instrumentDiagnostics.bowThroughPalm ? 'YES' : 'NO'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Hair to String Contact:</span>

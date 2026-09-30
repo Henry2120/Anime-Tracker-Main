@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { EDITABLE_BONES, SavedPose, JointMarkerInfo, BoneTransformSnapshot } from './poseEditorTypes';
 import { AnatomicalViolinistPoseParams, VIOLINIST_BASE_POSE, applyAnatomicalViolinistPose } from './anatomicalPosePreset';
+import { extractAnatomicalLandmarks, solveInstrumentFitting } from '../InstrumentProps/ViolinCalibration';
 
 export class VRMPoseManager {
   private vrm: VRM;
@@ -231,6 +232,10 @@ export class VRMPoseManager {
     node.quaternion.copy(snapshot.quaternion).multiply(qTarget);
     this.vrm.humanoid?.update();
     this.vrm.scene.updateMatrixWorld(true);
+
+    if (boneName === 'rightHand' && motionType !== 'fingerCurl' && motionType !== 'thumbOpposition') {
+      this.applyRightBowHandGrip(this.currentParams.rightFingerCurl, this.currentParams.rightThumbOpposition);
+    }
   }
 
   /**
@@ -240,9 +245,14 @@ export class VRMPoseManager {
     const humanoid = this.vrm.humanoid;
     if (!humanoid) return;
 
+    if (side === 'right') {
+      this.applyRightBowHandGrip(curlDeg, this.currentParams.rightThumbOpposition);
+      return;
+    }
+
     const vZ = new THREE.Vector3(0, 0, 1);
     const toRad = Math.PI / 180;
-    const sign = side === 'left' ? -1 : 1;
+    const sign = -1; // Left hand
 
     const fingerNames = ['Index', 'Middle', 'Ring', 'Little'];
     const multipliers = {
@@ -260,9 +270,9 @@ export class VRMPoseManager {
       const qInter = new THREE.Quaternion().setFromAxisAngle(vZ, sign * baseCurl * 0.85 * toRad);
       const qDist = new THREE.Quaternion().setFromAxisAngle(vZ, sign * baseCurl * 0.55 * toRad);
 
-      const proxBone = `${side}${fName}Proximal` as VRMHumanBoneName;
-      const interBone = `${side}${fName}Intermediate` as VRMHumanBoneName;
-      const distBone = `${side}${fName}Distal` as VRMHumanBoneName;
+      const proxBone = `left${fName}Proximal` as VRMHumanBoneName;
+      const interBone = `left${fName}Intermediate` as VRMHumanBoneName;
+      const distBone = `left${fName}Distal` as VRMHumanBoneName;
 
       const pNode = humanoid.getNormalizedBoneNode(proxBone);
       const pSnap = this.authoredRestTransforms.get(proxBone);
@@ -288,11 +298,16 @@ export class VRMPoseManager {
     const humanoid = this.vrm.humanoid;
     if (!humanoid) return;
 
+    if (side === 'right') {
+      this.applyRightBowHandGrip(this.currentParams.rightFingerCurl, opposeDeg);
+      return;
+    }
+
     const vX = new THREE.Vector3(1, 0, 0);
     const vY = new THREE.Vector3(0, 1, 0);
     const vZ = new THREE.Vector3(0, 0, 1);
     const toRad = Math.PI / 180;
-    const sign = side === 'left' ? 1 : -1;
+    const sign = 1; // Left hand
 
     // Metacarpal: Inward rotation and opposition pitch
     const qMetaY = new THREE.Quaternion().setFromAxisAngle(vY, -sign * opposeDeg * 0.45 * toRad);
@@ -304,9 +319,9 @@ export class VRMPoseManager {
     const qProx = new THREE.Quaternion().setFromAxisAngle(vZ, -sign * opposeDeg * 0.55 * toRad);
     const qDist = new THREE.Quaternion().setFromAxisAngle(vZ, -sign * opposeDeg * 0.45 * toRad);
 
-    const metaBone = `${side}ThumbMetacarpal` as VRMHumanBoneName;
-    const proxBone = `${side}ThumbProximal` as VRMHumanBoneName;
-    const distBone = `${side}ThumbDistal` as VRMHumanBoneName;
+    const metaBone = 'leftThumbMetacarpal' as VRMHumanBoneName;
+    const proxBone = 'leftThumbProximal' as VRMHumanBoneName;
+    const distBone = 'leftThumbDistal' as VRMHumanBoneName;
 
     const mNode = humanoid.getNormalizedBoneNode(metaBone);
     const mSnap = this.authoredRestTransforms.get(metaBone);
@@ -319,6 +334,229 @@ export class VRMPoseManager {
     const dNode = humanoid.getNormalizedBoneNode(distBone);
     const dSnap = this.authoredRestTransforms.get(distBone);
     if (dNode && dSnap) dNode.quaternion.copy(dSnap.quaternion).multiply(qDist);
+
+    humanoid.update();
+    this.vrm.scene.updateMatrixWorld(true);
+  }
+
+  /**
+   * SIGNED ANATOMICAL RIGHT BOW GRIP SOLVER:
+   * 1. Constructs Signed Anatomical Hand Frame from VRM skeleton landmarks (wrist, knuckles, radial axis).
+   * 2. Enforces Palmar vs Dorsal side distinction and Right-Hand Chirality (zero palm inversion).
+   * 3. Aligns signed palmar surface directly toward RightBowGripFrame with continuous forearm flow.
+   * 4. Regenerates unified classical bow-hold finger kinematics (Thumb "C" support, Index drape, Middle fulcrum, Ring rest, Pinky counterweight).
+   */
+  public applyRightBowHandGrip(curlDeg = 38, opposeDeg = 32) {
+    const humanoid = this.vrm.humanoid;
+    if (!humanoid) return;
+
+    humanoid.update();
+    this.vrm.scene.updateMatrixWorld(true);
+
+    // 1. Obtain authoritative RightBowGripFrame from posed skeleton & instrument fitting
+    const landmarks = extractAnatomicalLandmarks(this.vrm);
+    const solution = landmarks ? solveInstrumentFitting(landmarks) : null;
+
+    let Ux: THREE.Vector3;
+    let Uy: THREE.Vector3;
+    let Uz: THREE.Vector3;
+
+    if (solution) {
+      const gripQuat = solution.rightBowGripWorldQuat.clone();
+      Ux = new THREE.Vector3(1, 0, 0).applyQuaternion(gripQuat).normalize();
+      Uy = new THREE.Vector3(0, 1, 0).applyQuaternion(gripQuat).normalize();
+      Uz = new THREE.Vector3(0, 0, 1).applyQuaternion(gripQuat).normalize();
+    } else {
+      const rHandNode = humanoid.getNormalizedBoneNode('rightHand' as VRMHumanBoneName);
+      const gripQuat = new THREE.Quaternion();
+      if (rHandNode) {
+        rHandNode.getWorldQuaternion(gripQuat);
+      }
+      Ux = new THREE.Vector3(1, 0, 0).applyQuaternion(gripQuat).normalize();
+      Uy = new THREE.Vector3(0, 1, 0).applyQuaternion(gripQuat).normalize();
+      Uz = new THREE.Vector3(0, 0, 1).applyQuaternion(gripQuat).normalize();
+    }
+
+    // 2. STEP 1: Derive Signed Forearm-to-Wrist Anatomical Hand Orientation
+    const rHandNode = humanoid.getNormalizedBoneNode('rightHand' as VRMHumanBoneName);
+    const rLowerArmNode = humanoid.getNormalizedBoneNode('rightLowerArm' as VRMHumanBoneName);
+
+    if (rHandNode && rLowerArmNode) {
+      const wristPos = new THREE.Vector3();
+      const elbowPos = new THREE.Vector3();
+      rHandNode.getWorldPosition(wristPos);
+      rLowerArmNode.getWorldPosition(elbowPos);
+
+      const vForearm = new THREE.Vector3().subVectors(wristPos, elbowPos).normalize();
+
+      // Hand longitudinal axis smoothly extends forearm with natural bowing tilt:
+      let vHandForward = vForearm.clone()
+        .addScaledVector(Uy, 0.16)
+        .addScaledVector(Uz, -0.14)
+        .normalize();
+
+      // Limit wrist deflection to max 12 degrees relative to forearm (guaranteeing zero sharp wrist kink)
+      const angleFromForearm = vForearm.angleTo(vHandForward);
+      const maxWristDeflection = (12 * Math.PI) / 180;
+      if (angleFromForearm > maxWristDeflection && angleFromForearm > 1e-4) {
+        const blend = maxWristDeflection / angleFromForearm;
+        vHandForward = new THREE.Vector3().copy(vForearm).lerp(vHandForward, blend).normalize();
+      }
+
+      // Desired Palmar Normal: explicitly faces downward toward strings and stick (-Uz) with pronated inward cant
+      const vPalmDesired = new THREE.Vector3()
+        .addScaledVector(Uz, -0.90)
+        .addScaledVector(Ux, -0.35)
+        .addScaledVector(Uy, 0.25)
+        .normalize();
+
+      const vDorsalDesired = vPalmDesired.clone().negate();
+
+      // Orthonormalize dorsal normal perpendicular to vHandForward
+      let vDorsalCandidate = vDorsalDesired.clone()
+        .addScaledVector(vHandForward, -vDorsalDesired.dot(vHandForward))
+        .normalize();
+
+      // In the anatomical right hand: vRadial (towards index/thumb) = cross(vDorsal, vHandForward)
+      let vRadialCandidate = new THREE.Vector3().crossVectors(vDorsalCandidate, vHandForward).normalize();
+      vDorsalCandidate.crossVectors(vHandForward, vRadialCandidate).normalize();
+
+      // PALM-SIDE TEST & AMBIGUITY RESOLUTION:
+      // True palmar surface is -vDorsalCandidate
+      let vPalmarActual = vDorsalCandidate.clone().negate();
+      let palmDot = vPalmarActual.dot(vPalmDesired);
+
+      // Explicitly reject any inverted solution where dorsal side faces the bow:
+      if (palmDot <= 0) {
+        vDorsalCandidate.negate();
+        vRadialCandidate.negate();
+        vPalmarActual.negate();
+      }
+
+      // RIGHT-HAND CHIRALITY VALIDATION:
+      // Hand longitudinal axis . cross(radial, dorsal) > 0
+      const chiralityDet = vHandForward.dot(new THREE.Vector3().crossVectors(vRadialCandidate, vDorsalCandidate));
+      const rightHandChiralityValid = chiralityDet > 0.5;
+
+      if (!rightHandChiralityValid) {
+        vRadialCandidate.crossVectors(vDorsalCandidate, vHandForward).normalize();
+      }
+
+      // Construct canonical world rotation matrix for normalized rightHand (rest bone: -X, rest dorsal: +Y, rest thumb: +Z):
+      const mHandWorld = new THREE.Matrix4().makeBasis(
+        vHandForward.clone().negate(),
+        vDorsalCandidate,
+        vRadialCandidate
+      );
+      const qHandWorld = new THREE.Quaternion().setFromRotationMatrix(mHandWorld);
+
+      // Convert world rotation to lowerArm parent local space:
+      const parentWorldQuat = new THREE.Quaternion();
+      if (rHandNode.parent) {
+        rHandNode.parent.getWorldQuaternion(parentWorldQuat);
+      }
+      const qHandLocal = qHandWorld.clone().premultiply(parentWorldQuat.clone().invert());
+      rHandNode.quaternion.copy(qHandLocal);
+      rHandNode.updateMatrixWorld(true);
+    }
+
+    const toRad = Math.PI / 180;
+    const sCurl = Math.max(0.2, curlDeg / 38);
+    const sOppose = Math.max(0.2, opposeDeg / 32);
+
+    // 3. STEP 2: Natural Biological Progressive Finger Kinematics (MCP -> PIP -> DIP)
+    const vZ = new THREE.Vector3(0, 0, 1);
+    const vY = new THREE.Vector3(0, 1, 0);
+    const vX = new THREE.Vector3(1, 0, 0);
+
+    const applyFingerChain = (
+      fingerName: 'Index' | 'Middle' | 'Ring' | 'Little',
+      mcpDeg: number,
+      pipDeg: number,
+      dipDeg: number,
+      splayDeg: number,
+      rollDeg: number
+    ) => {
+      const pBone = `right${fingerName}Proximal` as VRMHumanBoneName;
+      const iBone = `right${fingerName}Intermediate` as VRMHumanBoneName;
+      const dBone = `right${fingerName}Distal` as VRMHumanBoneName;
+
+      const pNode = humanoid.getNormalizedBoneNode(pBone);
+      const iNode = humanoid.getNormalizedBoneNode(iBone);
+      const dNode = humanoid.getNormalizedBoneNode(dBone);
+
+      const pSnap = this.authoredRestTransforms.get(pBone);
+      const iSnap = this.authoredRestTransforms.get(iBone);
+      const dSnap = this.authoredRestTransforms.get(dBone);
+
+      // Proximal (MCP): Flexion + Splay + Roll
+      if (pNode && pSnap) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, mcpDeg * toRad);
+        const qSplay = new THREE.Quaternion().setFromAxisAngle(vY, splayDeg * toRad);
+        const qRoll = new THREE.Quaternion().setFromAxisAngle(vX, rollDeg * toRad);
+        const qRot = new THREE.Quaternion().multiplyQuaternions(qFlex, qSplay).multiply(qRoll);
+        pNode.quaternion.copy(pSnap.quaternion).multiply(qRot);
+      }
+
+      // Intermediate (PIP): Flexion along finger hinge plane
+      if (iNode && iSnap) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, pipDeg * toRad);
+        const qSplay = new THREE.Quaternion().setFromAxisAngle(vY, splayDeg * 0.3 * toRad);
+        const qRot = new THREE.Quaternion().multiplyQuaternions(qFlex, qSplay);
+        iNode.quaternion.copy(iSnap.quaternion).multiply(qRot);
+      }
+
+      // Distal (DIP): Subtle terminal curl
+      if (dNode && dSnap) {
+        const qFlex = new THREE.Quaternion().setFromAxisAngle(vZ, dipDeg * toRad);
+        dNode.quaternion.copy(dSnap.quaternion).multiply(qFlex);
+      }
+    };
+
+    // 1. INDEX: Open, extended drape over upper/outer stick
+    applyFingerChain('Index', 24 * sCurl, 32 * sCurl, 16 * sCurl, -4 * sCurl, -2 * sCurl);
+
+    // 2. MIDDLE: Primary opposing fulcrum loop
+    applyFingerChain('Middle', 34 * sCurl, 42 * sCurl, 22 * sCurl, 0, 0);
+
+    // 3. RING: Relaxed curve following middle along frog
+    applyFingerChain('Ring', 30 * sCurl, 38 * sCurl, 18 * sCurl, 3 * sCurl, 1 * sCurl);
+
+    // 4. LITTLE (PINKY): Light arch with tip resting on top of stick as counterweight
+    applyFingerChain('Little', 20 * sCurl, 26 * sCurl, 12 * sCurl, 6 * sCurl, 2 * sCurl);
+
+    // 5. THUMB: Rounded "C" support arch underneath frog thumb notch
+    const metaBone = 'rightThumbMetacarpal' as VRMHumanBoneName;
+    const proxBone = 'rightThumbProximal' as VRMHumanBoneName;
+    const distBone = 'rightThumbDistal' as VRMHumanBoneName;
+
+    const mNode = humanoid.getNormalizedBoneNode(metaBone);
+    const pNode = humanoid.getNormalizedBoneNode(proxBone);
+    const dNode = humanoid.getNormalizedBoneNode(distBone);
+
+    const mSnap = this.authoredRestTransforms.get(metaBone);
+    const pSnap = this.authoredRestTransforms.get(proxBone);
+    const dSnap = this.authoredRestTransforms.get(distBone);
+
+    if (mNode && mSnap) {
+      const qY = new THREE.Quaternion().setFromAxisAngle(vY, 14 * sOppose * toRad);
+      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 10 * sOppose * toRad);
+      const qX = new THREE.Quaternion().setFromAxisAngle(vX, -6 * sOppose * toRad);
+      const qRot = new THREE.Quaternion().multiplyQuaternions(qY, qZ).multiply(qX);
+      mNode.quaternion.copy(mSnap.quaternion).multiply(qRot);
+    }
+
+    if (pNode && pSnap) {
+      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 18 * sOppose * toRad);
+      const qY = new THREE.Quaternion().setFromAxisAngle(vY, -4 * sOppose * toRad);
+      const qRot = new THREE.Quaternion().multiplyQuaternions(qZ, qY);
+      pNode.quaternion.copy(pSnap.quaternion).multiply(qRot);
+    }
+
+    if (dNode && dSnap) {
+      const qZ = new THREE.Quaternion().setFromAxisAngle(vZ, 14 * sOppose * toRad);
+      dNode.quaternion.copy(dSnap.quaternion).multiply(qZ);
+    }
 
     humanoid.update();
     this.vrm.scene.updateMatrixWorld(true);

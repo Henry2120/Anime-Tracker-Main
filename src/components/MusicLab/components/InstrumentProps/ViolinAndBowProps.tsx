@@ -49,80 +49,112 @@ export const ViolinAndBowProps: React.FC<ViolinAndBowPropsProps> = ({
   const [bowModel, setBowModel] = useState<THREE.Group | null>(null);
   const [isAssetLoaded, setIsAssetLoaded] = useState(false);
 
-  // Load raw GLB asset and extract pristine Violin and Bow subtrees
+  // Load standalone Violin and Bow models from /music-lab/instruments/
   useEffect(() => {
     let isMounted = true;
     const loader = new GLTFLoader();
 
-    loader.load(
-      '/music-lab/musicians/violinist.glb',
-      (gltf) => {
+    const loadViolin = new Promise<THREE.Group>((resolve, reject) => {
+      loader.load(
+        '/music-lab/instruments/violin.glb',
+        (gltf) => {
+          const vGroup = new THREE.Group();
+          vGroup.name = 'CanonicalViolinGroup';
+
+          let foundMesh: THREE.Mesh | null = null;
+          gltf.scene.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh && !foundMesh) {
+              foundMesh = child as THREE.Mesh;
+            }
+          });
+
+          if (foundMesh) {
+            const cloned = (foundMesh as THREE.Mesh).clone(true);
+            cloned.position.set(0, 0, 0);
+            cloned.quaternion.identity();
+            // Scale from cm to SI meters (0.01)
+            cloned.scale.set(0.01, 0.01, 0.01);
+            cloned.castShadow = true;
+            cloned.receiveShadow = true;
+
+            if (cloned.material) {
+              const mats = Array.isArray(cloned.material) ? cloned.material : [cloned.material];
+              mats.forEach((m) => {
+                if (m && 'map' in m && m.map) {
+                  (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                }
+                m.needsUpdate = true;
+              });
+            }
+
+            vGroup.add(cloned);
+          }
+          resolve(vGroup);
+        },
+        undefined,
+        reject
+      );
+    });
+
+    const loadBow = new Promise<THREE.Group>((resolve, reject) => {
+      loader.load(
+        '/music-lab/instruments/bow.glb',
+        (gltf) => {
+          const bGroup = new THREE.Group();
+          bGroup.name = 'CanonicalBowGroup';
+
+          const bowSubtree = gltf.scene.getObjectByName('Violin_Bowobjcleanermaterialmergergles');
+          if (bowSubtree) {
+            const cloned = bowSubtree.clone(true);
+            cloned.position.set(0, 0, 0);
+            cloned.quaternion.identity();
+            // Scale from cm to SI meters (0.01)
+            cloned.scale.set(0.01, 0.01, 0.01);
+            cloned.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                const mesh = child as THREE.Mesh;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                if (mesh.material) {
+                  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+                  mats.forEach((m) => {
+                    if (m && 'map' in m && m.map) {
+                      (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                    }
+                    m.needsUpdate = true;
+                  });
+                }
+              }
+            });
+            bGroup.add(cloned);
+          } else {
+            gltf.scene.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                const mClone = (child as THREE.Mesh).clone(true);
+                mClone.position.set(0, 0, 0);
+                mClone.quaternion.identity();
+                mClone.scale.set(0.01, 0.01, 0.01);
+                bGroup.add(mClone);
+              }
+            });
+          }
+          resolve(bGroup);
+        },
+        undefined,
+        reject
+      );
+    });
+
+    Promise.all([loadViolin, loadBow])
+      .then(([vGrp, bGrp]) => {
         if (!isMounted) return;
-
-        const originalViolin = gltf.scene.getObjectByName('Violin_Instrument');
-        const originalBow = gltf.scene.getObjectByName('Violin_Bow');
-
-        if (originalViolin) {
-          const vClone = originalViolin.clone(true) as THREE.Group;
-          // Reset local position & rotation of root node so children define pristine local space:
-          vClone.position.set(0, 0, 0);
-          vClone.quaternion.identity();
-          vClone.scale.set(1, 1, 1);
-
-          vClone.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-              if (mesh.material) {
-                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                mats.forEach((m) => {
-                  if (m && 'map' in m && m.map) {
-                    (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
-                  }
-                  m.needsUpdate = true;
-                });
-              }
-            }
-          });
-
-          setViolinModel(vClone);
-        }
-
-        if (originalBow) {
-          const bClone = originalBow.clone(true) as THREE.Group;
-          // Reset local position & rotation of root node so children define pristine local space:
-          bClone.position.set(0, 0, 0);
-          bClone.quaternion.identity();
-          bClone.scale.set(1, 1, 1);
-
-          bClone.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-              if (mesh.material) {
-                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                mats.forEach((m) => {
-                  if (m && 'map' in m && m.map) {
-                    (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
-                  }
-                  m.needsUpdate = true;
-                });
-              }
-            }
-          });
-
-          setBowModel(bClone);
-        }
-
+        setViolinModel(vGrp);
+        setBowModel(bGrp);
         setIsAssetLoaded(true);
-      },
-      undefined,
-      (err) => {
-        console.warn('Failed to load violinist.glb', err);
-      }
-    );
+      })
+      .catch((err) => {
+        console.warn('Failed to load standalone instruments:', err);
+      });
 
     return () => {
       isMounted = false;

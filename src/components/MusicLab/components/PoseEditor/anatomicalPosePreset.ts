@@ -77,14 +77,50 @@ export const VIOLINIST_BASE_POSE: AnatomicalViolinistPoseParams = {
   rightArmForward: 28,   // +28°: angled forward in bowing plane
   rightArmTwist: 15,     // +15°: internal arm rotation into bowing plane
   rightElbowFlex: 62,    // +62°: natural bowing arm bend
-  rightForearmTwist: 20, // +20°: relaxed pronated forearm for bow grip
+  rightForearmTwist: 65, // +65°: relaxed pronated forearm for violin bow grip
 
   // 8. Right Grip Hand & Fingers: Natural relaxed bow grip preparation shape
-  rightWristTurn: 18,    // +18°: pronation continuation in bowing plane
-  rightWristBend: 12,    // +12°: gentle wrist arch for bow hold
-  rightWristSideTilt: 4, // +4°: neutral anatomical alignment
+  rightWristTurn: 75,    // +75°: pronated wrist orienting palm downward toward bow
+  rightWristBend: 8,     // +8°: gentle relaxed wrist arch for bow hold
+  rightWristSideTilt: 0, // 0°: neutral anatomical alignment with forearm
   rightFingerCurl: 38,   // +38°: relaxed progressive curve around future cylindrical grip
   rightThumbOpposition: 32,// +32°: opposes fingers in natural bow grip
+};
+
+/**
+ * Canonical Right Bow Grip Reference Configuration
+ * Stable baseline right-hand grip configuration relative to RightBowGripFrame.
+ */
+export const CANONICAL_RIGHT_BOW_GRIP = {
+  rightForearmTwist: 65,
+  rightWristTurn: 75,
+  rightWristBend: 8,
+  rightWristSideTilt: 0,
+  rightFingerCurl: 38,
+  rightThumbOpposition: 32,
+  // Signed Anatomical Hand Frame Reference
+  handOrientation: {
+    palmSide: 'PALMAR' as const,
+    chirality: 'RIGHT' as const,
+    isChiralityValid: true,
+    maxWristDeflectionDeg: 12.0,
+    palmFacingTarget: 'BOW_FROG_INNER' as const,
+  },
+  fingerFlexionDeg: {
+    thumb: { mcp: 14, pip: 18, dip: 14, opposeY: 14, opposeZ: 10, rollX: -6 },
+    index: { mcp: 24, pip: 32, dip: 16, splay: -4, roll: -2 },
+    middle: { mcp: 34, pip: 42, dip: 22, splay: 0, roll: 0 },
+    ring: { mcp: 30, pip: 38, dip: 18, splay: 3, roll: 1 },
+    little: { mcp: 20, pip: 26, dip: 12, splay: 6, roll: 2 },
+  },
+};
+
+/**
+ * Performance offsets kept strictly separate from canonical baseline
+ */
+export const RIGHT_BOW_PERFORMANCE_OFFSETS = {
+  frogOffset: { x: 0, y: 0, z: 0 },
+  tipOffset: { x: 0, y: 0, z: 0 },
 };
 
 /**
