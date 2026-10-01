@@ -172,6 +172,18 @@ export interface AudioDynamicsPoint {
   violinEnergy: number;      // 0.0 to 1.0 (bowed-string spectral band prominence)
 }
 
+export type PerformanceSource = 'realtime_audio' | 'precomputed_audio' | 'gemini_section' | 'manual';
+
+export interface PerformanceSignal {
+  source: PerformanceSource;
+  intensity: number;         // 0.0 to 1.0 (current physical dynamics energy)
+  violinEnergy: number;      // 0.0 to 1.0 (bowed-string energy prominence)
+  transientStrength: number; // 0.0 to 1.0 (instantaneous transient / attack flux)
+  onset: boolean;            // true if an onset event is currently occurring
+  onsetStrength: number;     // 0.0 to 1.0 (magnitude of onset)
+  bpm: number;               // baseline tempo reference
+}
+
 export interface MusicAnalysisResult {
   duration: number;
   bpm?: number;

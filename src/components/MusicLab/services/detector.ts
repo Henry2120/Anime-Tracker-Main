@@ -88,14 +88,20 @@ export class StandardInstrumentDetector implements InstrumentDetector {
       const instrumentActivities = Array.isArray(data.instrumentActivities)
         ? data.instrumentActivities
             .filter((act: any) => act && ALL_INSTRUMENTS.includes(act.instrumentId as MusicInstrument))
-            .map((act: any) => ({
-              instrumentId: act.instrumentId as MusicInstrument,
-              startPercent: typeof act.startPercent === 'number' ? Math.max(0, Math.min(1, act.startPercent)) : 0,
-              endPercent: typeof act.endPercent === 'number' ? Math.max(0, Math.min(1, act.endPercent)) : 1,
-              intensity: typeof act.intensity === 'number' ? Math.max(0, Math.min(1, act.intensity)) : 0.8,
-              confidence: typeof act.confidence === 'number' ? Math.max(0, Math.min(1, act.confidence)) : 0.9,
-              reason: act.reason || undefined,
-            }))
+            .map((act: any) => {
+              const rawStart = typeof act.startPercent === 'number' ? act.startPercent : 0;
+              const rawEnd = typeof act.endPercent === 'number' ? act.endPercent : 1;
+              const normStart = rawStart > 1.0 ? rawStart / 100 : rawStart;
+              const normEnd = rawEnd > 1.0 ? rawEnd / 100 : rawEnd;
+              return {
+                instrumentId: act.instrumentId as MusicInstrument,
+                startPercent: Math.max(0, Math.min(1, normStart)),
+                endPercent: Math.max(0, Math.min(1, normEnd)),
+                intensity: typeof act.intensity === 'number' ? Math.max(0.1, Math.min(1, act.intensity)) : 0.8,
+                confidence: typeof act.confidence === 'number' ? Math.max(0, Math.min(1, act.confidence)) : 0.9,
+                reason: act.reason || undefined,
+              };
+            })
         : [];
 
       // Convert sections or build them if missing
@@ -104,8 +110,12 @@ export class StandardInstrumentDetector implements InstrumentDetector {
 
       if (Array.isArray(data.sections) && data.sections.length > 0) {
         sections = data.sections.map((sec: any) => {
-          const start = Math.round(((sec.startPercent || 0) / 100) * dur);
-          const end = Math.round(((sec.endPercent || 100) / 100) * dur);
+          const rawStart = typeof sec.startPercent === 'number' ? sec.startPercent : 0;
+          const rawEnd = typeof sec.endPercent === 'number' ? sec.endPercent : 1;
+          const normStart = rawStart > 1.0 ? rawStart / 100 : rawStart;
+          const normEnd = rawEnd > 1.0 ? rawEnd / 100 : rawEnd;
+          const start = Math.round(normStart * dur);
+          const end = Math.round(normEnd * dur);
           const active = Array.isArray(sec.activeInstruments)
             ? (sec.activeInstruments.filter((id: string) =>
                 ALL_INSTRUMENTS.includes(id as MusicInstrument)
@@ -114,12 +124,15 @@ export class StandardInstrumentDetector implements InstrumentDetector {
 
           return {
             start,
-            end,
+            end: Math.max(start + 1, end),
             label: sec.name || 'Section',
             activeInstruments: active.length > 0 ? active : activeIds,
-            intensity: typeof sec.intensity === 'number' ? sec.intensity : 0.7,
+            intensity: typeof sec.intensity === 'number' ? Math.max(0.15, Math.min(1.0, sec.intensity)) : 0.7,
           };
         });
+
+        // Sort sections chronologically
+        sections.sort((a, b) => a.start - b.start);
       } else {
         sections = this.generateSections(dur, activeIds);
       }
@@ -252,6 +265,10 @@ export class StandardInstrumentDetector implements InstrumentDetector {
     const p05 = sortedEnergies[p05Index] || 0.005;
     const p95 = Math.max(p05 + 0.01, sortedEnergies[p95Index] || 0.15);
 
+    const sortedHigh = Float32Array.from(rawHighEnergies).sort();
+    const highP05 = sortedHigh[p05Index] || 0.001;
+    const highP95 = Math.max(highP05 + 0.005, sortedHigh[p95Index] || 0.05);
+
     const sortedFlux = Float32Array.from(onsetFlux).sort();
     const fluxP95 = Math.max(0.01, sortedFlux[Math.min(numFrames - 1, Math.floor(numFrames * 0.95))] || 0.05);
 
@@ -262,7 +279,7 @@ export class StandardInstrumentDetector implements InstrumentDetector {
       const rawE = rawViolinEnergies[k];
       const normInt = Math.max(0, Math.min(1, (rawE - p05) / (p95 - p05)));
       const normFlux = Math.max(0, Math.min(1, onsetFlux[k] / fluxP95));
-      const normViolin = Math.max(0, Math.min(1, rawHighEnergies[k] / (p95 * 1.2)));
+      const normViolin = Math.max(0, Math.min(1, (rawHighEnergies[k] - highP05) / (highP95 - highP05)));
 
       dynamicsTimeline.push({
         time,

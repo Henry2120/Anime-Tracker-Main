@@ -80,37 +80,74 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
   const [activeInstruments, setActiveInstruments] = useState<MusicInstrument[]>([]);
   const [instrumentCategoryFilter, setInstrumentCategoryFilter] = useState<string>('all');
 
-  // Local audio time sync effect
+  // Local audio time sync effect with requestAnimationFrame precision
   useEffect(() => {
     const audio = audioPlayerRef.current;
     if (!audio || sourceType !== 'local_audio') return;
 
-    const handleTimeUpdate = () => {
-      const cur = audio.currentTime;
-      const dur = audio.duration || analysisResult?.duration || 1;
-      const prog = dur > 0 ? Math.min(1.0, cur / dur) : 0;
-      setPlayback((prev) => ({
-        ...prev,
-        currentTime: cur,
-        duration: dur,
-        progress: prog,
-      }));
+    let rafId: number;
+
+    const syncTime = () => {
+      if (!audio.paused) {
+        const cur = audio.currentTime;
+        const dur = audio.duration || analysisResult?.duration || 1;
+        const prog = dur > 0 ? Math.min(1.0, cur / dur) : 0;
+        setPlayback((prev) => ({
+          ...prev,
+          currentTime: cur,
+          duration: dur,
+          progress: prog,
+          isPlaying: true,
+        }));
+        rafId = requestAnimationFrame(syncTime);
+      }
     };
 
-    const handlePlay = () => setPlayback((prev) => ({ ...prev, isPlaying: true }));
-    const handlePause = () => setPlayback((prev) => ({ ...prev, isPlaying: false }));
-    const handleEnded = () => setPlayback((prev) => ({ ...prev, isPlaying: false, isEnded: true }));
+    const handlePlay = () => {
+      setPlayback((prev) => ({ ...prev, isPlaying: true }));
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(syncTime);
+    };
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
+    const handlePause = () => {
+      cancelAnimationFrame(rafId);
+      setPlayback((prev) => ({ ...prev, isPlaying: false, currentTime: audio.currentTime }));
+    };
+
+    const handleEnded = () => {
+      cancelAnimationFrame(rafId);
+      setPlayback((prev) => ({ ...prev, isPlaying: false, isEnded: true }));
+    };
+
+    const handleTimeUpdate = () => {
+      if (audio.paused) {
+        const cur = audio.currentTime;
+        const dur = audio.duration || analysisResult?.duration || 1;
+        const prog = dur > 0 ? Math.min(1.0, cur / dur) : 0;
+        setPlayback((prev) => ({
+          ...prev,
+          currentTime: cur,
+          duration: dur,
+          progress: prog,
+        }));
+      }
+    };
+
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+
+    if (!audio.paused) {
+      rafId = requestAnimationFrame(syncTime);
+    }
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      cancelAnimationFrame(rafId);
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
     };
   }, [sourceType, analysisResult]);
 

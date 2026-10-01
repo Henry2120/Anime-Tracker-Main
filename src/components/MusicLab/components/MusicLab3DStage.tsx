@@ -212,6 +212,32 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   // Music-Driven Performance Motion Engine State
   const motionEngineRef = useRef<ViolinMusicMotionEngine>(new ViolinMusicMotionEngine());
   const [motionState, setMotionState] = useState<MusicalMotionState | null>(null);
+  const [signalHistory, setSignalHistory] = useState<
+    Array<{ time: number; intensity: number; violinEnergy: number; transient: number; onset: boolean }>
+  >([]);
+  const lastHistoryPushRef = useRef<number>(0);
+
+  // Update motion state & rolling signal diagnostic history
+  const handleMotionStateUpdate = useCallback((st: MusicalMotionState) => {
+    setMotionState(st);
+    const now = performance.now();
+    if (now - lastHistoryPushRef.current > 70) {
+      lastHistoryPushRef.current = now;
+      setSignalHistory((prev) => {
+        const next = [
+          ...prev,
+          {
+            time: st.currentTime,
+            intensity: st.signal.intensity,
+            violinEnergy: st.signal.violinEnergy,
+            transient: st.signal.transientStrength,
+            onset: st.signal.onset,
+          },
+        ];
+        return next.length > 32 ? next.slice(next.length - 32) : next;
+      });
+    }
+  }, []);
 
   // Standalone in-stage playback simulation when no global song is playing
   const [internalPlaying, setInternalPlaying] = useState<boolean>(false);
@@ -736,7 +762,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               playback={activePlayback}
               analysisResult={activeAnalysis}
               motionEngine={motionEngineRef.current}
-              onMotionStateUpdate={setMotionState}
+              onMotionStateUpdate={handleMotionStateUpdate}
             />
             <VRMCharacterModel
               modelConfig={characterConfig}
@@ -1333,18 +1359,32 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-zinc-400">Audio Source:</span>
               <span className="font-bold text-[#B9B0F2]">
-                {motionState?.dynamicsSource === 'timeline'
-                  ? 'Precomputed Audio Stream'
-                  : motionState?.dynamicsSource === 'section'
+                {motionState?.signal.source === 'precomputed_audio'
+                  ? 'Precomputed Audio'
+                  : motionState?.signal.source === 'gemini_section'
                   ? 'Gemini Section Fallback'
+                  : motionState?.signal.source === 'realtime_audio'
+                  ? 'Real-time Audio'
                   : 'Manual Test Mode'}
               </span>
             </div>
 
+            {/* Current Active Section (for Gemini Analysis) */}
+            {activeAnalysis?.sections && activeAnalysis.sections.length > 0 && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-zinc-400">Section:</span>
+                <span className="font-semibold text-purple-300 truncate max-w-[170px]" title={
+                  activeAnalysis.sections.find((s) => (activePlayback.currentTime || 0) >= s.start && (activePlayback.currentTime || 0) <= s.end)?.label || 'General'
+                }>
+                  {activeAnalysis.sections.find((s) => (activePlayback.currentTime || 0) >= s.start && (activePlayback.currentTime || 0) <= s.end)?.label || activeAnalysis.sections[0]?.label || 'General Performance'}
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-zinc-400">Violin Energy:</span>
               <span className="font-bold text-amber-300">
-                {motionState ? Math.round(motionState.violinEnergy * 100) : 0}%
+                {motionState ? Math.round(motionState.signal.violinEnergy * 100) : 0}%
               </span>
             </div>
 
@@ -1355,11 +1395,11 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
                 {motionState && (
                   <span className="text-[9px] ml-1 text-zinc-400 font-normal">
                     (
-                    {motionState.effectivePerformanceEnergy < 0.3
+                    {motionState.effectivePerformanceEnergy < 0.25
                       ? 'Piano'
                       : motionState.effectivePerformanceEnergy < 0.6
                       ? 'Mezzo'
-                      : motionState.effectivePerformanceEnergy < 0.8
+                      : motionState.effectivePerformanceEnergy < 0.85
                       ? 'Forte'
                       : 'Fortissimo'}
                     )
@@ -1379,19 +1419,46 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
 
           {/* Attack / Transient Onset & Bowing Stroke Status */}
           <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
-            <span>Attack / Onset:</span>
+            <span>Attack:</span>
+            <span className="font-bold text-zinc-200">
+              {motionState ? `${Math.round(motionState.attackEnergy * 100)}%` : '0%'}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
+            <span>Onset:</span>
             <span
               className={`font-bold transition-colors ${
-                motionState && motionState.attackStrength > 0.25
+                motionState?.signal.onset
                   ? 'text-[#00E5FF] animate-pulse font-extrabold'
                   : 'text-zinc-500'
               }`}
             >
-              {motionState && motionState.attackStrength > 0.25
-                ? `⚡ ${Math.round(motionState.attackStrength * 100)}% (ONSET: YES)`
-                : 'Sustained (ONSET: NO)'}
+              {motionState?.signal.onset ? 'YES ⚡' : 'NO'}
             </span>
           </div>
+
+          {/* Rolling 2.5s Real-Time Signal History Diagnostic */}
+          {signalHistory.length > 2 && (
+            <div className="pt-1 border-t border-white/10 space-y-1">
+              <div className="flex items-center justify-between text-[9px] text-zinc-400">
+                <span>Signal History (~2.5s)</span>
+                <span className="text-[#00E5FF] font-mono">{(motionState?.currentTime || 0).toFixed(2)}s</span>
+              </div>
+              <div className="h-6 w-full bg-black/60 rounded flex items-end gap-[1px] p-0.5 overflow-hidden border border-white/5">
+                {signalHistory.map((pt, idx) => (
+                  <div
+                    key={idx}
+                    className="flex-1 rounded-t-xs transition-all duration-75 relative group"
+                    style={{
+                      height: `${Math.max(10, Math.round(pt.intensity * 100))}%`,
+                      backgroundColor: pt.onset ? '#00E5FF' : pt.intensity > 0.6 ? '#7567C7' : '#4B5563',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
             <span>Bowing Stroke:</span>

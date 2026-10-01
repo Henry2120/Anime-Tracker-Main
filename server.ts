@@ -1993,12 +1993,17 @@ CLOSED LIST OF SUPPORTED INSTRUMENTS (select ONLY from this list):
 - sequencer
 - electronic-producer
 
-REQUIRED TIMELINE ANALYSIS:
-Distinguish:
-A. PRESENCE: Is the instrument genuinely part of this specific performance?
-B. ACTIVITY TIMELINE: When is the instrument actually actively playing (startPercent to endPercent, 0.0 to 1.0)?
-C. INTENSITY: How prominent is it during that active window (0.0 to 1.0)?
-D. CONFIDENCE: How certain are you that it plays during that window (0.0 to 1.0)?`;
+REQUIRED TIMELINE & MUSICAL SECTIONS ANALYSIS:
+1. PRESENCE: Is the instrument genuinely part of this specific performance?
+2. ACTIVITY TIMELINE: When is each detected instrument actually actively playing (startPercent to endPercent, normalized 0.0 to 1.0)?
+3. CHRONOLOGICAL MUSICAL SECTIONS: Break the performance into 4 to 8 distinct chronological subsections spanning the full 0.0 to 1.0 duration (e.g. Intro, Verse 1, Pre-Chorus, Chorus 1, Solo/Bridge, Climax, Outro).
+   - For each section provide:
+     - name: descriptive section title (e.g. "Intro (Soft Opening)", "Violin Solo (High Energy)", "Climax (Fortissimo)", "Outro (Decrescendo)")
+     - startPercent: normalized start (0.0 to 1.0)
+     - endPercent: normalized end (0.0 to 1.0, contiguous)
+     - activeInstruments: list of instruments actively playing in this section (include 'violin' for violin parts)
+     - intensity: actual musical dynamic intensity of the section (0.15 for very soft/piano, 0.45 for moderate/mezzo, 0.80 for forte, 0.95 for climax/fortissimo)
+4. ACCURATE BPM: Estimate the true musical tempo (BPM) of the performance.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.8-flash",
@@ -2012,7 +2017,7 @@ D. CONFIDENCE: How certain are you that it plays during that window (0.0 to 1.0)
             title: { type: Type.STRING },
             artist: { type: Type.STRING },
             description: { type: Type.STRING },
-            bpm: { type: Type.NUMBER },
+            bpm: { type: Type.NUMBER, description: "Estimated musical tempo in BPM" },
             detectedInstruments: {
               type: Type.ARRAY,
               items: {
@@ -2031,9 +2036,9 @@ D. CONFIDENCE: How certain are you that it plays during that window (0.0 to 1.0)
                 type: Type.OBJECT,
                 properties: {
                   instrumentId: { type: Type.STRING },
-                  startPercent: { type: Type.NUMBER },
-                  endPercent: { type: Type.NUMBER },
-                  intensity: { type: Type.NUMBER },
+                  startPercent: { type: Type.NUMBER, description: "Normalized start 0.0 to 1.0" },
+                  endPercent: { type: Type.NUMBER, description: "Normalized end 0.0 to 1.0" },
+                  intensity: { type: Type.NUMBER, description: "Dynamic intensity 0.0 to 1.0" },
                   confidence: { type: Type.NUMBER },
                   reason: { type: Type.STRING },
                 },
@@ -2046,13 +2051,13 @@ D. CONFIDENCE: How certain are you that it plays during that window (0.0 to 1.0)
                 type: Type.OBJECT,
                 properties: {
                   name: { type: Type.STRING },
-                  startPercent: { type: Type.NUMBER },
-                  endPercent: { type: Type.NUMBER },
+                  startPercent: { type: Type.NUMBER, description: "Normalized start 0.0 to 1.0" },
+                  endPercent: { type: Type.NUMBER, description: "Normalized end 0.0 to 1.0" },
                   activeInstruments: {
                     type: Type.ARRAY,
                     items: { type: Type.STRING },
                   },
-                  intensity: { type: Type.NUMBER },
+                  intensity: { type: Type.NUMBER, description: "Musical dynamic intensity 0.0 to 1.0" },
                 },
                 required: ["name", "startPercent", "endPercent", "activeInstruments", "intensity"],
               },
