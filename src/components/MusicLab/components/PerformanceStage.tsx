@@ -31,8 +31,8 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
   className = '',
   onSelectInstrument,
 }) => {
-  // Toggle between 2D ensemble stage and 3D character viewport
-  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d'>('2d');
+  // Toggle between 2D ensemble stage and 3D character viewport (defaults to 3D)
+  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d'>('3d');
 
   // Theme styling for the stage floor, wooden platform, and backdrop
   const stageStyles = {

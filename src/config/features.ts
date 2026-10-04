@@ -10,4 +10,4 @@
  *
  * To re-enable Music Lab later, simply set this flag to `true`.
  */
-export const MUSIC_LAB_ENABLED = false;
+export const MUSIC_LAB_ENABLED = true;
