@@ -105,14 +105,13 @@ export class HandInteractionFrameSolver {
    */
   public static solveRightBowGripFrame(
     adapter: VRMHumanoidAdapter,
-    wristTransform: Transform3D,
+    bowFrogGripWorldPos: THREE.Vector3,
     desiredBowingDirection: THREE.Vector3,
     violinStringsNormal: THREE.Vector3
-  ): HandInteractionFrame {
+  ): { frame: HandInteractionFrame; requiredWristPos: THREE.Vector3 } {
     const metrics = adapter.computeMetrics();
     const handLen = metrics.handLength.right;
 
-    const rWristPos = wristTransform.position.clone();
     const bowStickDir = desiredBowingDirection.clone().normalize();
     const bowUpNormal = violinStringsNormal.clone().normalize();
 
@@ -134,8 +133,13 @@ export class HandInteractionFrameSolver {
     const rightHandWorldMat = new THREE.Matrix4().makeBasis(rCol0, rCol1, rCol2);
     const rightHandWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rightHandWorldMat);
 
-    const palmCenter = rWristPos.clone().addScaledVector(desiredFingersDir, handLen * 0.4);
-    const gripCenter = rWristPos.clone().addScaledVector(desiredFingersDir, handLen * 0.55);
+    // Required wrist position: backtracked from frog grip along fingers and palm axes
+    const requiredWristPos = bowFrogGripWorldPos
+      .clone()
+      .addScaledVector(desiredFingersDir, -handLen * 0.55)
+      .addScaledVector(desiredPalmNormal, -handLen * 0.35);
+
+    const palmCenter = new THREE.Vector3().addVectors(requiredWristPos, bowFrogGripWorldPos).multiplyScalar(0.5);
 
     // Finger targets for right hand (Part 5: classical violin bow hold)
     const fingerTargets: FingerTargets = {
@@ -148,9 +152,9 @@ export class HandInteractionFrameSolver {
       fingerSpread: 0.16,     // Natural bow-hold spread
     };
 
-    return {
+    const frame: HandInteractionFrame = {
       wrist: {
-        position: rWristPos,
+        position: requiredWristPos,
         quaternion: rightHandWorldQuat.clone(),
         scale: new THREE.Vector3(1, 1, 1),
       },
@@ -160,11 +164,13 @@ export class HandInteractionFrameSolver {
         scale: new THREE.Vector3(1, 1, 1),
       },
       grip: {
-        position: gripCenter,
+        position: bowFrogGripWorldPos.clone(),
         quaternion: rightHandWorldQuat.clone(),
         scale: new THREE.Vector3(1, 1, 1),
       },
       fingerTargets,
     };
+
+    return { frame, requiredWristPos };
   }
 }

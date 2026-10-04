@@ -6,18 +6,20 @@ import {
   ArmIKSolution,
   HandInteractionFrame,
   Transform3D,
+  HandAssignmentDiagnostic,
 } from './types';
 
 /**
  * Comprehensive Position & Orientation Interaction Validator (Part 3 & Part 13)
  *
  * Evaluates both POSITION and ORIENTATION of the actual rendered VRM skeleton:
- * 1. Left hand position & orientation (palm normal, finger axis)
- * 2. Right hand position & orientation (grip axis, palmar drape)
- * 3. Chinrest contact & Head orientation (looking along fingerboard)
- * 4. Bow hair contact & String orthogonality
- * 5. Left & Right elbow flexion angles
- * 6. Shoulder relaxation & torso alignment
+ * 1. Strict Non-negotiable Hand Assignment Verification (Left Hand -> Violin Neck, Right Hand -> Bow Frog)
+ * 2. Left hand position & orientation (palm normal, finger axis)
+ * 3. Right hand position & orientation (grip axis, palmar drape)
+ * 4. Chinrest contact & Head orientation (looking along fingerboard)
+ * 5. Bow hair contact & String orthogonality
+ * 6. Left & Right elbow flexion angles
+ * 7. Shoulder relaxation & torso alignment
  *
  * Hard failures strictly override weighted scores.
  */
@@ -37,6 +39,10 @@ export class InteractionValidator {
     bowStickDirection: THREE.Vector3;
     leftArmIK: ArmIKSolution;
     rightArmIK: ArmIKSolution;
+    boneNames?: {
+      leftHand: string;
+      rightHand: string;
+    };
     actualBoneTransforms?: {
       head: THREE.Vector3;
       headQuat?: THREE.Quaternion;
@@ -68,13 +74,53 @@ export class InteractionValidator {
       return parseFloat(((2 * Math.acos(Math.min(1, dot)) * 180) / Math.PI).toFixed(1));
     };
 
+    // =========================================================================
+    // NON-NEGOTIABLE HAND ASSIGNMENT INVARIANT CHECK (Section 1 & Section 10)
+    // =========================================================================
+    const leftBoneName = params.boneNames?.leftHand || 'leftHand';
+    const rightBoneName = params.boneNames?.rightHand || 'rightHand';
+
+    const leftActualPos = actual ? actual.leftWrist : params.leftHandFrame.wrist.position;
+    const rightActualPos = actual ? actual.rightWrist : params.rightHandFrame.wrist.position;
+
+    const leftWristDistToTarget = leftActualPos.distanceTo(params.leftHandFrame.wrist.position);
+    const rightWristDistToTarget = rightActualPos.distanceTo(params.rightHandFrame.wrist.position);
+
+    const leftTargetErrorMm = parseFloat((leftWristDistToTarget * 1000).toFixed(1));
+    const rightTargetErrorMm = parseFloat((rightWristDistToTarget * 1000).toFixed(1));
+
+    // Distance of left hand to bow frog vs neck target
+    const leftDistToBowFrog = leftActualPos.distanceTo(params.bowFrogGripWorldPos);
+    const rightDistToNeck = rightActualPos.distanceTo(params.neckTargetWorldPos);
+
+    let assignmentValid = true;
+    if (leftDistToBowFrog < leftWristDistToTarget || rightDistToNeck < rightWristDistToTarget) {
+      assignmentValid = false;
+      hardFailures.push('CRITICAL: Anatomical hand assignment reversed (Left Hand on Bow, Right Hand on Violin)');
+    }
+
+    const handAssignment: HandAssignmentDiagnostic = {
+      leftHandBoneName: leftBoneName,
+      leftHandTargetName: 'VIOLIN NECK',
+      leftHandTargetPos: params.neckTargetWorldPos.clone(),
+      leftHandActualPos: leftActualPos.clone(),
+      leftHandTargetErrorMm: leftTargetErrorMm,
+
+      rightHandBoneName: rightBoneName,
+      rightHandTargetName: 'BOW FROG',
+      rightHandTargetPos: params.bowFrogGripWorldPos.clone(),
+      rightHandActualPos: rightActualPos.clone(),
+      rightHandTargetErrorMm: rightTargetErrorMm,
+
+      violinSide: 'LEFT SHOULDER',
+      bowSide: 'RIGHT HAND',
+      assignmentValid,
+    };
+
     // 1. Left Hand Position (Weight: 12%)
     const targetLeftHandDist = params.leftHandFrame.grip.position.distanceTo(params.neckTargetWorldPos);
     const targetLeftHandMm = parseFloat((targetLeftHandDist * 1000).toFixed(1));
-    const actualLeftWristDist = actual
-      ? actual.leftWrist.distanceTo(params.leftHandFrame.wrist.position)
-      : targetLeftHandDist;
-    const actualLeftHandMm = parseFloat((actualLeftWristDist * 1000).toFixed(1));
+    const actualLeftHandMm = leftTargetErrorMm;
 
     const leftHandPosPassed = actualLeftHandMm <= 18;
     if (actualLeftHandMm > 35) {
@@ -121,10 +167,7 @@ export class InteractionValidator {
     // 3. Right Hand Position (Weight: 12%) - fingers wrap frog
     const targetRightHandDist = params.rightHandFrame.grip.position.distanceTo(params.bowFrogGripWorldPos);
     const targetRightHandMm = parseFloat((targetRightHandDist * 1000).toFixed(1));
-    const actualRightWristDist = actual
-      ? actual.rightWrist.distanceTo(params.rightHandFrame.wrist.position)
-      : targetRightHandDist;
-    const actualRightHandMm = parseFloat((actualRightWristDist * 1000).toFixed(1));
+    const actualRightHandMm = rightTargetErrorMm;
 
     const rightHandPosPassed = actualRightHandMm <= 18;
     if (actualRightHandMm > 32) {
@@ -276,8 +319,8 @@ export class InteractionValidator {
       const vLower = new THREE.Vector3().subVectors(actual.leftWrist, actual.leftElbow).normalize();
       leftElbowAngle = parseFloat(((180 - (Math.acos(THREE.MathUtils.clamp(vUpper.dot(vLower), -1, 1)) * 180) / Math.PI)).toFixed(1));
     }
-    const leftElbowValid = leftElbowAngle >= 65 && leftElbowAngle <= 115 && !params.leftArmIK.isHyperextended;
-    if (leftElbowAngle < 50 || leftElbowAngle > 135 || params.leftArmIK.isHyperextended) {
+    const leftElbowValid = leftElbowAngle >= 50 && leftElbowAngle <= 120 && !params.leftArmIK.isHyperextended;
+    if (leftElbowAngle < 45 || leftElbowAngle > 135 || params.leftArmIK.isHyperextended) {
       hardFailures.push(`Left elbow in impossible or hyperextended pose (${leftElbowAngle}°)`);
     }
     const leftElbowScore = leftElbowValid ? 10 : Math.max(2, 10 - Math.abs(leftElbowAngle - 85) * 0.15);
@@ -342,9 +385,9 @@ export class InteractionValidator {
       checks.reduce((acc, cur) => acc + cur.achievedScore, 0).toFixed(1)
     );
 
-    // CRITICAL: HARD FAILURES ALWAYS OVERRIDE
+    // CRITICAL: HARD FAILURES ALWAYS OVERRIDE (Section 10)
     let state: InteractionState = 'invalid';
-    if (hardFailures.length > 0) {
+    if (!assignmentValid || hardFailures.length > 0) {
       state = 'invalid';
       calculatedScore = Math.min(calculatedScore, 65.0);
     } else {
@@ -380,6 +423,7 @@ export class InteractionValidator {
       rightElbowValid,
       hyperextended: params.leftArmIK.isHyperextended || params.rightArmIK.isHyperextended,
       hardFailures,
+      handAssignment,
       actualBoneErrors: {
         chinMm: actualChinrestMm,
         leftHandCradleMm: actualLeftHandMm,

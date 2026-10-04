@@ -202,24 +202,13 @@ export class ViolinInteractionSolver {
       .clone()
       .addScaledVector(bowStickDir, -frogToContactDist);
 
-    const mockWristTransform: Transform3D = {
-      position: bowFrogGripWorldPos.clone().add(new THREE.Vector3(0.02, -0.04, -0.02)),
-      quaternion: new THREE.Quaternion(),
-      scale: new THREE.Vector3(1, 1, 1),
-    };
-
-    const rightHandFrame = HandInteractionFrameSolver.solveRightBowGripFrame(
-      adapter,
-      mockWristTransform,
-      bowStickDir,
-      vStringsNormal
-    );
-
-    const rHandLen = metrics.handLength.right;
-    const rWristTarget = bowFrogGripWorldPos
-      .clone()
-      .addScaledVector(vStringsNormal, -rHandLen * 0.45)
-      .addScaledVector(bowStickDir, -rHandLen * 0.38);
+    const { frame: rightHandFrame, requiredWristPos: rWristTarget } =
+      HandInteractionFrameSolver.solveRightBowGripFrame(
+        adapter,
+        bowFrogGripWorldPos,
+        bowStickDir,
+        vStringsNormal
+      );
 
     // Right elbow pole vector: outward and downward in bowing plane
     const rightPoleVec = new THREE.Vector3(0.75, -0.45, 0.45).normalize();
@@ -283,9 +272,9 @@ export class ViolinInteractionSolver {
     const leftWristDelta = new THREE.Vector3().subVectors(lWristTarget, actualLeftWristPos);
     const rightWristDelta = new THREE.Vector3().subVectors(rWristTarget, actualRightWristPos);
 
-    if (leftWristDelta.length() > 0.004 || rightWristDelta.length() > 0.004) {
-      const refinedLWristTarget = lWristTarget.clone().addScaledVector(leftWristDelta, 0.85);
-      const refinedRWristTarget = rWristTarget.clone().addScaledVector(rightWristDelta, 0.85);
+    if (leftWristDelta.length() > 0.002 || rightWristDelta.length() > 0.002) {
+      const refinedLWristTarget = lWristTarget.clone().addScaledVector(leftWristDelta, 0.95);
+      const refinedRWristTarget = rWristTarget.clone().addScaledVector(rightWristDelta, 0.95);
 
       leftArmIK = ArmIKSolver.solveArmIK(
         'left',
@@ -338,6 +327,11 @@ export class ViolinInteractionSolver {
     const finalActualLeftElbow = adapter.getBoneWorldPosition('leftLowerArm', new THREE.Vector3())!;
     const finalActualRightElbow = adapter.getBoneWorldPosition('rightLowerArm', new THREE.Vector3())!;
 
+    const leftHandNode = adapter.getBoneNode('leftHand');
+    const rightHandNode = adapter.getBoneNode('rightHand');
+    const leftHandBoneName = leftHandNode?.name || 'Normalized_J_Bip_L_Hand';
+    const rightHandBoneName = rightHandNode?.name || 'Normalized_J_Bip_R_Hand';
+
     const validation = InteractionValidator.validateViolinInteraction({
       violinTransform,
       bowTransform: accessoryTransform,
@@ -353,6 +347,10 @@ export class ViolinInteractionSolver {
       bowStickDirection: bowStickDir,
       leftArmIK,
       rightArmIK,
+      boneNames: {
+        leftHand: leftHandBoneName,
+        rightHand: rightHandBoneName,
+      },
       actualBoneTransforms: {
         head: finalActualHead,
         headQuat: finalActualHeadQuat,

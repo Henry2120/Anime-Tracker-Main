@@ -150,6 +150,27 @@ export interface ValidationCheck {
 export type InteractionState = 'excellent' | 'acceptable' | 'questionable' | 'invalid';
 
 /**
+ * Hand Assignment Runtime Diagnostic (Strict Invariant Verification)
+ */
+export interface HandAssignmentDiagnostic {
+  leftHandBoneName: string;
+  leftHandTargetName: string;
+  leftHandTargetPos: THREE.Vector3;
+  leftHandActualPos: THREE.Vector3;
+  leftHandTargetErrorMm: number;
+
+  rightHandBoneName: string;
+  rightHandTargetName: string;
+  rightHandTargetPos: THREE.Vector3;
+  rightHandActualPos: THREE.Vector3;
+  rightHandTargetErrorMm: number;
+
+  violinSide: string; // "LEFT SHOULDER"
+  bowSide: string; // "RIGHT HAND"
+  assignmentValid: boolean;
+}
+
+/**
  * Interaction Validation Report
  */
 export interface ValidationResult {
@@ -165,6 +186,7 @@ export interface ValidationResult {
   rightElbowValid: boolean;
   hyperextended: boolean;
   hardFailures: string[];
+  handAssignment: HandAssignmentDiagnostic;
   actualBoneErrors?: {
     chinMm: number;
     leftHandCradleMm: number;
