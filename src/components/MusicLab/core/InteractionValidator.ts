@@ -10,7 +10,8 @@ import {
 
 /**
  * Interaction Validation System
- * Evaluates anatomical reach, contact distances, angular alignment, and elbow plausibility.
+ * Evaluates actual physical and visual relationships.
+ * Hard failures strictly override the weighted score and force state to 'invalid'.
  */
 export class InteractionValidator {
   public static validateViolinInteraction(params: {
@@ -31,12 +32,24 @@ export class InteractionValidator {
   }): ValidationResult {
     const checks: ValidationCheck[] = [];
     const notes: string[] = [];
+    const hardFailures: string[] = [];
+
+    // --- Hard failure sanity checks ---
+    if (!params.violinTransform || params.violinTransform.scale.x <= 0) {
+      hardFailures.push('Violin not rendered or zero scale');
+    }
+    if (!params.bowTransform || params.bowTransform.scale.x <= 0) {
+      hardFailures.push('Bow not rendered or zero scale');
+    }
 
     // 1. Left Hand Contact to Violin Neck (Weight: 25%)
     const leftHandReachDist = params.leftHandFrame.grip.position.distanceTo(params.neckTargetWorldPos);
     const leftHandReachMm = parseFloat((leftHandReachDist * 1000).toFixed(1));
-    const leftHandPassed = leftHandReachMm <= 30;
-    const leftHandScore = Math.max(0, 1 - leftHandReachMm / 40) * 25;
+    const leftHandPassed = leftHandReachMm <= 20;
+    if (leftHandReachMm > 40) {
+      hardFailures.push(`Left hand detached from neck cradle (${leftHandReachMm}mm)`);
+    }
+    const leftHandScore = Math.max(0, 1 - leftHandReachMm / 30) * 25;
     checks.push({
       id: 'left_hand_contact',
       label: 'Left Hand Neck Support',
@@ -45,7 +58,7 @@ export class InteractionValidator {
       passed: leftHandPassed,
       measurementValue: leftHandReachMm,
       unit: 'mm',
-      threshold: 30,
+      threshold: 20,
       details: leftHandPassed
         ? `Thumb & index cradle securely holds neck (dist: ${leftHandReachMm}mm)`
         : `Left hand displaced from neck cradle (${leftHandReachMm}mm)`,
@@ -54,8 +67,11 @@ export class InteractionValidator {
     // 2. Right Hand Contact to Bow Frog Grip (Weight: 20%)
     const rightHandGripDist = params.rightHandFrame.grip.position.distanceTo(params.bowFrogGripWorldPos);
     const rightHandReachMm = parseFloat((rightHandGripDist * 1000).toFixed(1));
-    const rightHandPassed = rightHandReachMm <= 25;
-    const rightHandScore = Math.max(0, 1 - rightHandReachMm / 35) * 20;
+    const rightHandPassed = rightHandReachMm <= 20;
+    if (rightHandReachMm > 35) {
+      hardFailures.push(`Right hand detached from bow frog grip (${rightHandReachMm}mm)`);
+    }
+    const rightHandScore = Math.max(0, 1 - rightHandReachMm / 25) * 20;
     checks.push({
       id: 'right_hand_grip',
       label: 'Right Hand Bow Grip',
@@ -64,7 +80,7 @@ export class InteractionValidator {
       passed: rightHandPassed,
       measurementValue: rightHandReachMm,
       unit: 'mm',
-      threshold: 25,
+      threshold: 20,
       details: rightHandPassed
         ? `Fingers firmly enclose bow frog (dist: ${rightHandReachMm}mm)`
         : `Right grip separated from bow frog (${rightHandReachMm}mm)`,
@@ -73,8 +89,11 @@ export class InteractionValidator {
     // 3. Chinrest Contact (Weight: 15%)
     const chinrestDist = params.chinTargetWorldPos.distanceTo(params.chinrestWorldPos);
     const chinrestDistMm = parseFloat((chinrestDist * 1000).toFixed(1));
-    const chinrestPassed = chinrestDistMm <= 35;
-    const chinrestScore = Math.max(0, 1 - chinrestDistMm / 50) * 15;
+    const chinrestPassed = chinrestDistMm <= 25;
+    if (chinrestDistMm > 45) {
+      hardFailures.push(`Chinrest detached from player jaw (${chinrestDistMm}mm)`);
+    }
+    const chinrestScore = Math.max(0, 1 - chinrestDistMm / 35) * 15;
     checks.push({
       id: 'chinrest_contact',
       label: 'Chin to Chinrest Rest',
@@ -83,7 +102,7 @@ export class InteractionValidator {
       passed: chinrestPassed,
       measurementValue: chinrestDistMm,
       unit: 'mm',
-      threshold: 35,
+      threshold: 25,
       details: chinrestPassed
         ? `Jaw rests flush against chinrest pad (dist: ${chinrestDistMm}mm)`
         : `Head separated from chinrest (${chinrestDistMm}mm)`,
@@ -96,9 +115,16 @@ export class InteractionValidator {
     const hairDist = params.bowHairContactWorldPos.distanceTo(params.playableStringsWorldPos);
     const bowHairToStringDistMm = parseFloat((hairDist * 1000).toFixed(1));
 
-    const bowAlignmentPassed = orthogonalDiffDeg <= 18 && bowHairToStringDistMm <= 22;
+    const bowAlignmentPassed = orthogonalDiffDeg <= 12 && bowHairToStringDistMm <= 15;
+    if (orthogonalDiffDeg > 22) {
+      hardFailures.push(`Bow not orthogonal to strings (${orthogonalDiffDeg}° deviation)`);
+    }
+    if (bowHairToStringDistMm > 25) {
+      hardFailures.push(`Bow hair not touching strings (${bowHairToStringDistMm}mm gap)`);
+    }
+
     const bowScore =
-      (Math.max(0, 1 - orthogonalDiffDeg / 25) * 0.6 + Math.max(0, 1 - bowHairToStringDistMm / 30) * 0.4) * 15;
+      (Math.max(0, 1 - orthogonalDiffDeg / 18) * 0.6 + Math.max(0, 1 - bowHairToStringDistMm / 20) * 0.4) * 15;
     checks.push({
       id: 'bow_string_alignment',
       label: 'Bow & String Alignment',
@@ -107,49 +133,55 @@ export class InteractionValidator {
       passed: bowAlignmentPassed,
       measurementValue: orthogonalDiffDeg,
       unit: 'deg dev',
-      threshold: 18,
+      threshold: 12,
       details: `Hair-to-string dist: ${bowHairToStringDistMm}mm, Orthogonal angle: ${angleDeg}° (dev: ${orthogonalDiffDeg}°)`,
     });
 
     // 5. Left Elbow Plausibility (Weight: 10%)
     const leftElbowAngle = params.leftArmIK.elbowAngleDeg;
     const leftElbowValid =
-      leftElbowAngle >= 55 && leftElbowAngle <= 135 && !params.leftArmIK.isHyperextended;
-    const leftElbowScore = leftElbowValid ? 10 : Math.max(2, 10 - Math.abs(leftElbowAngle - 90) * 0.15);
+      leftElbowAngle >= 60 && leftElbowAngle <= 125 && !params.leftArmIK.isHyperextended;
+    if (leftElbowAngle < 50 || leftElbowAngle > 140 || params.leftArmIK.isHyperextended) {
+      hardFailures.push(`Left elbow in impossible or hyperextended pose (${leftElbowAngle}°)`);
+    }
+    const leftElbowScore = leftElbowValid ? 10 : Math.max(2, 10 - Math.abs(leftElbowAngle - 88) * 0.15);
     checks.push({
       id: 'left_elbow_plausibility',
       label: 'Left Arm & Elbow Geometry',
       weight: 10,
       achievedScore: parseFloat(leftElbowScore.toFixed(1)),
       passed: leftElbowValid,
-      measurementValue: parseFloat(leftElbowAngle.toFixed(1)),
+      measurementValue: leftElbowAngle,
       unit: 'deg',
-      threshold: 90,
+      threshold: 88,
       details: leftElbowValid
-        ? `Elbow flexed naturally at ${leftElbowAngle.toFixed(1)}°`
-        : `Left elbow awkward or hyperextended (${leftElbowAngle.toFixed(1)}°)`,
+        ? `Elbow flexed naturally at ${leftElbowAngle}°`
+        : `Left elbow awkward or hyperextended (${leftElbowAngle}°)`,
     });
 
     // 6. Right Elbow Plausibility (Weight: 10%)
     const rightElbowAngle = params.rightArmIK.elbowAngleDeg;
     const rightElbowValid =
-      rightElbowAngle >= 35 && rightElbowAngle <= 125 && !params.rightArmIK.isHyperextended;
-    const rightElbowScore = rightElbowValid ? 10 : Math.max(2, 10 - Math.abs(rightElbowAngle - 70) * 0.15);
+      rightElbowAngle >= 40 && rightElbowAngle <= 110 && !params.rightArmIK.isHyperextended;
+    if (rightElbowAngle < 30 || rightElbowAngle > 125 || params.rightArmIK.isHyperextended) {
+      hardFailures.push(`Right bowing elbow in impossible or hyperextended pose (${rightElbowAngle}°)`);
+    }
+    const rightElbowScore = rightElbowValid ? 10 : Math.max(2, 10 - Math.abs(rightElbowAngle - 65) * 0.15);
     checks.push({
       id: 'right_elbow_plausibility',
       label: 'Right Bowing Arm Geometry',
       weight: 10,
       achievedScore: parseFloat(rightElbowScore.toFixed(1)),
       passed: rightElbowValid,
-      measurementValue: parseFloat(rightElbowAngle.toFixed(1)),
+      measurementValue: rightElbowAngle,
       unit: 'deg',
-      threshold: 70,
+      threshold: 65,
       details: rightElbowValid
-        ? `Bowing elbow flexed at ${rightElbowAngle.toFixed(1)}°`
-        : `Right elbow awkward or hyperextended (${rightElbowAngle.toFixed(1)}°)`,
+        ? `Bowing elbow flexed naturally at ${rightElbowAngle}°`
+        : `Right elbow awkward or hyperextended (${rightElbowAngle}°)`,
     });
 
-    // 7. Overall Posture (Weight: 5%)
+    // 7. Postural Poise & Balance (Weight: 5%)
     const postureScore = 5.0;
     checks.push({
       id: 'overall_posture',
@@ -160,32 +192,40 @@ export class InteractionValidator {
       measurementValue: 100,
       unit: '%',
       threshold: 80,
-      details: 'Spine, shoulders, and clavicle balance verified',
+      details: 'Spine, shoulders, and clavicular support verified',
     });
 
-    // Compute Total Score
-    const totalScore = parseFloat(
+    // Compute Raw Weighted Score
+    let calculatedScore = parseFloat(
       checks.reduce((acc, cur) => acc + cur.achievedScore, 0).toFixed(1)
     );
 
+    // CRITICAL REQUIREMENT (Section 4 & 5):
+    // A HARD FAILURE ALWAYS MEANS INVALID. Do not allow a high score to override hard failures!
     let state: InteractionState = 'invalid';
-    if (totalScore >= 88) {
-      state = 'excellent';
-    } else if (totalScore >= 70) {
-      state = 'acceptable';
-    } else if (totalScore >= 50) {
-      state = 'questionable';
-    } else {
+    if (hardFailures.length > 0) {
       state = 'invalid';
+      // Cap score below 80 if there are hard failures
+      calculatedScore = Math.min(calculatedScore, 65.0);
+    } else {
+      if (calculatedScore >= 95.0) {
+        state = 'excellent';
+      } else if (calculatedScore >= 90.0) {
+        state = 'acceptable';
+      } else if (calculatedScore >= 80.0) {
+        state = 'questionable';
+      } else {
+        state = 'invalid';
+      }
     }
 
-    if (!leftHandPassed) notes.push(`Left hand reach shortfall (${leftHandReachMm}mm)`);
-    if (!rightHandPassed) notes.push(`Right hand bow grip shortfall (${rightHandReachMm}mm)`);
+    if (!leftHandPassed) notes.push(`Left hand reach gap (${leftHandReachMm}mm)`);
+    if (!rightHandPassed) notes.push(`Right hand bow grip gap (${rightHandReachMm}mm)`);
     if (!chinrestPassed) notes.push(`Chinrest clearance gap (${chinrestDistMm}mm)`);
-    if (!bowAlignmentPassed) notes.push(`Bow not orthogonal to strings (${orthogonalDiffDeg}° dev)`);
+    if (!bowAlignmentPassed) notes.push(`Bow angle deviation (${orthogonalDiffDeg}° dev)`);
 
     return {
-      score: totalScore,
+      score: calculatedScore,
       state,
       checks,
       leftHandReachMm,
@@ -196,6 +236,7 @@ export class InteractionValidator {
       leftElbowValid,
       rightElbowValid,
       hyperextended: params.leftArmIK.isHyperextended || params.rightArmIK.isHyperextended,
+      hardFailures,
       notes,
     };
   }

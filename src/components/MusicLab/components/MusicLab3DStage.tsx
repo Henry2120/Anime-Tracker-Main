@@ -1,6 +1,6 @@
 import React, { Suspense, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
@@ -19,6 +19,7 @@ import {
   Music,
   CheckCircle2,
   AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react';
 import { AppTheme } from '../../../types/theme';
 import { PlaybackState, MusicAnalysisResult } from '../types';
@@ -53,11 +54,11 @@ const StudioEnvironment: React.FC<{ theme: AppTheme }> = ({ theme }) => {
 
   return (
     <>
-      <ambientLight intensity={isDark ? 0.9 : 1.1} />
+      <ambientLight intensity={isDark ? 0.95 : 1.15} />
 
       {/* Key Light */}
       <directionalLight
-        position={[2.5, 4.5, 3.5]}
+        position={[2.8, 4.5, 3.8]}
         intensity={isDark ? 1.5 : 1.3}
         castShadow
         shadow-mapSize-width={1024}
@@ -88,7 +89,7 @@ const StudioEnvironment: React.FC<{ theme: AppTheme }> = ({ theme }) => {
           />
         </mesh>
         <mesh position={[0, -0.17, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <planeGeometry args={[12, 12]} />
+          <planeGeometry args={[14, 14]} />
           <meshStandardMaterial color={floorColor} roughness={0.8} metalness={0.05} />
         </mesh>
       </group>
@@ -136,6 +137,40 @@ const SceneAnimator: React.FC<{
       );
     }
   });
+
+  return null;
+};
+
+/**
+ * Camera Auto-Framing Component (Section 15)
+ * Dynamically frames the combined bounding box of Character + Violin + Bow.
+ */
+const CameraAutoFramer: React.FC<{
+  solution: InteractionSolution | null;
+  metrics: HumanoidMetrics | null;
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+}> = ({ solution, metrics, controlsRef }) => {
+  const { camera } = useThree();
+  const hasFramedRef = useRef(false);
+
+  useEffect(() => {
+    if (!solution || !metrics || hasFramedRef.current) return;
+    hasFramedRef.current = true;
+
+    // Combined target center around upper chest & violin
+    const targetY = metrics.height * 0.72; // ~1.16m on 1.61m character
+    const targetCenter = new THREE.Vector3(0.04, targetY, 0.08);
+
+    // Camera placed in front 3/4 angle framing whole character + violin + bow
+    const camDistance = Math.max(1.8, metrics.height * 1.35);
+    camera.position.set(0.65, targetY + 0.15, camDistance);
+    camera.lookAt(targetCenter);
+
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(targetCenter);
+      controlsRef.current.update();
+    }
+  }, [solution, metrics, camera, controlsRef]);
 
   return null;
 };
@@ -193,7 +228,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
     ViolinInteractionSolver.applySolutionToModel(loadedAdapter, sol);
   }, []);
 
-  // Explicit recalculation handler (Phase 18)
+  // Explicit recalculation handler
   const handleRecalculate = useCallback(() => {
     if (!adapter) return;
     const m = adapter.computeMetrics(true);
@@ -215,20 +250,21 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
   const applyCameraPreset = (preset: 'default' | 'front' | 'bowHand' | 'chinrest') => {
     setCameraView(preset);
     const controls = orbitControlsRef.current;
-    if (!controls) return;
+    if (!controls || !metrics) return;
 
+    const baseH = metrics.height;
     if (preset === 'default') {
-      controls.object.position.set(1.4, 1.4, 2.3);
-      controls.target.set(0, 1.1, 0);
+      controls.object.position.set(0.65, baseH * 0.74, 2.1);
+      controls.target.set(0.04, baseH * 0.72, 0.08);
     } else if (preset === 'front') {
-      controls.object.position.set(0, 1.3, 2.4);
-      controls.target.set(0, 1.1, 0);
+      controls.object.position.set(0.0, baseH * 0.74, 2.2);
+      controls.target.set(0.0, baseH * 0.72, 0.05);
     } else if (preset === 'bowHand') {
-      controls.object.position.set(0.65, 1.25, 1.05);
-      controls.target.set(0.25, 1.15, 0.15);
+      controls.object.position.set(-0.35, baseH * 0.75, 0.85);
+      controls.target.set(-0.08, baseH * 0.73, 0.16);
     } else if (preset === 'chinrest') {
-      controls.object.position.set(-0.35, 1.45, 0.95);
-      controls.target.set(-0.08, 1.35, 0.1);
+      controls.object.position.set(0.35, baseH * 0.88, 0.85);
+      controls.target.set(0.06, baseH * 0.84, 0.12);
     }
     controls.update();
   };
@@ -278,11 +314,19 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               className={`px-2.5 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
                 solution.validation.state === 'excellent'
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                  : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                  : solution.validation.state === 'acceptable'
+                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                  : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
               }`}
             >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>{solution.validation.score}% Kinematic Match</span>
+              {solution.validation.state === 'excellent' ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <ShieldAlert className="h-3.5 w-3.5" />
+              )}
+              <span>
+                {solution.validation.score}% {solution.validation.state.toUpperCase()}
+              </span>
             </div>
           )}
 
@@ -331,7 +375,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
       <div className="relative flex-1 w-full h-[500px] sm:h-[580px] bg-radial from-transparent to-black/15">
         <Canvas
           shadows
-          camera={{ position: [1.4, 1.4, 2.3], fov: 42, near: 0.1, far: 25 }}
+          camera={{ position: [0.65, 1.25, 2.1], fov: 40, near: 0.1, far: 25 }}
           className="w-full h-full"
         >
           <Suspense fallback={null}>
@@ -341,10 +385,10 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               ref={orbitControlsRef}
               enableDamping
               dampingFactor={0.08}
-              minDistance={0.6}
-              maxDistance={6.0}
+              minDistance={0.5}
+              maxDistance={5.0}
               maxPolarAngle={Math.PI / 2 + 0.05}
-              target={[0, 1.1, 0]}
+              target={[0.04, 1.15, 0.08]}
             />
 
             {/* Character VRM Model */}
@@ -357,10 +401,10 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               visible={true}
             />
 
-            {/* Debug Landmarks Overlay (Phase 13) */}
+            {/* Debug Landmarks Overlay (Section 16) */}
             <InteractionDebugOverlay solution={solution} visible={showDebug} />
 
-            {/* Performance Animator Driver (Phase 15) */}
+            {/* Performance Animator Driver (Section 18) */}
             <SceneAnimator
               adapter={adapter}
               solution={solution}
@@ -368,10 +412,17 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
               bpm={bpm}
               onUpdateTransforms={handleAnimatedTransforms}
             />
+
+            {/* Camera Auto-Framer (Section 15) */}
+            <CameraAutoFramer
+              solution={solution}
+              metrics={metrics}
+              controlsRef={orbitControlsRef}
+            />
           </Suspense>
         </Canvas>
 
-        {/* Diagnostic HUD Overlay Panel (Phase 13) */}
+        {/* Diagnostic HUD Overlay Panel (Section 17) */}
         <InteractionDiagnosticHUD
           solution={solution}
           metrics={metrics}

@@ -4,7 +4,7 @@ import { ArmIKSolver } from './ArmIKSolver';
 import { InteractionSolution } from './types';
 
 /**
- * Simple Performance Layer (Phase 15)
+ * Simple Performance Layer (Phase 15 & 18)
  * Moves the already-solved, kinematically correct violin playing pose gently:
  * - Down-bow / up-bow stroke along the bow stick axis
  * - Synchronized right arm IK tracking the moving bow frog
@@ -60,7 +60,7 @@ export class PerformanceAnimator {
       .clone()
       .addScaledVector(bowStickDir, strokeOffset);
 
-    const rightPoleVec = new THREE.Vector3(0.80, -0.45, 0.40).normalize();
+    const rightPoleVec = new THREE.Vector3(0.75, -0.40, 0.50).normalize();
     const animatedRightArmIK = ArmIKSolver.solveArmIK(
       'right',
       metrics.anchors.rightUpperArm,
@@ -68,6 +68,16 @@ export class PerformanceAnimator {
       metrics.upperArmLength.right,
       metrics.forearmLength.right,
       rightPoleVec
+    );
+
+    const rLowerArmDir = new THREE.Vector3()
+      .subVectors(animatedRightArmIK.wristPos, animatedRightArmIK.elbowPos)
+      .normalize();
+    const rLowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(-1, 0, 0), rLowerArmDir);
+    const animatedRightHandQuat = ArmIKSolver.solveHandOrientation(
+      'right',
+      baseSolution.rightHandFrame,
+      rLowerArmWorldQuat
     );
 
     // 3. Subtle Left Hand Vibrato
@@ -105,7 +115,7 @@ export class PerformanceAnimator {
     // Right arm moves with bowing stroke
     adapter.setBoneRotation('rightUpperArm', animatedRightArmIK.upperArmQuat);
     adapter.setBoneRotation('rightLowerArm', animatedRightArmIK.lowerArmQuat);
-    adapter.setBoneRotation('rightHand', baseSolution.rightArmIK.handQuat);
+    adapter.setBoneRotation('rightHand', animatedRightHandQuat);
 
     // Fingers
     ArmIKSolver.applyFingerPoses(adapter, 'left', vibratoTargets);

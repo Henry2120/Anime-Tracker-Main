@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 import { ValidationResult, InteractionSolution, HumanoidMetrics } from '../../core/types';
 
@@ -20,8 +21,9 @@ interface InteractionDiagnosticHUDProps {
 }
 
 /**
- * Diagnostic HUD Panel (Phase 13)
+ * Diagnostic HUD Panel (Section 17)
  * Displays real-time kinematic interaction scores, reach measurements, and joint diagnostics.
+ * Hard failures are prominently highlighted.
  */
 export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> = ({
   solution,
@@ -38,14 +40,15 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
   const isExcellent = validation.state === 'excellent';
   const isAcceptable = validation.state === 'acceptable';
   const isQuestionable = validation.state === 'questionable';
+  const isInvalid = validation.state === 'invalid';
 
   const badgeColor = isExcellent
-    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
     : isAcceptable
-    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
     : isQuestionable
-    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-    : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20';
+    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+    : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30';
 
   return (
     <aside
@@ -78,17 +81,32 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
 
       {isExpanded && (
         <div className="p-3.5 space-y-3 max-h-[75vh] overflow-y-auto">
+          {/* HARD FAILURES OVERRIDE (Section 17) */}
+          {validation.hardFailures && validation.hardFailures.length > 0 && (
+            <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-[11px] space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-red-600 dark:text-red-400">
+                <ShieldAlert className="h-4 w-4" />
+                <span>Hard Failures ({validation.hardFailures.length})</span>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 font-medium">
+                {validation.hardFailures.map((hf, i) => (
+                  <li key={i}>{hf}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Anatomical Scale & Metrics Summary */}
           {metrics && (
             <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5 text-[11px] space-y-1">
               <div className="text-[10px] font-bold text-[#77747D] dark:text-[#9E9AA6] uppercase tracking-wider">
-                Humanoid Proportions
+                Humanoid Proportions (calibrated from sample_violin.glb)
               </div>
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[#524E5B] dark:text-[#D1CCE0]">
                 <span>Height: <strong className="text-[#25242A] dark:text-white">{(metrics.height * 100).toFixed(0)}cm</strong></span>
-                <span>Type: <strong className="text-[#25242A] dark:text-white">{metrics.isChibi ? 'Chibi / Mini' : 'Standard Proportional'}</strong></span>
-                <span>Left Reach: <strong className="text-[#25242A] dark:text-white">{(metrics.armReach.left * 100).toFixed(0)}cm</strong></span>
-                <span>Violin Scale: <strong className="text-[#7567C7] dark:text-[#B9B0F2]">{(solution.instrumentScale * 100).toFixed(0)}%</strong></span>
+                <span>Type: <strong className="text-[#25242A] dark:text-white">{metrics.isChibi ? 'Chibi / Mini' : 'Standard'}</strong></span>
+                <span>Arm Reach: <strong className="text-[#25242A] dark:text-white">{(metrics.armReach.left * 100).toFixed(0)}cm</strong></span>
+                <span>Violin Scale: <strong className="text-[#7567C7] dark:text-[#B9B0F2]">{(solution.instrumentScale * 100).toFixed(1)}%</strong></span>
               </div>
             </div>
           )}
@@ -121,12 +139,12 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
             ))}
           </div>
 
-          {/* Diagnostic Warnings if any check fails */}
-          {validation.notes.length > 0 && (
+          {/* Notes */}
+          {validation.notes.length > 0 && validation.hardFailures.length === 0 && (
             <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] space-y-1">
               <div className="flex items-center gap-1.5 font-bold">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                <span>Kinematic Constraints</span>
+                <span>Tolerances & Clearances</span>
               </div>
               <ul className="list-disc list-inside space-y-0.5 opacity-90">
                 {validation.notes.map((note, i) => (

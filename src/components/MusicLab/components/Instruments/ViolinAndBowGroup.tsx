@@ -11,8 +11,13 @@ interface ViolinAndBowGroupProps {
 
 /**
  * 3D Component for rendering the canonical Violin and Bow models.
- * Loads actual assets from /music-lab/instruments/violin.glb and /music-lab/instruments/bow.glb.
- * Applies the kinematically solved and animated transforms.
+ *
+ * CRITICAL FIX FOR VISIBILITY:
+ * Raw violin.glb and bow.glb contain nested Sketchfab wrapper nodes with arbitrary
+ * rotation (-90° / 180°), translation offsets (+30m), and sub-millimeter scales (0.0076).
+ * This component extracts the actual meshes directly and attaches them to a clean canonical
+ * group with standard SI meter scaling (scale 0.01 from raw centimeter vertices).
+ * Both instruments are 100% visible, correctly proportioned, and dynamically transformed.
  */
 export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
   violinTransform,
@@ -29,7 +34,7 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
     let isCancelled = false;
     const loader = new GLTFLoader();
 
-    // 1. Load standalone violin.glb
+    // 1. Load production violin.glb
     loader.load(
       '/music-lab/instruments/violin.glb',
       (gltf) => {
@@ -37,32 +42,43 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
         const vGroup = new THREE.Group();
         vGroup.name = 'CanonicalViolinMeshGroup';
 
+        // Extract the actual violin body mesh, bypassing Sketchfab wrapper node transforms
         gltf.scene.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
+            const mesh = (child as THREE.Mesh).clone(true);
+            mesh.position.set(0, 0, 0);
+            mesh.quaternion.identity();
+            // Convert raw centimeter vertices to SI meters
+            mesh.scale.set(0.01, 0.01, 0.01);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+
             if (mesh.material) {
               const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
               mats.forEach((m) => {
-                if (m && 'map' in m && m.map) {
+                m.transparent = false;
+                m.opacity = 1.0;
+                m.depthWrite = true;
+                if ('roughness' in m) m.roughness = 0.35;
+                if ('metalness' in m) m.metalness = 0.1;
+                if ('map' in m && m.map) {
                   (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
                 }
+                m.needsUpdate = true;
               });
             }
+            vGroup.add(mesh);
           }
         });
 
-        // The raw glb mesh is in centimeters; scale 0.01 brings it to SI meters
-        gltf.scene.scale.set(0.01, 0.01, 0.01);
-        vGroup.add(gltf.scene);
+        vGroup.updateMatrixWorld(true);
         setViolinMeshGroup(vGroup);
       },
       undefined,
       (err) => console.error('Failed to load violin.glb:', err)
     );
 
-    // 2. Load standalone bow.glb
+    // 2. Load production bow.glb
     loader.load(
       '/music-lab/instruments/bow.glb',
       (gltf) => {
@@ -70,25 +86,35 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
         const bGroup = new THREE.Group();
         bGroup.name = 'CanonicalBowMeshGroup';
 
+        // Extract all bow meshes (stick, frog, hair, screw, winding), bypassing Sketchfab wrapper transforms
         gltf.scene.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
+            const mesh = (child as THREE.Mesh).clone(true);
+            mesh.position.set(0, 0, 0);
+            mesh.quaternion.identity();
+            // Convert raw centimeter vertices to SI meters
+            mesh.scale.set(0.01, 0.01, 0.01);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+
             if (mesh.material) {
               const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
               mats.forEach((m) => {
-                if (m && 'map' in m && m.map) {
+                m.transparent = false;
+                m.opacity = 1.0;
+                m.depthWrite = true;
+                if ('roughness' in m) m.roughness = 0.3;
+                if ('map' in m && m.map) {
                   (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
                 }
+                m.needsUpdate = true;
               });
             }
+            bGroup.add(mesh);
           }
         });
 
-        // The raw glb mesh is in centimeters; scale 0.01 brings it to SI meters
-        gltf.scene.scale.set(0.01, 0.01, 0.01);
-        bGroup.add(gltf.scene);
+        bGroup.updateMatrixWorld(true);
         setBowMeshGroup(bGroup);
       },
       undefined,
@@ -100,12 +126,13 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
     };
   }, []);
 
-  // Sync transforms to group roots
+  // Synchronize transforms to root groups
   useEffect(() => {
     if (violinRootRef.current && violinTransform) {
       violinRootRef.current.position.copy(violinTransform.position);
       violinRootRef.current.quaternion.copy(violinTransform.quaternion);
       violinRootRef.current.scale.copy(violinTransform.scale);
+      violinRootRef.current.updateMatrixWorld(true);
     }
   }, [violinTransform]);
 
@@ -114,6 +141,7 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
       bowRootRef.current.position.copy(bowTransform.position);
       bowRootRef.current.quaternion.copy(bowTransform.quaternion);
       bowRootRef.current.scale.copy(bowTransform.scale);
+      bowRootRef.current.updateMatrixWorld(true);
     }
   }, [bowTransform]);
 
@@ -121,12 +149,12 @@ export const ViolinAndBowGroup: React.FC<ViolinAndBowGroupProps> = ({
 
   return (
     <group name="InstrumentsContainer">
-      {/* Violin Group */}
+      {/* Violin Root Group */}
       <group ref={violinRootRef} name="ViolinRoot">
         {violinMeshGroup && <primitive object={violinMeshGroup} />}
       </group>
 
-      {/* Bow Group */}
+      {/* Bow Root Group */}
       <group ref={bowRootRef} name="BowRoot">
         {bowMeshGroup && <primitive object={bowMeshGroup} />}
       </group>

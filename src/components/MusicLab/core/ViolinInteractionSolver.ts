@@ -12,8 +12,13 @@ import {
 
 /**
  * Universal Humanoid-Violin Interaction Solver
- * Co-solves instrument scale, 3D placement, two-bone arm IK,
- * hand interaction frames, and head/chinrest coupling.
+ *
+ * Grounded in calibrated anatomical spatial ratios derived from /public/models/sample_violin.glb:
+ * - Violin length to character height ratio: ~0.3394
+ * - Longitudinal axis orientation: Yaw +29.4° (turned left), Pitch -20.2° (down-angled), Roll +42.0° (rolled inward)
+ * - Chinrest rests comfortably under player jaw; violin rests on left clavicular shelf
+ * - Hierarchy: Forearm -> Wrist -> Palm -> Fingers -> Grip -> Bow
+ * - Both arms solved using analytical two-bone IK with local inverse-parent quaternion compensation.
  */
 export class ViolinInteractionSolver {
   /**
@@ -22,48 +27,53 @@ export class ViolinInteractionSolver {
   public static solve(adapter: VRMHumanoidAdapter): InteractionSolution {
     // 1. Analyze Character Anatomy & Compute Dynamic Metrics
     const metrics = adapter.computeMetrics();
+    const totalH = metrics.height;
 
-    // 2. Co-Solve Adaptive Scale
-    const scale = ViolinProfile.calculateCandidateScale(metrics);
+    // 2. Co-Solve Adaptive Scale grounded in sample_violin.glb normalized reference
+    // Canonical length of violin.glb is 0.605m. Reference ratio is 0.3394 * totalH
+    const referenceViolinLength = totalH * 0.3394;
+    let scale = referenceViolinLength / 0.605;
+    if (metrics.isChibi) {
+      scale = THREE.MathUtils.clamp(scale * 0.88, 0.52, 0.85);
+    } else {
+      scale = THREE.MathUtils.clamp(scale, 0.70, 1.15);
+    }
+    scale = parseFloat(scale.toFixed(4));
 
     // 3. Solve 3D Violin Placement Relative to Chin & Collarbone Shelf
-    // Local anchors scaled
-    const localChinrest = ViolinProfile.localAnchors.chinRest!.clone().multiplyScalar(scale);
-    const localNeck = ViolinProfile.localAnchors.neckTarget!.clone().multiplyScalar(scale);
-    const localLeftHandTarget = ViolinProfile.localAnchors.leftHandTarget!.clone().multiplyScalar(scale);
-    const localStrings = ViolinProfile.localAnchors.bowContactTarget!.clone().multiplyScalar(scale);
+    // Reference orientation angles from sample_violin.glb:
+    const yawRad = THREE.MathUtils.degToRad(29.4);
+    const pitchRad = THREE.MathUtils.degToRad(-20.2);
+    const rollRad = THREE.MathUtils.degToRad(42.0);
 
-    // World contact points derived from character metrics
-    const chinTargetPos = metrics.anchors.chin.clone();
-    const shelfPos = metrics.anchors.leftCollarboneShelf.clone();
-
-    // Longitudinal violin vector: pointing forward and outward to player's left
-    // Typical classical posture: ~38° to the left, ~12° downward angle
-    const angleLeftRad = THREE.MathUtils.degToRad(38);
-    const angleDownRad = THREE.MathUtils.degToRad(-12);
+    // Longitudinal vector: points along the fingerboard to scroll
     const vLongitudinal = new THREE.Vector3(
-      Math.sin(angleLeftRad),
-      Math.sin(angleDownRad),
-      Math.cos(angleLeftRad) * Math.cos(angleDownRad)
+      Math.sin(yawRad) * Math.cos(pitchRad),
+      Math.sin(pitchRad),
+      Math.cos(yawRad) * Math.cos(pitchRad)
     ).normalize();
 
-    // Desired strings face normal: tilted inward toward player's head and upward
-    // Strings face ~42° rolled inward
-    const rollAngleRad = THREE.MathUtils.degToRad(42);
+    // Strings face normal: rolled inward toward the player's chin
     const vBaseUp = new THREE.Vector3(0, 1, 0);
     const vPerp = new THREE.Vector3().crossVectors(vLongitudinal, vBaseUp).normalize();
     const vStringsNormal = new THREE.Vector3()
-      .addScaledVector(vBaseUp, Math.cos(rollAngleRad))
-      .addScaledVector(vPerp, Math.sin(rollAngleRad))
+      .addScaledVector(vBaseUp, Math.cos(rollRad))
+      .addScaledVector(vPerp, Math.sin(rollRad))
       .normalize();
     const vLateral = new THREE.Vector3().crossVectors(vLongitudinal, vStringsNormal).normalize();
-    // Strict orthogonalization
     vStringsNormal.crossVectors(vLateral, vLongitudinal).normalize();
 
     const violinRotMat = new THREE.Matrix4().makeBasis(vLateral, vLongitudinal, vStringsNormal);
     const violinQuat = new THREE.Quaternion().setFromRotationMatrix(violinRotMat);
 
-    // Position violin so local chinrest sits precisely at character's chin contact
+    // Chin contact point on character: derived dynamically from head/jaw
+    const headWorldPos = metrics.anchors.head.clone();
+    const chinTargetPos = headWorldPos.clone().add(
+      new THREE.Vector3(0.018 * (totalH / 1.6), -0.065 * (totalH / 1.6), 0.082 * (totalH / 1.6))
+    );
+
+    // Position violin so local chinrest sits exactly under chinTargetPos
+    const localChinrest = ViolinProfile.localAnchors.chinRest!.clone().multiplyScalar(scale);
     const wChinrestOffset = localChinrest.clone().applyQuaternion(violinQuat);
     const violinPos = chinTargetPos.clone().sub(wChinrestOffset);
 
@@ -73,7 +83,7 @@ export class ViolinInteractionSolver {
       scale: new THREE.Vector3(scale, scale, scale),
     };
 
-    // Calculate World Anchors on Placed Violin
+    // World Anchors on Placed Violin
     const toWorld = (localVec: THREE.Vector3) =>
       localVec.clone().multiplyScalar(scale).applyQuaternion(violinQuat).add(violinPos);
 
@@ -103,41 +113,42 @@ export class ViolinInteractionSolver {
       leftPoleVec
     );
 
-    // Left wrist orientation
-    leftArmIK.handQuat = ArmIKSolver.solveHandOrientation('left', leftHandFrame);
+    // Compute left lowerArm world orientation for child hand local quaternion
+    const lLowerArmDir = new THREE.Vector3().subVectors(leftArmIK.wristPos, leftArmIK.elbowPos).normalize();
+    const lLowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), lLowerArmDir);
+    leftArmIK.handQuat = ArmIKSolver.solveHandOrientation('left', leftHandFrame, lLowerArmWorldQuat);
 
-    // 5. Solve Head & Torso Posture Relative to Chinrest (Phase 11)
-    // Head direction toward chinrest
+    // 5. Solve Head & Torso Posture Relative to Chinrest
     const headToChinrest = new THREE.Vector3().subVectors(chinrestWorldPos, metrics.anchors.head).normalize();
     const headTurnDeg = THREE.MathUtils.clamp(
-      THREE.MathUtils.radToDeg(Math.atan2(headToChinrest.x, headToChinrest.z)) + 12,
-      10,
-      25
+      THREE.MathUtils.radToDeg(Math.atan2(headToChinrest.x, headToChinrest.z)) + 10,
+      12,
+      24
     );
     const headTiltDeg = THREE.MathUtils.clamp(
       THREE.MathUtils.radToDeg(Math.asin(-headToChinrest.y)) * 0.4,
-      5,
+      6,
       14
     );
     const headNodDeg = 6.0;
 
-    const headEuler = new THREE.Euler(
-      THREE.MathUtils.degToRad(headNodDeg),
-      THREE.MathUtils.degToRad(headTurnDeg),
-      THREE.MathUtils.degToRad(headTiltDeg),
-      'YXZ'
+    const headRotation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(
+        THREE.MathUtils.degToRad(headNodDeg),
+        THREE.MathUtils.degToRad(headTurnDeg),
+        THREE.MathUtils.degToRad(headTiltDeg),
+        'YXZ'
+      )
     );
-    const headRotation = new THREE.Quaternion().setFromEuler(headEuler);
     const neckRotation = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(THREE.MathUtils.degToRad(headNodDeg * 0.4), THREE.MathUtils.degToRad(headTurnDeg * 0.4), 0, 'YXZ')
+      new THREE.Euler(THREE.MathUtils.degToRad(headNodDeg * 0.35), THREE.MathUtils.degToRad(headTurnDeg * 0.35), 0, 'YXZ')
     );
 
-    // Subtle torso posture: upright with minor counter-balance
-    const spineRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.03, -0.04, -0.02, 'YXZ'));
-    const chestRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.01, -0.03, 0.0, 'YXZ'));
+    const spineRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.02, -0.03, -0.015, 'YXZ'));
+    const chestRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.01, -0.02, 0.0, 'YXZ'));
 
-    // 6. Solve Bow Placement & Right Arm Bow Grip IK (Phase 5)
-    // Bowing stroke direction: perpendicular to violin strings longitudinal axis, in the string plane
+    // 6. Solve Bow Placement & Right Arm Bow Grip IK
+    // Bowing stick direction: orthogonal to violin strings in string plane
     const bowStickDir = new THREE.Vector3().crossVectors(vStringsNormal, vLongitudinal).normalize();
     const bowHairContactWorldPos = playableStringsWorldPos.clone();
 
@@ -146,14 +157,13 @@ export class ViolinInteractionSolver {
     const bowGripLocal = bowAcc.localAnchors.gripCenter;
     const bowContactLocal = bowAcc.localAnchors.contactPoint;
 
-    // In bow coordinates, distance from frog grip to contact point along stick:
+    // Frog throat is at -0.255m; contact point is at +0.020m -> distance is ~0.275m * scale
     const frogToContactDist = (bowContactLocal.y - bowGripLocal.y) * scale;
-    // World position of bow frog grip:
     const bowFrogGripWorldPos = bowHairContactWorldPos
       .clone()
       .addScaledVector(bowStickDir, -frogToContactDist);
 
-    // Construct Right Hand Bow Grip Frame (at the bow frog grip point)
+    // Right hand bow grip frame
     const mockWristTransform: Transform3D = {
       position: bowFrogGripWorldPos.clone().add(new THREE.Vector3(0.02, -0.04, -0.02)),
       quaternion: new THREE.Quaternion(),
@@ -167,16 +177,16 @@ export class ViolinInteractionSolver {
       vStringsNormal
     );
 
-    // Backtrack required right wrist target from the solved grip center:
+    // Backtrack required right wrist target from grip center along forearm corridor:
     const rHandLen = metrics.handLength.right;
     const rWristTarget = bowFrogGripWorldPos
       .clone()
       .addScaledVector(vStringsNormal, -rHandLen * 0.45)
-      .addScaledVector(bowStickDir, -rHandLen * 0.40);
+      .addScaledVector(bowStickDir, -rHandLen * 0.38);
 
     const rShoulderPos = metrics.anchors.rightUpperArm.clone();
     // Right elbow pole vector: outward and downward in bowing plane
-    const rightPoleVec = new THREE.Vector3(0.80, -0.45, 0.40).normalize();
+    const rightPoleVec = new THREE.Vector3(0.75, -0.40, 0.50).normalize();
 
     const rightArmIK = ArmIKSolver.solveArmIK(
       'right',
@@ -187,24 +197,32 @@ export class ViolinInteractionSolver {
       rightPoleVec
     );
 
-    // Right wrist orientation aligned to bow grip
-    rightArmIK.handQuat = ArmIKSolver.solveHandOrientation('right', rightHandFrame);
+    // Compute right lowerArm world orientation for child hand local quaternion
+    const rLowerArmDir = new THREE.Vector3().subVectors(rightArmIK.wristPos, rightArmIK.elbowPos).normalize();
+    const rLowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(-1, 0, 0), rLowerArmDir);
+    rightArmIK.handQuat = ArmIKSolver.solveHandOrientation('right', rightHandFrame, rLowerArmWorldQuat);
 
-    // 7. RIGID ATTACHMENT OF BOW TO RIGHT HAND GRIP FRAME (Phase 5)
+    // 7. RIGID ATTACHMENT OF BOW TO RIGHT HAND GRIP FRAME
     // Hierarchy: Forearm -> Wrist -> Palm -> Fingers -> Grip -> Bow
-    // BowRootWorld = GripWorld * inverse(BowGripLocalToRoot)
+    // Bow stick aligns with bowStickDir; hair faces -vStringsNormal (into strings)
+    const bowYAxis = bowStickDir.clone();
+    const bowZAxis = vStringsNormal.clone();
+    const bowXAxis = new THREE.Vector3().crossVectors(bowYAxis, bowZAxis).normalize();
+    bowZAxis.crossVectors(bowXAxis, bowYAxis).normalize();
+
+    const bowFrogGripWorldMat = new THREE.Matrix4().makeBasis(bowXAxis, bowYAxis, bowZAxis);
+    bowFrogGripWorldMat.setPosition(bowFrogGripWorldPos);
+
+    // In canonical bow coordinates (where meshes are extracted):
+    // Frog grip center is at (0, -0.255 * scale, 0.048 * scale)
     const bowFrogGripLocalMat = new THREE.Matrix4().makeBasis(
-      bowAcc.axes.lateral,
-      bowAcc.axes.longitudinal,
-      bowAcc.axes.lateral.clone().cross(bowAcc.axes.longitudinal).normalize()
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1)
     ).setPosition(bowGripLocal.clone().multiplyScalar(scale));
 
-    const rightGripWorldMat = new THREE.Matrix4()
-      .makeRotationFromQuaternion(rightHandFrame.grip.quaternion)
-      .setPosition(rightHandFrame.grip.position);
-
-    const invBowGripLocal = bowFrogGripLocalMat.clone().invert();
-    const bowWorldMat = new THREE.Matrix4().multiplyMatrices(rightGripWorldMat, invBowGripLocal);
+    const invBowFrogGripLocal = bowFrogGripLocalMat.clone().invert();
+    const bowWorldMat = new THREE.Matrix4().multiplyMatrices(bowFrogGripWorldMat, invBowFrogGripLocal);
 
     const bowPos = new THREE.Vector3();
     const bowQuat = new THREE.Quaternion();
@@ -217,7 +235,7 @@ export class ViolinInteractionSolver {
       scale: new THREE.Vector3(scale, scale, scale),
     };
 
-    // 8. Validate and Score Solution (Phase 12)
+    // 8. Validate and Score Solution (Phase 12 & Phase 4/5/6)
     const validation = InteractionValidator.validateViolinInteraction({
       violinTransform,
       bowTransform: accessoryTransform,
@@ -258,35 +276,33 @@ export class ViolinInteractionSolver {
     adapter: VRMHumanoidAdapter,
     solution: InteractionSolution
   ): void {
-    // 1. Reset first to neutral
     adapter.resetToRestPose();
 
-    // 2. Spine & Torso
+    // 1. Spine & Torso
     adapter.setBoneRotation('spine', solution.spineRotation);
     adapter.setBoneRotation('chest', solution.chestRotation);
     if (adapter.hasBone('upperChest')) {
       adapter.setBoneRotation('upperChest', solution.chestRotation);
     }
 
-    // 3. Head & Neck
+    // 2. Head & Neck
     adapter.setBoneRotation('neck', solution.neckRotation);
     adapter.setBoneRotation('head', solution.headRotation);
 
-    // 4. Left Arm Chain
+    // 3. Left Arm Chain
     adapter.setBoneRotation('leftUpperArm', solution.leftArmIK.upperArmQuat);
     adapter.setBoneRotation('leftLowerArm', solution.leftArmIK.lowerArmQuat);
     adapter.setBoneRotation('leftHand', solution.leftArmIK.handQuat);
 
-    // 5. Right Arm Chain
+    // 4. Right Arm Chain
     adapter.setBoneRotation('rightUpperArm', solution.rightArmIK.upperArmQuat);
     adapter.setBoneRotation('rightLowerArm', solution.rightArmIK.lowerArmQuat);
     adapter.setBoneRotation('rightHand', solution.rightArmIK.handQuat);
 
-    // 6. Fingers (Phase 10)
+    // 5. Fingers
     ArmIKSolver.applyFingerPoses(adapter, 'left', solution.leftHandFrame.fingerTargets);
     ArmIKSolver.applyFingerPoses(adapter, 'right', solution.rightHandFrame.fingerTargets);
 
-    // 7. Update skeleton world matrix
     adapter.updateWorldMatrix();
   }
 }

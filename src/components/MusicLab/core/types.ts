@@ -162,6 +162,7 @@ export interface ValidationResult {
   leftElbowValid: boolean;
   rightElbowValid: boolean;
   hyperextended: boolean;
+  hardFailures: string[];
   notes: string[];
 }
 

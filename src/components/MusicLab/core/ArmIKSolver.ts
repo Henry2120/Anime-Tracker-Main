@@ -6,9 +6,14 @@ export type ArmSide = 'left' | 'right';
 
 /**
  * Analytical Two-Bone Arm Inverse Kinematics Solver
- * Solves Shoulder -> Upper Arm -> Elbow -> Forearm -> Wrist cleanly.
- * Uses Law of Cosines and anatomically stable swivel/pole directions.
- * Completely avoids hyperextension, backward-bending elbows, and Euler singularities.
+ * Solves Shoulder -> Upper Arm -> Elbow -> Forearm -> Wrist.
+ *
+ * CRITICAL HIERARCHY FIX:
+ * In a 3D skeletal hierarchy, lowerArm is a child of upperArm, and hand is a child of lowerArm.
+ * To achieve the desired world-space orientation on lowerArm and hand, their local quaternions
+ * must be multiplied by the inverse of their parent's world quaternion:
+ *   qLowerLocal = qUpperWorld⁻¹ * qLowerWorld
+ *   qHandLocal = qLowerWorld⁻¹ * qHandWorld
  */
 export class ArmIKSolver {
   /**
@@ -30,7 +35,7 @@ export class ArmIKSolver {
     const D = new THREE.Vector3().subVectors(targetWristPos, shoulderPos);
     const targetDist = D.length();
     const maxReach = upperArmLength + forearmLength;
-    const minReach = Math.abs(upperArmLength - forearmLength) + 0.04;
+    const minReach = Math.abs(upperArmLength - forearmLength) + 0.03;
 
     // Hyperextension prevention: clamp target distance slightly inside maximum reach
     const isHyperextended = targetDist >= maxReach * 0.985;
@@ -38,8 +43,7 @@ export class ArmIKSolver {
     const d = clampedDist;
     const dirUnit = D.clone().normalize();
 
-    // 1. Law of Cosines for Shoulder Angle (alpha) and Elbow Flexion Angle (beta)
-    // d^2 + L1^2 - L2^2 = 2 * d * L1 * cos(alpha)
+    // 1. Law of Cosines for Shoulder Angle (alpha) and Elbow Flexion Angle (gamma)
     const cosAlpha = THREE.MathUtils.clamp(
       (upperArmLength * upperArmLength + d * d - forearmLength * forearmLength) /
         (2 * upperArmLength * d),
@@ -48,7 +52,6 @@ export class ArmIKSolver {
     );
     const alpha = Math.acos(cosAlpha);
 
-    // L1^2 + L2^2 - d^2 = 2 * L1 * L2 * cos(gamma)
     const cosGamma = THREE.MathUtils.clamp(
       (upperArmLength * upperArmLength + forearmLength * forearmLength - d * d) /
         (2 * upperArmLength * forearmLength),
@@ -56,19 +59,16 @@ export class ArmIKSolver {
       1
     );
     const gamma = Math.acos(cosGamma);
-    const elbowAngleDeg = (180 - (gamma * 180) / Math.PI);
+    const elbowAngleDeg = parseFloat((180 - (gamma * 180) / Math.PI).toFixed(1));
 
     // 2. Swivel / Arm Plane Determination
-    // Plane is spanned by dirUnit and the preferred poleDirection (swivel)
     let planeNormal = new THREE.Vector3().crossVectors(dirUnit, poleDirection).normalize();
     if (planeNormal.lengthSq() < 0.001) {
-      // Fallback if dirUnit is parallel to poleDirection
       planeNormal = new THREE.Vector3(0, 1, 0).cross(dirUnit).normalize();
     }
 
     // Vector in the arm plane perpendicular to dirUnit pointing toward elbow
     const elbowOffsetDir = new THREE.Vector3().crossVectors(planeNormal, dirUnit).normalize();
-    // Ensure elbowOffsetDir aligns with poleDirection
     if (elbowOffsetDir.dot(poleDirection) < 0) {
       elbowOffsetDir.negate();
       planeNormal.negate();
@@ -85,37 +85,41 @@ export class ArmIKSolver {
       .clone()
       .addScaledVector(new THREE.Vector3().subVectors(targetWristPos, elbowPos).normalize(), forearmLength);
 
-    // 5. Upper Arm Rotation Quaternion
+    // 5. Upper Arm World Rotation Quaternion
     const upperArmDir = new THREE.Vector3().subVectors(elbowPos, shoulderPos).normalize();
-    const upperArmQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, upperArmDir);
+    const upperArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, upperArmDir);
 
-    // Align arm plane rotation
-    const curUp = new THREE.Vector3(0, 1, 0).applyQuaternion(upperArmQuat);
+    // Roll alignment with elbow swivel plane
+    const curUp = new THREE.Vector3(0, 1, 0).applyQuaternion(upperArmWorldQuat);
     const desiredUp = elbowOffsetDir.clone();
     const projCurUp = curUp.clone().addScaledVector(upperArmDir, -curUp.dot(upperArmDir)).normalize();
     const projDesiredUp = desiredUp.clone().addScaledVector(upperArmDir, -desiredUp.dot(upperArmDir)).normalize();
     if (projCurUp.lengthSq() > 0.01 && projDesiredUp.lengthSq() > 0.01) {
       const qRoll = new THREE.Quaternion().setFromUnitVectors(projCurUp, projDesiredUp);
-      upperArmQuat.premultiply(qRoll);
+      upperArmWorldQuat.premultiply(qRoll);
     }
 
-    // 6. Forearm / Lower Arm Rotation Quaternion
+    // 6. Forearm / Lower Arm World Rotation Quaternion
     const lowerArmDir = new THREE.Vector3().subVectors(achievedWristPos, elbowPos).normalize();
-    const lowerArmQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, lowerArmDir);
+    const lowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, lowerArmDir);
+
+    // 7. CRITICAL: SKELETAL LOCAL ROTATIONS
+    // lowerArm local rotation is parented to upperArm
+    const lowerArmLocalQuat = upperArmWorldQuat.clone().invert().multiply(lowerArmWorldQuat);
 
     const isReachable = targetDist <= maxReach;
-    const reachRatio = targetDist / maxReach;
+    const reachRatio = parseFloat((targetDist / maxReach).toFixed(3));
 
     return {
-      upperArmQuat,
-      lowerArmQuat,
-      handQuat: new THREE.Quaternion(), // Will be solved in hand orientation stage
+      upperArmQuat: upperArmWorldQuat,
+      lowerArmQuat: lowerArmLocalQuat,
+      handQuat: new THREE.Quaternion(), // Will be solved relative to lowerArmWorldQuat
       shoulderPos: shoulderPos.clone(),
       elbowPos,
       wristPos: achievedWristPos,
       targetPos: targetWristPos.clone(),
-      targetDistance: targetDist,
-      maxReach,
+      targetDistance: parseFloat(targetDist.toFixed(4)),
+      maxReach: parseFloat(maxReach.toFixed(4)),
       reachRatio,
       isReachable,
       isHyperextended,
@@ -124,20 +128,20 @@ export class ArmIKSolver {
   }
 
   /**
-   * Independently solves Wrist and Palm Orientation (Phase 9)
+   * Independently solves Wrist and Palm Orientation (Phase 9).
+   * Returns the LOCAL quaternion for the hand bone, relative to lowerArm's world orientation.
    */
   public static solveHandOrientation(
     side: ArmSide,
-    handInteractionFrame: HandInteractionFrame
+    handInteractionFrame: HandInteractionFrame,
+    lowerArmWorldQuat: THREE.Quaternion
   ): THREE.Quaternion {
-    const isLeft = side === 'left';
-    const refBoneDir = new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
+    // Desired world orientation for the hand
+    const targetWorldQuat = handInteractionFrame.grip.quaternion.clone();
 
-    // Desired palm/grip orientation
-    const targetQuat = handInteractionFrame.grip.quaternion.clone();
-
-    // Map canonical hand forward/normal to target grip basis
-    return targetQuat;
+    // Hand bone is child of lowerArm: local quat = lowerArmWorld⁻¹ * handWorld
+    const handLocalQuat = lowerArmWorldQuat.clone().invert().multiply(targetWorldQuat);
+    return handLocalQuat;
   }
 
   /**
@@ -152,7 +156,6 @@ export class ArmIKSolver {
     const isLeft = side === 'left';
     const curlSign = isLeft ? 1 : -1;
 
-    // Helper to apply rotation along local flexion axis (Z or X depending on bone layout)
     const setFlexion = (boneName: any, angleDeg: number, oppositionDeg = 0) => {
       const rad = THREE.MathUtils.degToRad(angleDeg);
       const oppRad = THREE.MathUtils.degToRad(oppositionDeg);
