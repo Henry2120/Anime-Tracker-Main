@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Tv, Sparkles, Music2, Layers, Check } from 'lucide-react';
+import { MUSIC_LAB_ENABLED } from '../config/features';
 
 export type AppMode = 'anime' | 'music';
 
@@ -19,6 +20,7 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
 
   // Close on outside click
   useEffect(() => {
+    if (!MUSIC_LAB_ENABLED) return;
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
@@ -35,6 +37,7 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
 
   // Close on Esc key
   useEffect(() => {
+    if (!MUSIC_LAB_ENABLED) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         setIsOpen(false);
@@ -45,9 +48,27 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
   }, [isOpen]);
 
   const handleModeChange = (mode: AppMode) => {
+    if (mode === 'music' && !MUSIC_LAB_ENABLED) return;
     onSelectMode(mode);
     setIsOpen(false);
   };
+
+  // When Music Lab is disabled, render clean static header brand
+  if (!MUSIC_LAB_ENABLED) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl text-[#25242A] dark:text-[#F4F2F7]">
+        <span className="text-base sm:text-lg font-bold text-[#7567C7]">✦</span>
+        <div className="flex flex-col text-left">
+          <div className="flex items-center gap-1.5">
+            <span className="text-base sm:text-lg font-bold tracking-tight">AniVerse</span>
+            <span className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden sm:inline-block">
+              アニバース
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>

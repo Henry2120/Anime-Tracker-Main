@@ -930,6 +930,132 @@ interface CachedJikanSeason {
 const jikanSeasonCache = new Map<string, CachedJikanSeason>();
 const JIKAN_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+// Helper for resilient outbound HTTP requests with explicit timeouts and headers
+async function safeFetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 3500
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "application/json",
+      ...(options.headers || {}),
+    };
+
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    return res;
+  } catch (err: any) {
+    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
+      console.warn(`[safeFetch] Request to ${url} timed out after ${timeoutMs}ms`);
+    } else {
+      console.warn(`[safeFetch] Request to ${url} failed:`, err?.message || String(err));
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// AniList GraphQL seasonal catalogue fallback
+async function fetchAniListSeasonFallback(year: number, season: string): Promise<any[]> {
+  const query = `
+    query ($season: MediaSeason, $seasonYear: Int, $page: Int) {
+      Page(page: $page, perPage: 50) {
+        pageInfo {
+          hasNextPage
+        }
+        media(season: $season, seasonYear: $seasonYear, type: ANIME, sort: POPULARITY_DESC) {
+          id
+          idMal
+          title {
+            romaji
+            english
+            native
+          }
+          coverImage {
+            extraLarge
+            large
+            medium
+          }
+          averageScore
+          episodes
+          season
+          seasonYear
+          startDate {
+            year
+            month
+            day
+          }
+        }
+      }
+    }
+  `;
+
+  const anilistSeason = season.toUpperCase();
+  const allAnime: any[] = [];
+
+  try {
+    for (let page = 1; page <= 3; page++) {
+      const res = await safeFetchWithTimeout(
+        "https://graphql.anilist.co",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            variables: { season: anilistSeason, seasonYear: year, page },
+          }),
+        },
+        4500
+      );
+
+      if (!res || !res.ok) break;
+      const json = await res.json();
+      const mediaList = json.data?.Page?.media;
+      if (Array.isArray(mediaList)) {
+        for (const item of mediaList) {
+          const malId = item.idMal || item.id;
+          if (!malId) continue;
+          allAnime.push({
+            mal_id: malId,
+            title: item.title?.english || item.title?.romaji || item.title?.native || "Unknown",
+            images: {
+              jpg: {
+                image_url: item.coverImage?.medium || item.coverImage?.large,
+                large_image_url: item.coverImage?.large || item.coverImage?.extraLarge,
+              },
+            },
+            score: typeof item.averageScore === "number" ? item.averageScore / 10 : undefined,
+            episodes: item.episodes,
+            season: season.toLowerCase(),
+            year,
+            aired: item.startDate?.year
+              ? {
+                  from: `${item.startDate.year}-${String(item.startDate.month || 1).padStart(2, "0")}-${String(item.startDate.day || 1).padStart(2, "0")}`,
+                }
+              : undefined,
+          });
+        }
+      }
+
+      if (!json.data?.Page?.pageInfo?.hasNextPage) break;
+    }
+  } catch (err: any) {
+    console.warn(`[AniList Season Fallback] Failed:`, err?.message || String(err));
+  }
+
+  return allAnime;
+}
+
 app.get("/api/jikan/season/:year/:season", async (req, res) => {
   const year = parseInt(req.params.year, 10);
   const season = req.params.season.toLowerCase();
@@ -948,21 +1074,35 @@ app.get("/api/jikan/season/:year/:season", async (req, res) => {
     const allAnimeMap = new Map<number, any>();
     let page = 1;
     let hasNextPage = true;
-    let maxPages = 15; // safeguard limit
+    let maxPages = 8; // safeguard limit
+    let jikanFailed = false;
 
     while (hasNextPage && page <= maxPages) {
       try {
-        const jikanRes = await fetch(
-          `https://api.jikan.moe/v4/seasons/${year}/${season}?page=${page}`
+        const jikanRes = await safeFetchWithTimeout(
+          `https://api.jikan.moe/v4/seasons/${year}/${season}?page=${page}`,
+          {},
+          3500
         );
 
+        if (!jikanRes) {
+          // Timeout or connection error
+          jikanFailed = true;
+          break;
+        }
+
         if (jikanRes.status === 429) {
-          // Rate limited, wait 1 second and retry once
-          await new Promise((r) => setTimeout(r, 1000));
-          const retryRes = await fetch(
-            `https://api.jikan.moe/v4/seasons/${year}/${season}?page=${page}`
+          // Rate limited, wait 800ms and retry once
+          await new Promise((r) => setTimeout(r, 800));
+          const retryRes = await safeFetchWithTimeout(
+            `https://api.jikan.moe/v4/seasons/${year}/${season}?page=${page}`,
+            {},
+            3500
           );
-          if (!retryRes.ok) break;
+          if (!retryRes || !retryRes.ok) {
+            jikanFailed = page === 1;
+            break;
+          }
           const retryData = await retryRes.json();
           if (Array.isArray(retryData.data)) {
             for (const item of retryData.data) {
@@ -988,6 +1128,7 @@ app.get("/api/jikan/season/:year/:season", async (req, res) => {
 
         if (!jikanRes.ok) {
           console.warn(`Jikan seasonal page ${page} returned status ${jikanRes.status}`);
+          if (page === 1) jikanFailed = true;
           break;
         }
 
@@ -1016,9 +1157,21 @@ app.get("/api/jikan/season/:year/:season", async (req, res) => {
           // Respect Jikan rate limits (3 requests per second)
           await new Promise((r) => setTimeout(r, 350));
         }
-      } catch (pageErr) {
-        console.error(`Error fetching Jikan season page ${page}:`, pageErr);
+      } catch (pageErr: any) {
+        console.warn(`[Jikan] Error fetching season page ${page}:`, pageErr?.message || String(pageErr));
+        if (page === 1) jikanFailed = true;
         break;
+      }
+    }
+
+    // If Jikan failed completely on page 1 or returned 0 entries, query AniList seasonal fallback
+    if (allAnimeMap.size === 0 || jikanFailed) {
+      console.warn(`[Jikan Season] Falling back to AniList seasonal catalogue for ${season} ${year}...`);
+      const anilistList = await fetchAniListSeasonFallback(year, season);
+      for (const item of anilistList) {
+        if (item?.mal_id && !allAnimeMap.has(item.mal_id)) {
+          allAnimeMap.set(item.mal_id, item);
+        }
       }
     }
 
@@ -1037,9 +1190,9 @@ app.get("/api/jikan/season/:year/:season", async (req, res) => {
     }
 
     return res.json(payload);
-  } catch (err) {
-    console.error(`Failed to fetch Jikan season ${year}/${season}:`, err);
-    return res.status(500).json({ error: "Failed to fetch seasonal catalogue from Jikan" });
+  } catch (err: any) {
+    console.warn(`[Jikan Season] Graceful recovery for ${year}/${season}:`, err?.message || String(err));
+    return res.json({ year, season, data: [] });
   }
 });
 
@@ -1084,6 +1237,66 @@ function parseSeasonFromDate(dateStr?: string | null): { year: number; season: s
   return null;
 }
 
+// AniList single anime fallback by MAL ID
+async function fetchAniListSingleAnimeFallback(malId: number): Promise<any | null> {
+  const query = `
+    query ($idMal: Int) {
+      Media(idMal: $idMal, type: ANIME) {
+        id
+        idMal
+        title {
+          romaji
+          english
+          native
+        }
+        coverImage {
+          extraLarge
+          large
+          medium
+        }
+        description
+        averageScore
+        status
+        format
+        episodes
+        season
+        seasonYear
+        startDate {
+          year
+          month
+          day
+        }
+        endDate {
+          year
+          month
+          day
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await safeFetchWithTimeout(
+      "https://graphql.anilist.co",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          variables: { idMal: malId },
+        }),
+      },
+      3500
+    );
+
+    if (!res || !res.ok) return null;
+    const json = await res.json();
+    return json.data?.Media || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 app.get("/api/jikan/anime/:malId", async (req, res) => {
   const malId = parseInt(req.params.malId, 10);
   if (isNaN(malId) || malId <= 0) {
@@ -1096,13 +1309,13 @@ app.get("/api/jikan/anime/:malId", async (req, res) => {
   }
 
   try {
-    let jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${encodeURIComponent(malId)}`);
-    if (jikanRes.status === 429) {
+    let jikanRes = await safeFetchWithTimeout(`https://api.jikan.moe/v4/anime/${encodeURIComponent(malId)}`, {}, 3000);
+    if (jikanRes && jikanRes.status === 429) {
       await new Promise((r) => setTimeout(r, 600));
-      jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${encodeURIComponent(malId)}`);
+      jikanRes = await safeFetchWithTimeout(`https://api.jikan.moe/v4/anime/${encodeURIComponent(malId)}`, {}, 3000);
     }
 
-    if (jikanRes.ok) {
+    if (jikanRes && jikanRes.ok) {
       const json = await jikanRes.json();
       const data = json.data;
       if (data) {
@@ -1151,11 +1364,12 @@ app.get("/api/jikan/anime/:malId", async (req, res) => {
 
     if (Object.keys(headers).length > 0) {
       try {
-        const malRes = await fetch(
+        const malRes = await safeFetchWithTimeout(
           `https://api.myanimelist.net/v2/anime/${encodeURIComponent(malId)}?fields=start_season,start_date,title`,
-          { headers }
+          { headers },
+          3500
         );
-        if (malRes.ok) {
+        if (malRes && malRes.ok) {
           const malData = await malRes.json();
           let year = malData.start_season?.year;
           let season = malData.start_season?.season?.toLowerCase();
@@ -1187,16 +1401,51 @@ app.get("/api/jikan/anime/:malId", async (req, res) => {
       }
     }
 
+    // Tertiary fallback: AniList GraphQL by idMal
+    const anilistMedia = await fetchAniListSingleAnimeFallback(malId);
+    if (anilistMedia) {
+      let year = anilistMedia.seasonYear || anilistMedia.startDate?.year;
+      let season = anilistMedia.season ? anilistMedia.season.toLowerCase() : undefined;
+      const startDate = anilistMedia.startDate?.year
+        ? `${anilistMedia.startDate.year}-${String(anilistMedia.startDate.month || 1).padStart(2, "0")}-${String(anilistMedia.startDate.day || 1).padStart(2, "0")}`
+        : undefined;
+
+      if ((!year || !season) && startDate) {
+        const parsed = parseSeasonFromDate(startDate);
+        if (parsed) {
+          year = year || parsed.year;
+          season = season || parsed.season;
+        }
+      }
+
+      const payload = {
+        mal_id: malId,
+        title: anilistMedia.title?.english || anilistMedia.title?.romaji || "Unknown",
+        year,
+        season,
+        start_date: startDate,
+        is_summer_2026: year === 2026 && season === "summer",
+      };
+
+      jikanAnimeCache.set(malId, {
+        cachedAt: Date.now(),
+        payload,
+      });
+
+      return res.json(payload);
+    }
+
     return res.status(404).json({ error: "Anime season not determined" });
-  } catch (err) {
-    console.error(`Error querying Jikan for anime ${malId}:`, err);
-    return res.status(500).json({ error: "Internal server error" });
+  } catch (err: any) {
+    console.warn(`[Jikan anime/${malId}] Graceful recovery:`, err?.message || String(err));
+    return res.status(404).json({ error: "Anime season not determined" });
   }
 });
 
 // Single Anime Details Endpoint (with fallback / enrichment)
 app.get("/api/mal/anime/:id", async (req, res) => {
   const { id } = req.params;
+  const malIdNum = parseInt(id, 10);
   const sessionId = getSessionToken(req);
   let headers: Record<string, string> = {};
 
@@ -1215,20 +1464,24 @@ app.get("/api/mal/anime/:id", async (req, res) => {
 
   if (Object.keys(headers).length > 0) {
     try {
-      const malResponse = await fetch(`https://api.myanimelist.net/v2/anime/${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}`, { headers });
-      if (malResponse.ok) {
+      const malResponse = await safeFetchWithTimeout(
+        `https://api.myanimelist.net/v2/anime/${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}`,
+        { headers },
+        4000
+      );
+      if (malResponse && malResponse.ok) {
         const animeData = await malResponse.json();
         return res.json({ data: animeData });
       }
     } catch (e) {
-      console.error(`Error fetching anime ${id} from MAL:`, e);
+      console.warn(`Error fetching anime ${id} from MAL:`, e);
     }
   }
 
   // Fallback to Jikan API if MAL call fails or unauthorized
   try {
-    const jikanResponse = await fetch(`https://api.jikan.moe/v4/anime/${encodeURIComponent(id)}`);
-    if (jikanResponse.ok) {
+    const jikanResponse = await safeFetchWithTimeout(`https://api.jikan.moe/v4/anime/${encodeURIComponent(id)}`, {}, 3500);
+    if (jikanResponse && jikanResponse.ok) {
       const jikanData = await jikanResponse.json();
       const j = jikanData.data;
       if (j) {
@@ -1257,7 +1510,35 @@ app.get("/api/mal/anime/:id", async (req, res) => {
       }
     }
   } catch (err) {
-    console.error(`Fallback Jikan fetch failed for anime ${id}:`, err);
+    console.warn(`Fallback Jikan fetch failed for anime ${id}:`, err);
+  }
+
+  // Tertiary fallback: AniList GraphQL
+  if (!isNaN(malIdNum) && malIdNum > 0) {
+    const anilistMedia = await fetchAniListSingleAnimeFallback(malIdNum);
+    if (anilistMedia) {
+      const converted = {
+        id: anilistMedia.idMal || malIdNum,
+        title: anilistMedia.title?.english || anilistMedia.title?.romaji || anilistMedia.title?.native,
+        main_picture: {
+          medium: anilistMedia.coverImage?.medium || anilistMedia.coverImage?.large,
+          large: anilistMedia.coverImage?.large || anilistMedia.coverImage?.extraLarge,
+        },
+        synopsis: anilistMedia.description?.replace(/<[^>]*>?/gm, ""),
+        mean: typeof anilistMedia.averageScore === "number" ? anilistMedia.averageScore / 10 : undefined,
+        status: anilistMedia.status === "RELEASING" ? "currently_airing" : anilistMedia.status === "FINISHED" ? "finished_airing" : "not_yet_aired",
+        media_type: anilistMedia.format ? anilistMedia.format.toLowerCase() : undefined,
+        num_episodes: anilistMedia.episodes,
+        start_date: anilistMedia.startDate?.year ? `${anilistMedia.startDate.year}-${String(anilistMedia.startDate.month || 1).padStart(2, "0")}-${String(anilistMedia.startDate.day || 1).padStart(2, "0")}` : undefined,
+        end_date: anilistMedia.endDate?.year ? `${anilistMedia.endDate.year}-${String(anilistMedia.endDate.month || 1).padStart(2, "0")}-${String(anilistMedia.endDate.day || 1).padStart(2, "0")}` : undefined,
+        start_season: anilistMedia.season && anilistMedia.seasonYear ? { year: anilistMedia.seasonYear, season: anilistMedia.season.toLowerCase() } : undefined,
+        alternative_titles: {
+          en: anilistMedia.title?.english,
+          ja: anilistMedia.title?.native,
+        },
+      };
+      return res.json({ data: converted });
+    }
   }
 
   return res.status(404).json({ error: "Anime not found" });
@@ -1305,9 +1586,9 @@ app.get("/api/mal/search", async (req, res) => {
   if (Object.keys(headers).length > 0) {
     try {
       const malUrl = `https://api.myanimelist.net/v2/anime?q=${encodeURIComponent(query)}&limit=${limit}&fields=${encodeURIComponent(fields)}&nsfw=true`;
-      const malResponse = await fetch(malUrl, { headers });
+      const malResponse = await safeFetchWithTimeout(malUrl, { headers }, 4000);
 
-      if (malResponse.ok) {
+      if (malResponse && malResponse.ok) {
         const json = await malResponse.json();
         const results = Array.isArray(json.data) ? json.data : [];
         const cleanResults = results.filter((item: any) => item?.node?.id && item?.node?.title);
@@ -1320,16 +1601,16 @@ app.get("/api/mal/search", async (req, res) => {
         return res.json({ data: cleanResults });
       }
     } catch (malErr) {
-      console.error(`Error querying MAL search for "${query}":`, malErr);
+      console.warn(`Error querying MAL search for "${query}":`, malErr);
     }
   }
 
   // Fallback to Jikan API
   try {
     const jikanUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=${limit}&sfw=false`;
-    const jikanRes = await fetch(jikanUrl);
+    const jikanRes = await safeFetchWithTimeout(jikanUrl, {}, 3500);
 
-    if (jikanRes.ok) {
+    if (jikanRes && jikanRes.ok) {
       const json = await jikanRes.json();
       const results = Array.isArray(json.data) ? json.data : [];
       const converted = results.map((j: any) => ({
@@ -1364,7 +1645,7 @@ app.get("/api/mal/search", async (req, res) => {
       return res.json({ data: converted });
     }
   } catch (jikanErr) {
-    console.error(`Error querying Jikan search fallback for "${query}":`, jikanErr);
+    console.warn(`Error querying Jikan search fallback for "${query}":`, jikanErr);
   }
 
   return res.json({ data: [] });
@@ -1501,19 +1782,15 @@ async function getBroadcastCatalogueForRange(startSec: number, endSec: number): 
       }
     }
 
-    // If MAL returned nothing or failed, try Jikan season fallback
+    // If MAL returned nothing or failed, try Jikan season fallback with AniList backup
     if (seasonNodes.length === 0) {
       try {
-        const jikanRes = await fetch(
+        const jikanRes = await safeFetchWithTimeout(
           `https://api.jikan.moe/v4/seasons/${s.year}/${s.season}`,
-          {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            },
-            signal: AbortSignal.timeout(6000),
-          }
+          {},
+          3500
         );
-        if (jikanRes.ok) {
+        if (jikanRes && jikanRes.ok) {
           const jikanJson = await jikanRes.json();
           if (Array.isArray(jikanJson.data)) {
             seasonNodes = jikanJson.data.map((j: any) => ({
@@ -1541,6 +1818,38 @@ async function getBroadcastCatalogueForRange(startSec: number, endSec: number): 
         }
       } catch (jikanErr: any) {
         console.warn(`[ReleaseCalendar] Jikan season ${s.year}/${s.season} fallback error:`, jikanErr.message);
+      }
+    }
+
+    // If still empty, use AniList seasonal fallback
+    if (seasonNodes.length === 0) {
+      try {
+        const anilistSeasonList = await fetchAniListSeasonFallback(s.year, s.season);
+        if (anilistSeasonList.length > 0) {
+          seasonNodes = anilistSeasonList.map((a: any) => ({
+            id: a.mal_id,
+            title: a.title,
+            alternative_titles: {
+              en: a.title,
+              ja: null,
+            },
+            main_picture: {
+              large: a.images?.jpg?.large_image_url,
+              medium: a.images?.jpg?.image_url,
+            },
+            broadcast: {
+              day_of_the_week: null,
+              start_time: "23:00",
+            },
+            start_date: a.aired?.from || null,
+            end_date: null,
+            num_episodes: a.episodes || null,
+            studios: [],
+            media_type: "tv",
+          }));
+        }
+      } catch (aniErr: any) {
+        console.warn(`[ReleaseCalendar] AniList seasonal fallback error:`, aniErr?.message || String(aniErr));
       }
     }
 
@@ -1911,316 +2220,40 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
     const effectiveTitle = oembedTitle || titleHint || "";
     const artistInfo = oembedAuthor ? `Channel/Artist: "${oembedAuthor}"\n` : "";
 
-    // 2. Call Gemini
-    const ai = getGeminiClient();
-    if (!ai) {
-      console.warn("[MUSIC LAB] Gemini API key not configured or unavailable");
-      return res.status(503).json({
-        success: false,
-        error: "Gemini AI service is currently unavailable.",
-      });
-    }
-
-    const prompt = `Analyze the musical instrumentation, presence, and arrangement timeline for this YouTube music video/track:
-URL: https://www.youtube.com/watch?v=${cleanVideoId}
-Video ID: ${cleanVideoId}
-${effectiveTitle ? `Video Title: "${effectiveTitle}"` : ""}
-${artistInfo}
-
-CRITICAL RULES & INTEGRITY:
-1. ONLY identify instruments that are genuinely supported by the specific performance being analyzed.
-2. Do NOT guess or infer instrumentation merely because:
-   - the genre commonly uses that instrument
-   - the artist commonly uses that instrument
-   - the song is normally arranged with that instrument in a studio album
-   - the title suggests that instrument
-   - the model thinks a generic band arrangement would contain it
-3. For example:
-   - An all-cello quartet (like Prague Cello Quartet) features ONLY cello; do NOT include drums, bass, or piano.
-   - A solo piano performance features ONLY piano.
-   - An acoustic guitar fingerstyle performance features ONLY acoustic guitar; do not add drums or electric guitar.
-   - A violin performance does not mean violin is playing continuously if it has quiet rest periods.
-   - A church performance does not automatically mean church organ is playing.
-   - A vocal/choir performance should not automatically imply instrumental accompaniment.
-4. Distinguish similar instruments carefully (do NOT collapse them):
-   - church-organ ≠ pipe-organ
-   - acoustic-guitar ≠ classical-guitar
-   - bass (electric) ≠ double-bass (upright acoustic)
-   - violin ≠ viola ≠ cello
-   - synthesizer ≠ keyboard-workstation
-   - drums (acoustic kit) ≠ electronic-drums ≠ electronic-drum-pad
-   - vocalist (lead singer) ≠ choir (ensemble) ≠ vocals-effects (vocoder/autotune fx)
-   - dj-turntable ≠ sampler ≠ sequencer ≠ midi-controller
-
-CLOSED LIST OF SUPPORTED INSTRUMENTS (select ONLY from this list):
-- piano
-- acoustic-guitar
-- classical-guitar
-- electric-guitar
-- bass
-- double-bass
-- violin
-- viola
-- cello
-- flute
-- clarinet
-- oboe
-- bassoon
-- saxophone
-- trumpet
-- trombone
-- french-horn
-- tuba
-- harp
-- accordion
-- mandolin
-- church-organ
-- pipe-organ
-- timpani
-- percussion
-- drums
-- vocalist
-- vocals-effects
-- choir
-- synthesizer
-- keyboard-workstation
-- dj-turntable
-- sampler
-- drum-machine
-- electronic-drum-pad
-- electronic-drums
-- midi-controller
-- sequencer
-- electronic-producer
-
-REQUIRED TIMELINE & MUSICAL SECTIONS ANALYSIS:
-1. PRESENCE: Is the instrument genuinely part of this specific performance?
-2. ACTIVITY TIMELINE: When is each detected instrument actually actively playing (startPercent to endPercent, normalized 0.0 to 1.0)?
-3. CHRONOLOGICAL MUSICAL SECTIONS: Break the performance into 4 to 8 distinct chronological subsections spanning the full 0.0 to 1.0 duration (e.g. Intro, Verse 1, Pre-Chorus, Chorus 1, Solo/Bridge, Climax, Outro).
-   - For each section provide:
-     - name: descriptive section title (e.g. "Intro (Soft Opening)", "Violin Solo (High Energy)", "Climax (Fortissimo)", "Outro (Decrescendo)")
-     - startPercent: normalized start (0.0 to 1.0)
-     - endPercent: normalized end (0.0 to 1.0, contiguous)
-     - activeInstruments: list of instruments actively playing in this section (include 'violin' for violin parts)
-     - intensity: actual musical dynamic intensity of the section (0.15 for very soft/piano, 0.45 for moderate/mezzo, 0.80 for forte, 0.95 for climax/fortissimo)
-4. ACCURATE BPM: Estimate the true musical tempo (BPM) of the performance.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            artist: { type: Type.STRING },
-            description: { type: Type.STRING },
-            bpm: { type: Type.NUMBER, description: "Estimated musical tempo in BPM" },
-            detectedInstruments: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  instrumentId: { type: Type.STRING },
-                  confidence: { type: Type.NUMBER },
-                  reason: { type: Type.STRING },
-                },
-                required: ["instrumentId", "confidence", "reason"],
-              },
-            },
-            instrumentActivities: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  instrumentId: { type: Type.STRING },
-                  startPercent: { type: Type.NUMBER, description: "Normalized start 0.0 to 1.0" },
-                  endPercent: { type: Type.NUMBER, description: "Normalized end 0.0 to 1.0" },
-                  intensity: { type: Type.NUMBER, description: "Dynamic intensity 0.0 to 1.0" },
-                  confidence: { type: Type.NUMBER },
-                  reason: { type: Type.STRING },
-                },
-                required: ["instrumentId", "startPercent", "endPercent", "intensity", "confidence"],
-              },
-            },
-            sections: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  startPercent: { type: Type.NUMBER, description: "Normalized start 0.0 to 1.0" },
-                  endPercent: { type: Type.NUMBER, description: "Normalized end 0.0 to 1.0" },
-                  activeInstruments: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  intensity: { type: Type.NUMBER, description: "Musical dynamic intensity 0.0 to 1.0" },
-                },
-                required: ["name", "startPercent", "endPercent", "activeInstruments", "intensity"],
-              },
-            },
-          },
-          required: ["description", "bpm", "detectedInstruments", "sections"],
-        },
-      },
+    // 2. Gemini execution disabled for safe disable mode
+    console.log(`[MUSIC LAB] YouTube analysis requested for ${cleanVideoId} (Gemini AI analysis disabled)`);
+    return res.status(200).json({
+      success: false,
+      disabled: true,
+      error: "Gemini AI YouTube analysis is currently disabled.",
+      title: oembedTitle || titleHint || "YouTube Performance",
+      artist: oembedAuthor || "YouTube Artist",
+      description: "Gemini AI analysis is disabled. Please select performers manually or upload a local audio file.",
+      bpm: 120,
+      detectedInstruments: [],
+      instrumentActivities: [],
+      sections: [],
     });
-
-    const outputText = response.text;
-    if (!outputText) {
-      return res.status(502).json({ success: false, error: "Empty response from Gemini AI." });
-    }
-
-    const parsed = JSON.parse(outputText);
-    const resultPayload = {
-      title: parsed.title || effectiveTitle || "YouTube Performance",
-      artist: parsed.artist || oembedAuthor || "YouTube Artist",
-      description: parsed.description || "Musical performance analyzed with Gemini AI.",
-      bpm: typeof parsed.bpm === "number" ? Math.round(parsed.bpm) : 120,
-      detectedInstruments: Array.isArray(parsed.detectedInstruments) ? parsed.detectedInstruments : [],
-      instrumentActivities: Array.isArray(parsed.instrumentActivities) ? parsed.instrumentActivities : [],
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
-    };
-
-    youtubeAnalysisCache.set(cleanVideoId, resultPayload);
-    return res.json({ success: true, ...resultPayload, cached: false });
   } catch (err: any) {
-    console.error("[MUSIC LAB] Failed to analyze YouTube video:", err);
-    return res.status(500).json({ success: false, error: err.message || "Failed to analyze video." });
+    console.error("[MUSIC LAB] Error in analyze-youtube handler:", err);
+    return res.status(500).json({ success: false, error: err.message || "Analysis disabled." });
   }
 });
 
 // ----------------------------------------------------
-// GEMINI INSIGHTS ENDPOINT
+// GEMINI INSIGHTS ENDPOINT (DISABLED)
 // ----------------------------------------------------
 function getGeminiClient() {
-  dotenv.config({ override: true });
-  dotenv.config({ path: ".env.local", override: true });
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || typeof key !== "string" || key.trim() === "" || key.trim() === "MY_GEMINI_API_KEY") {
-    return null;
-  }
-  return new GoogleGenAI({
-    apiKey: key.trim(),
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  // Gemini client disabled
+  return null;
 }
 
 app.post("/api/gemini/insights", async (req, res) => {
-  try {
-    const sessionId = getSessionToken(req);
-    if (!sessionId) {
-      return res.status(401).json({ error: "Unauthorized: MyAnimeList authentication required" });
-    }
-    const accessToken = await getValidAccessToken(sessionId, res);
-    if (!accessToken) {
-      return res.status(401).json({ error: "Unauthorized: Session expired or invalid" });
-    }
-
-    const ai = getGeminiClient();
-    if (!ai) {
-      console.warn("[GEMINI INSIGHTS] Gemini API key not configured or unavailable");
-      return res.status(503).json({
-        available: false,
-        message: "Gemini Insights is currently unavailable."
-      });
-    }
-
-    const { statsData } = req.body || {};
-    if (!statsData) {
-      return res.status(400).json({ error: "Missing anime stats data for analysis" });
-    }
-
-    const prompt = `Here is the user's structured anime watching data:\n${JSON.stringify(statsData, null, 2)}`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are an anime-watching analytics assistant. Analyze the structured anime-watching data provided by the user. Identify meaningful patterns involving genres, scores, completion behavior, seasonal watching, episode counts, and currently watching titles. Return 2–4 concise and interesting personalized insights. Every claim must be supported by the supplied data. Never invent information. Do not simply repeat raw statistics; explain what they suggest about the user's viewing habits.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summaryHeadline: {
-              type: Type.STRING,
-              description: "A short natural 1-sentence headline summary of the user's viewing profile."
-            },
-            insights: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  category: {
-                    type: Type.STRING,
-                    description: "A short 2-3 word category title in UPPERCASE (e.g., 'YOUR TOP GENRE', 'YOUR SCORING STYLE', 'WATCHING HABITS', 'SEASONAL FOCUS')"
-                  },
-                  insight: {
-                    type: Type.STRING,
-                    description: "The concise personalized insight text."
-                  }
-                },
-                required: ["category", "insight"]
-              },
-              description: "2 to 4 structured personalized insights explaining viewing habits, genre preferences, scoring patterns, or completion behavior."
-            }
-          },
-          required: ["summaryHeadline", "insights"]
-        }
-      }
-    });
-
-    const outputText = response.text;
-    if (!outputText) {
-      return res.status(502).json({
-        available: false,
-        message: "Gemini Insights is currently unavailable."
-      });
-    }
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(outputText);
-    } catch {
-      parsed = {
-        summaryHeadline: "Your Anime Journey",
-        insights: [{ category: "ANIME JOURNEY", insight: outputText }]
-      };
-    }
-
-    const structuredInsights = Array.isArray(parsed.insights)
-      ? parsed.insights.map((item: any, idx: number) => {
-          if (typeof item === 'object' && item !== null && item.insight) {
-            return {
-              category: item.category || `INSIGHT ${idx + 1}`,
-              insight: item.insight,
-            };
-          }
-          return {
-            category: `INSIGHT ${idx + 1}`,
-            insight: typeof item === 'string' ? item : String(item),
-          };
-        })
-      : [{ category: "ANIME JOURNEY", insight: outputText }];
-
-    return res.json({
-      available: true,
-      summaryHeadline: parsed.summaryHeadline || "Your Anime Journey",
-      insights: structuredInsights,
-    });
-  } catch (err: any) {
-    console.error("[GEMINI INSIGHTS] Failed to generate insights:", err);
-    return res.status(500).json({
-      available: false,
-      message: "Gemini Insights is currently unavailable."
-    });
-  }
+  return res.status(200).json({
+    available: false,
+    disabled: true,
+    message: "Gemini AI Insights feature is currently disabled."
+  });
 });
 
 // ----------------------------------------------------

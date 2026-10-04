@@ -64,8 +64,11 @@ const ExcelExportModal = lazyWithRetry(() => import('./components/ExcelExportMod
 const EditMalEntryModal = lazyWithRetry(() => import('./components/EditMalEntryModal').then((m) => ({ default: m.EditMalEntryModal })));
 const AnimeDetailModal = lazyWithRetry(() => import('./components/AnimeDetailModal').then((m) => ({ default: m.AnimeDetailModal })));
 
-// Lazily loaded Music Lab world component with resilient dynamic loading
-const MusicLabView = lazyWithRetry(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })));
+// Lazily loaded Music Lab world component with resilient dynamic loading (dormant when disabled)
+import { MUSIC_LAB_ENABLED } from './config/features';
+const MusicLabView = MUSIC_LAB_ENABLED
+  ? lazyWithRetry(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })))
+  : null;
 
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
@@ -83,6 +86,7 @@ import {
   isAnimeSpring2026,
   isAnimeFall2026,
   isAnimeInSeason,
+  isAnimeWatchingInSeason,
   isCompletedDuringSummer2026,
   isCompletedDuringSpring2026,
   isCompletedDuringFall2026,
@@ -732,6 +736,9 @@ export default function App() {
   //      -> Included regardless of adult/NSFW classification, rating, genre, media type, or Jikan/calendar visibility.
   //    OR
   //    - It is an active carryover currently airing on the Summer 2026 Release Calendar.
+  // Summer 2026 Currently Watching items:
+  // - Summer 2026 debut anime the user is watching
+  // - PLUS active continuing shows carried over from earlier seasons that are currently airing in Summer 2026
   const currentlyWatchingItems = useMemo(() => {
     const items: Array<{
       node: any;
@@ -741,32 +748,23 @@ export default function App() {
 
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      // 1. MAL watching status is the first condition
-      if (item.list_status?.status !== 'watching') continue;
-
-      // 2. Must be either a Summer 2026 anime OR an active carryover on the Release Calendar
-      const isSummerAnime = isAnimeSummer2026(item.node, allSummer2026Ids);
-      const isOnReleaseCalendar = calendarSummer2026Ids.has(item.node.id);
-
-      if (!isSummerAnime && !isOnReleaseCalendar) continue;
-
-      if (!seenIds.has(item.node.id)) {
-        seenIds.add(item.node.id);
-        items.push({
-          node: item.node,
-          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
-        });
+      if (isAnimeWatchingInSeason(item, 2026, 'summer', allSummer2026Ids, calendarSummer2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+          });
+        }
       }
     }
 
     return items;
   }, [malList, allSummer2026Ids, calendarSummer2026Ids]);
 
-  // Spring 2026 Currently Watching items
-  // An anime is included in Spring 2026 Currently Watching when:
-  // 1. MAL list_status.status === 'watching'
-  // 2. Belongs to Spring 2026 (via MAL start_season, seasonal catalogue, or fallback)
-  // 3. Strict boundary: Summer 2026 anime MUST NOT leak into Spring 2026
+  // Spring 2026 Currently Watching items:
+  // - Spring 2026 debut anime the user is watching
+  // - PLUS active continuing shows carried over from earlier seasons
   const currentlyWatchingSpring2026Items = useMemo(() => {
     const items: Array<{
       node: any;
@@ -776,32 +774,35 @@ export default function App() {
 
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      if (item.list_status?.status !== 'watching') continue;
-
-      // Must be a Spring 2026 anime
-      const isSpringAnime = isAnimeSpring2026(item.node, allSpring2026Ids);
-      if (!isSpringAnime) continue;
-
-      // Future season leakage prevention
-      const isSummerAnime = isAnimeSummer2026(item.node, allSummer2026Ids);
-      if (isSummerAnime) continue;
-
-      if (!seenIds.has(item.node.id)) {
-        seenIds.add(item.node.id);
-        items.push({
-          node: item.node,
-          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
-        });
+      if (isAnimeWatchingInSeason(item, 2026, 'spring', allSpring2026Ids, calendarSummer2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+          });
+        }
       }
     }
 
     return items;
-  }, [malList, allSpring2026Ids, allSummer2026Ids]);
+  }, [malList, allSpring2026Ids, calendarSummer2026Ids]);
 
-  // Fall 2026 Currently Watching items
-  // An anime is included in Fall 2026 Currently Watching when:
-  // 1. MAL list_status.status === 'watching'
-  // 2. Belongs to Fall 2026 (via MAL start_season, seasonal catalogue, or fallback)
+  // Release calendar IDs actively broadcasting in Fall 2026 (epoch >= 2026-10-01T00:00:00Z = 1790812800)
+  const calendarFall2026Ids = useMemo(() => {
+    const ids = new Set<number>();
+    for (const item of seasonalCalendarItems) {
+      if (item.malId && item.airingAt >= 1790812800) {
+        const parsed = Number(item.malId);
+        if (!isNaN(parsed) && parsed > 0) ids.add(parsed);
+      }
+    }
+    return ids;
+  }, [seasonalCalendarItems]);
+
+  // Fall 2026 Currently Watching items:
+  // - Fall 2026 debut anime the user is watching
+  // - PLUS continuing active shows from Summer 2026 / earlier seasons that are still airing in Fall 2026
   const currentlyWatchingFall2026Items = useMemo(() => {
     const items: Array<{
       node: any;
@@ -811,28 +812,22 @@ export default function App() {
 
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      if (item.list_status?.status !== 'watching') continue;
-
-      // Must be a Fall 2026 anime
-      const isFallAnime = isAnimeFall2026(item.node, allFall2026Ids);
-      if (!isFallAnime) continue;
-
-      if (!seenIds.has(item.node.id)) {
-        seenIds.add(item.node.id);
-        items.push({
-          node: item.node,
-          list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
-        });
+      if (isAnimeWatchingInSeason(item, 2026, 'fall', allFall2026Ids, calendarFall2026Ids)) {
+        if (!seenIds.has(item.node.id)) {
+          seenIds.add(item.node.id);
+          items.push({
+            node: item.node,
+            list_status: item.list_status || { status: 'watching', score: 0, num_episodes_watched: 0 },
+          });
+        }
       }
     }
 
     return items;
-  }, [malList, allFall2026Ids]);
+  }, [malList, allFall2026Ids, calendarFall2026Ids]);
 
   // Step 2: Seasonal start boundary for Summer 2026:
   // Earliest first-episode airing date among the user's currently-watching Summer 2026 anime.
-  // Uses actual broadcast/airing start date (node.start_date) of Summer 2026 anime, NOT personal MAL list_status.start_date.
-  // Note: Older-season carryovers (e.g. Winter/Spring 2026) are excluded from setting the Summer boundary.
   const earliestSummer2026AiringDate = useMemo(() => {
     const summer2026WatchingItems = malList.filter(
       (item) => item.list_status?.status === 'watching' && isAnimeSummer2026(item.node, allSummer2026Ids)
@@ -856,22 +851,14 @@ export default function App() {
     return getEarliestFirstEpisodeAiringDate(fall2026WatchingItems);
   }, [malList, allFall2026Ids]);
 
-  // Step 3: Anime completed during Summer 2026:
-  // 1. MAL status === 'completed'
-  // 2. Has a valid completion/finish date (list_status.finish_date)
-  // 3. finish_date >= earliestSummer2026AiringDate (inclusive boundary comparison)
-  // 4. Excludes anime from the immediately preceding season (Spring 2026)
+  // Step 3: Anime completed during Summer 2026 (2026-07-01 through 2026-09-30 inclusive or Summer debut):
   const completedSummer2026Items = useMemo(() => {
-    if (!earliestSummer2026AiringDate) {
-      return [];
-    }
-
     const items: MalListItem[] = [];
     const seenIds = new Set<number>();
 
     for (const item of malList) {
       if (!item?.node?.id) continue;
-      if (isCompletedDuringSummer2026(item, earliestSummer2026AiringDate, allSummer2026Ids)) {
+      if (isCompletedDuringSummer2026(item, earliestSummer2026AiringDate, allSummer2026Ids, allSpring2026Ids)) {
         if (!seenIds.has(item.node.id)) {
           seenIds.add(item.node.id);
           items.push({
@@ -893,13 +880,9 @@ export default function App() {
     });
 
     return items;
-  }, [malList, earliestSummer2026AiringDate, allSummer2026Ids]);
+  }, [malList, earliestSummer2026AiringDate, allSummer2026Ids, allSpring2026Ids]);
 
-  // Anime completed during Spring 2026:
-  // 1. MAL status === 'completed'
-  // 2. finish_date between 2026-04-01 and 2026-06-30 (inclusive) or Spring 2026 debut
-  // 3. Allows Winter 2026 / backlog completions in May/Spring
-  // 4. Excludes Summer 2026 anime and completions outside Spring window
+  // Anime completed during Spring 2026 (2026-04-01 through 2026-06-30 inclusive or Spring debut):
   const completedSpring2026Items = useMemo(() => {
     const items: MalListItem[] = [];
     const seenIds = new Set<number>();
@@ -930,7 +913,7 @@ export default function App() {
     return items;
   }, [malList, earliestSpring2026AiringDate, allSpring2026Ids]);
 
-  // Anime completed during Fall 2026
+  // Anime completed during Fall 2026 (2026-10-01 through 2026-12-31 inclusive or Fall debut):
   const completedFall2026Items = useMemo(() => {
     const items: MalListItem[] = [];
     const seenIds = new Set<number>();
@@ -998,12 +981,8 @@ export default function App() {
       : allSummer2026Ids;
 
   // Single Source of Truth for Season-Aware Insights:
-  // 1. Watching list strictly belonging to the currently selected season (excludes cross-season carryovers)
-  const activeSeasonWatchingList = useMemo(() => {
-    return activeWatchingItems.filter((item) =>
-      isAnimeInSeason(item?.node || item, 2026, selectedSeason, activeSeasonCatalogueIds)
-    );
-  }, [activeWatchingItems, selectedSeason, activeSeasonCatalogueIds]);
+  // 1. Watching list belonging to or carried over into the currently selected season
+  const activeSeasonWatchingList = activeWatchingItems;
 
   // 2. Complete list of MAL anime for the currently selected season across all statuses
   const activeSeasonMalList = useMemo(() => {
@@ -1011,7 +990,7 @@ export default function App() {
       malList,
       year: 2026,
       season: selectedSeason,
-      watchingItems: activeSeasonWatchingList,
+      watchingItems: activeWatchingItems,
       completedItems: activeCompletedItems,
       seasonCatalogueIds: activeSeasonCatalogueIds,
       userMalMap,
@@ -1019,7 +998,7 @@ export default function App() {
   }, [
     malList,
     selectedSeason,
-    activeSeasonWatchingList,
+    activeWatchingItems,
     activeCompletedItems,
     activeSeasonCatalogueIds,
     userMalMap,
@@ -1741,8 +1720,8 @@ export default function App() {
     }
   }, [isEffectiveDark]);
 
-  // If in Music Lab mode, render the dedicated atmospheric Music Lab world
-  if (appMode === 'music') {
+  // If in Music Lab mode and Music Lab is enabled, render the dedicated atmospheric Music Lab world
+  if (MUSIC_LAB_ENABLED && appMode === 'music' && MusicLabView) {
     return (
       <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
         <ViewErrorBoundary

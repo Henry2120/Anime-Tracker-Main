@@ -24,7 +24,7 @@ export interface InstrumentDetector {
  */
 export class StandardInstrumentDetector implements InstrumentDetector {
   /**
-   * Analyzes YouTube video and music performance via server-side Gemini AI
+   * Analyzes YouTube video and music performance (Gemini AI call disabled for safe mode)
    */
   async detectYouTube(
     videoId: string,
@@ -32,144 +32,23 @@ export class StandardInstrumentDetector implements InstrumentDetector {
     titleHint?: string,
     duration: number = 210
   ): Promise<MusicAnalysisResult> {
-    try {
-      const response = await fetch('/api/music/analyze-youtube', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          videoId,
-          url,
-          titleHint,
-        }),
-      });
+    const dur = Math.max(30, duration);
+    const detectedInstruments: DetectedInstrument[] = ALL_INSTRUMENTS.map((inst) => ({
+      instrumentId: inst,
+      confidence: 0.1,
+      isDetected: false,
+      isActive: false,
+    }));
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `HTTP error ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to analyze video');
-      }
-
-      const detectedMap = new Map<string, { confidence: number; reason: string }>();
-      if (Array.isArray(data.detectedInstruments)) {
-        for (const item of data.detectedInstruments) {
-          if (item && item.instrumentId) {
-            detectedMap.set(item.instrumentId, {
-              confidence: typeof item.confidence === 'number' ? item.confidence : 0.9,
-              reason: item.reason || '',
-            });
-          }
-        }
-      }
-
-      // Build detected instruments list for all registered instruments
-      // Crucial: ONLY instruments explicitly detected by Gemini have isDetected = true!
-      const detectedInstruments: DetectedInstrument[] = ALL_INSTRUMENTS.map((inst) => {
-        const info = detectedMap.get(inst);
-        const isDetected = Boolean(info && info.confidence >= 0.5);
-
-        return {
-          instrumentId: inst,
-          confidence: info ? Math.round(info.confidence * 100) / 100 : 0.05,
-          isDetected,
-          isActive: isDetected,
-          reason: info ? info.reason : undefined,
-        };
-      });
-
-      const activeIds = detectedInstruments.filter((d) => d.isDetected).map((d) => d.instrumentId);
-
-      // Convert instrument activities
-      const instrumentActivities = Array.isArray(data.instrumentActivities)
-        ? data.instrumentActivities
-            .filter((act: any) => act && ALL_INSTRUMENTS.includes(act.instrumentId as MusicInstrument))
-            .map((act: any) => {
-              const rawStart = typeof act.startPercent === 'number' ? act.startPercent : 0;
-              const rawEnd = typeof act.endPercent === 'number' ? act.endPercent : 1;
-              const normStart = rawStart > 1.0 ? rawStart / 100 : rawStart;
-              const normEnd = rawEnd > 1.0 ? rawEnd / 100 : rawEnd;
-              return {
-                instrumentId: act.instrumentId as MusicInstrument,
-                startPercent: Math.max(0, Math.min(1, normStart)),
-                endPercent: Math.max(0, Math.min(1, normEnd)),
-                intensity: typeof act.intensity === 'number' ? Math.max(0.1, Math.min(1, act.intensity)) : 0.8,
-                confidence: typeof act.confidence === 'number' ? Math.max(0, Math.min(1, act.confidence)) : 0.9,
-                reason: act.reason || undefined,
-              };
-            })
-        : [];
-
-      // Convert sections or build them if missing
-      const dur = Math.max(30, duration);
-      let sections: MusicSection[] = [];
-
-      if (Array.isArray(data.sections) && data.sections.length > 0) {
-        sections = data.sections.map((sec: any) => {
-          const rawStart = typeof sec.startPercent === 'number' ? sec.startPercent : 0;
-          const rawEnd = typeof sec.endPercent === 'number' ? sec.endPercent : 1;
-          const normStart = rawStart > 1.0 ? rawStart / 100 : rawStart;
-          const normEnd = rawEnd > 1.0 ? rawEnd / 100 : rawEnd;
-          const start = Math.round(normStart * dur);
-          const end = Math.round(normEnd * dur);
-          const active = Array.isArray(sec.activeInstruments)
-            ? (sec.activeInstruments.filter((id: string) =>
-                ALL_INSTRUMENTS.includes(id as MusicInstrument)
-              ) as MusicInstrument[])
-            : activeIds;
-
-          return {
-            start,
-            end: Math.max(start + 1, end),
-            label: sec.name || 'Section',
-            activeInstruments: active.length > 0 ? active : activeIds,
-            intensity: typeof sec.intensity === 'number' ? Math.max(0.15, Math.min(1.0, sec.intensity)) : 0.7,
-          };
-        });
-
-        // Sort sections chronologically
-        sections.sort((a, b) => a.start - b.start);
-      } else {
-        sections = this.generateSections(dur, activeIds);
-      }
-
-      return {
-        duration: dur,
-        bpm: data.bpm || 120,
-        detectedInstruments,
-        instrumentActivities,
-        sections,
-        analysisSource: 'gemini_ai',
-        title: data.title,
-        artist: data.artist,
-        notes: data.description || 'Musical arrangement and performance analyzed via Gemini AI.',
-        description: data.description,
-      };
-    } catch (err: any) {
-      console.warn('[InstrumentDetector] Gemini YouTube analysis failed, using transparent neutral profile:', err);
-
-      // Neutral fallback: do NOT assume piano + drums + bass + guitar!
-      // Provide an empty/clean stage that the user can manually customize
-      const detectedInstruments: DetectedInstrument[] = ALL_INSTRUMENTS.map((inst) => ({
-        instrumentId: inst,
-        confidence: 0.1,
-        isDetected: false,
-        isActive: false,
-      }));
-
-      return {
-        duration,
-        bpm: 120,
-        detectedInstruments,
-        sections: this.generateSections(duration, []),
-        analysisSource: 'manual',
-        notes: `AI analysis connection issue (${err.message || 'Network'}). You can click any instrument below to customize your stage ensemble.`,
-      };
-    }
+    return {
+      duration: dur,
+      bpm: 120,
+      detectedInstruments,
+      sections: [],
+      analysisSource: 'manual',
+      title: titleHint || 'YouTube Performance',
+      notes: 'Gemini AI analysis is disabled. You can select instruments manually below, or upload a local audio file for real-time Web Audio analysis.',
+    };
   }
 
   /**

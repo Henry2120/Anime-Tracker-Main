@@ -233,11 +233,10 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
     setYoutubeTrack({
       videoId,
       url: rawUrl,
-      title: 'Analyzing video instrumentation with Gemini AI...',
+      title: 'Loading YouTube video...',
     });
 
     try {
-      // Real Gemini multimodal media instrument analysis
       const result = await instrumentDetector.detectYouTube(videoId, rawUrl, undefined, 210);
       setAnalysisResult(result);
 
@@ -496,7 +495,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
             {isAnalyzing && (
               <div className="max-w-xl mx-auto p-3.5 rounded-2xl bg-[#F0EDFA] dark:bg-[#2A2542] border border-[#7567C7]/30 flex items-center justify-center gap-2.5 text-xs font-semibold text-[#7567C7] dark:text-[#B9B0F2] animate-pulse">
                 <Sparkles className="h-4 w-4 text-[#7567C7] dark:text-[#B9B0F2] shrink-0" />
-                <span>Gemini AI is analyzing performance video & detecting instruments...</span>
+                <span>Loading performance media & configuring stage...</span>
               </div>
             )}
 

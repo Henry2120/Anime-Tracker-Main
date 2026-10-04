@@ -94,6 +94,115 @@ export function getPreviousSeason(year: number, season: string): { year: number;
   }
 }
 
+export interface SeasonPeriod {
+  year: number;
+  season: 'winter' | 'spring' | 'summer' | 'fall';
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  prevSeasonYear: number;
+  prevSeason: string;
+}
+
+/**
+ * Identifies whether a MAL database entry is explicitly a promotional video / character teaser / commercial
+ * rather than a legitimate anime work (TV series, movie, OVA, ONA, special, animated short, etc.).
+ *
+ * Excluded examples:
+ * - Character Teasers / Character PVs (e.g. "Genshin Impact: Character Teasers", "Yuanshen: Juese PVs")
+ * - Character Anecdotes (e.g. "Genshin Impact: Character Anecdotes", "Yuanshen: Juese Yiwen")
+ * - Promotional Videos / Teasers / CMs (e.g. "Promotional Video", "Teaser PV", "Web CM", "Official Trailer")
+ *
+ * Preserved examples:
+ * - Animated Shorts (e.g. "Genshin Impact: Animated Shorts", "Yuanshen: Donghua Duanpian")
+ * - TV, ONA, OVA, Movie, Special, Short narrative anime works.
+ */
+export function isPromotionalOrVideoOnlyEntry(itemOrNode: any): boolean {
+  if (!itemOrNode) return false;
+  const node = itemOrNode.node || itemOrNode;
+
+  // 1. Explicit MAL media type indicating non-narrative promotional / commercial
+  const mediaType = (node.media_type || node.type || '').toLowerCase();
+  if (mediaType === 'pv' || mediaType === 'cm') {
+    return true;
+  }
+
+  // Collect all available title strings
+  const titles: string[] = [];
+  if (typeof node.title === 'string') titles.push(node.title);
+  if (node.alternative_titles) {
+    if (typeof node.alternative_titles.en === 'string') titles.push(node.alternative_titles.en);
+    if (typeof node.alternative_titles.ja === 'string') titles.push(node.alternative_titles.ja);
+    if (Array.isArray(node.alternative_titles.synonyms)) {
+      for (const s of node.alternative_titles.synonyms) {
+        if (typeof s === 'string') titles.push(s);
+      }
+    }
+  }
+
+  // 2. Strong promotional video / character teaser patterns
+  // Specifically matches character teasers, character PV collections, character anecdotes, promotional PVs, trailers, CMs
+  const promoPattern = /\b(?:character\s+(?:teaser|pv)s?|character\s+anecdotes?|juese\s+(?:pv|pvs|yiwen)|promotional\s+(?:video|pv)s?|official\s+trailer|main\s+trailer|teaser\s+trailer|web\s+cm|animated\s+cm)\b/i;
+
+  for (const t of titles) {
+    if (promoPattern.test(t)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Returns the exact calendar boundary date range and metadata for any seasonal period.
+ * Summer 2026: 2026-07-01 to 2026-09-30
+ * Fall 2026: 2026-10-01 to 2026-12-31
+ * Spring 2026: 2026-04-01 to 2026-06-30
+ * Winter 2026: 2026-01-01 to 2026-03-31
+ */
+export function getSeasonPeriod(year: number, season: string): SeasonPeriod {
+  const normSeason = (season || 'summer').trim().toLowerCase() as 'winter' | 'spring' | 'summer' | 'fall';
+  const prev = getPreviousSeason(year, normSeason);
+  switch (normSeason) {
+    case 'winter':
+      return {
+        year,
+        season: 'winter',
+        startDate: `${year}-01-01`,
+        endDate: `${year}-03-31`,
+        prevSeasonYear: prev.year,
+        prevSeason: prev.season,
+      };
+    case 'spring':
+      return {
+        year,
+        season: 'spring',
+        startDate: `${year}-04-01`,
+        endDate: `${year}-06-30`,
+        prevSeasonYear: prev.year,
+        prevSeason: prev.season,
+      };
+    case 'summer':
+      return {
+        year,
+        season: 'summer',
+        startDate: `${year}-07-01`,
+        endDate: `${year}-09-30`,
+        prevSeasonYear: prev.year,
+        prevSeason: prev.season,
+      };
+    case 'fall':
+    default:
+      return {
+        year,
+        season: 'fall',
+        startDate: `${year}-10-01`,
+        endDate: `${year}-12-31`,
+        prevSeasonYear: prev.year,
+        prevSeason: prev.season,
+      };
+  }
+}
+
 /**
  * Checks whether an anime node belongs to a specific broadcast debut season (e.g. Summer 2026, Spring 2026).
  * Priority Order:
@@ -209,13 +318,13 @@ export const getEarliestPersonalStartDate = getEarliestFirstEpisodeAiringDate;
 /**
  * Determines whether a completed anime belongs to the target seasonal tracking period:
  * 1. MAL list_status.status must be 'completed'
- * 2. Spring 2026:
- *    - Has finish_date: Must be between April 1, 2026 and June 30, 2026 (inclusive). Older/backlog titles completed in this window qualify.
- *    - No finish_date: Qualifies if anime is a Spring 2026 debut anime.
- *    - Summer 2026 anime or future releases never qualify.
- * 3. Summer 2026:
- *    - If the anime's debut season IS Summer 2026, it belongs to that season.
- *    - If older/backlog: finish_date >= earliestFirstEpisodeAiringDate, excluding Spring 2026 carryovers.
+ * 2. If finish_date is specified (e.g. '2026-09-29'):
+ *    - Must fall within the target season calendar boundary [startDate, endDate] inclusive
+ *      (e.g., Summer 2026: 2026-07-01 through 2026-09-30; Fall 2026: 2026-10-01 through 2026-12-31).
+ *    - An anime does NOT need to have a debut in the target season to qualify if completed in this window
+ *      (e.g., Spring 2026 anime or older backlog anime finished in Summer 2026 belongs to Summer 2026 completed).
+ * 3. If finish_date is not specified:
+ *    - Qualifies if the anime itself debuted in the target season (isAnimeInSeason).
  */
 export function isAnimeCompletedInSeason(
   item: any,
@@ -232,71 +341,135 @@ export function isAnimeCompletedInSeason(
   // 1. Must have completed status
   if (listStatus.status !== 'completed') return false;
 
-  const targetSeasonLower = targetSeason.trim().toLowerCase();
-  const finishDate = parseDateToComparable(listStatus.finish_date);
+  const node = item.node || item;
+  if (!node?.id) return false;
 
-  // Spring 2026 bounded completion
-  if (targetYear === 2026 && targetSeasonLower === 'spring') {
-    const springStart = earliestFirstEpisodeAiringDate && earliestFirstEpisodeAiringDate < '2026-04-01'
-      ? earliestFirstEpisodeAiringDate
-      : '2026-04-01';
-    const springEnd = '2026-06-30';
-
-    // 1. If finish date is specified:
-    if (finishDate) {
-      // Must be between April 1, 2026 and June 30, 2026 (strictly finished within Spring)
-      if (finishDate < springStart || finishDate > springEnd) {
-        return false;
-      }
-      // Future season leakage prevention (Summer 2026 titles cannot be Spring completed)
-      const isSummerAnime = isAnimeInSeason(item.node, 2026, 'summer');
-      if (isSummerAnime) {
-        return false;
-      }
-      return true;
-    }
-
-    // 2. If no finish date is specified, only include if it was an actual Spring 2026 debut anime
-    return isAnimeInSeason(item.node, 2026, 'spring', targetCatalogueIds);
-  }
-
-  // Summer 2026 (and general default behavior)
-  // 2. If the anime itself debuted in the target season (e.g. Summer 2026), it is a seasonal completed anime
-  const isCurrentSeasonDebut = isAnimeInSeason(
-    item.node,
-    targetYear,
-    targetSeason,
-    targetCatalogueIds
-  );
-
-  if (isCurrentSeasonDebut) {
-    return true;
-  }
-
-  // 3. For backlog/older anime completed during the season: Airing boundary date must be established
-  if (!earliestFirstEpisodeAiringDate) return false;
-
-  // 4. Must have a valid finish date
-  if (!finishDate) return false;
-
-  // 5. finish_date must be on or after the earliest first-episode airing date boundary (inclusive)
-  if (finishDate < earliestFirstEpisodeAiringDate) return false;
-
-  // 6. CRITICAL: Previous season exclusion (Spring 2026 carryovers finished during Summer are excluded)
-  const prevSeason = getPreviousSeason(targetYear, targetSeason);
-  const isPreviousSeasonAnime = isAnimeInSeason(
-    item.node,
-    prevSeason.year,
-    prevSeason.season,
-    prevSeasonCatalogueIds
-  );
-
-  if (isPreviousSeasonAnime) {
-    // Exclude previous season titles even if finished after the boundary date
+  // 2. Exclude explicitly promotional / video-only database entries
+  if (isPromotionalOrVideoOnlyEntry(node)) {
     return false;
   }
 
-  return true;
+  const normSeason = targetSeason.trim().toLowerCase();
+  const period = getSeasonPeriod(targetYear, normSeason);
+  const finishDate = parseDateToComparable(listStatus.finish_date);
+
+  // 3. If finish date is specified:
+  // Must fall strictly within the seasonal window [startDate, endDate] inclusive
+  if (finishDate) {
+    return finishDate >= period.startDate && finishDate <= period.endDate;
+  }
+
+  // 4. If no finish date is specified, only include if the anime itself debuted in this target season
+  return isAnimeInSeason(node, targetYear, normSeason, targetCatalogueIds);
+}
+
+/**
+ * Determines whether a currently-watching anime belongs to or carries over into the target season.
+ *
+ * Rules:
+ * 1. Promotional / Video-Only database entries are excluded.
+ * 2. MAL list_status.status must strictly be 'watching'.
+ * 3. Target Season Debut:
+ *    - An anime that debuted in the target season (e.g. Fall 2026 debut) and has status 'watching'
+ *      is INCLUDED (regardless of watched episode count, e.g. 0/? or 0/12).
+ * 4. Future Debut Exclusion:
+ *    - An anime debuting in a future season (e.g. Winter 2027 when target is Fall 2026) cannot appear in an earlier season.
+ * 5. Previous Season Airing Continuity (e.g., Spring/Summer 2026 shows for Fall 2026):
+ *    - An older anime ONLY carries over if it was airing during Summer 2026 AND is STILL AIRING during Fall 2026.
+ *    - If an older anime's airing has ALREADY ENDED (e.g. finished airing in September or end_date <= 2026-09-30),
+ *      it MUST NOT carry over into Fall 2026 simply because the user has unwatched episodes.
+ *      It remains associated with its original season.
+ */
+export function isAnimeWatchingInSeason(
+  item: any,
+  targetYear: number = 2026,
+  targetSeason: string = 'summer',
+  targetCatalogueIds?: Set<number>,
+  calendarAiringIds?: Set<number>
+): boolean {
+  if (!item) return false;
+  const listStatus = item.list_status || item;
+  if (!listStatus || listStatus.status !== 'watching') return false;
+
+  const node = item.node || item;
+  if (!node?.id) return false;
+
+  // 1. Exclude explicitly promotional / video-only database entries
+  if (isPromotionalOrVideoOnlyEntry(node)) {
+    return false;
+  }
+
+  const normSeason = targetSeason.trim().toLowerCase();
+  const period = getSeasonPeriod(targetYear, normSeason);
+
+  // 2. Current season debut
+  const isCurrentSeason = isAnimeInSeason(node, targetYear, normSeason, targetCatalogueIds);
+  if (isCurrentSeason) {
+    return true;
+  }
+
+  // 3. Prevent future-season anime from appearing in past/earlier seasons
+  const startDateStr = node.start_date || node.aired?.from || node.release_date;
+  if (startDateStr) {
+    const compDate = parseDateToComparable(startDateStr);
+    if (compDate && compDate > period.endDate) {
+      return false;
+    }
+  }
+
+  if (node.start_season && typeof node.start_season === 'object') {
+    const sYear = Number(node.start_season.year);
+    const sSeason = typeof node.start_season.season === 'string' ? node.start_season.season.toLowerCase() : '';
+    if (sYear > targetYear) return false;
+    if (sYear === targetYear) {
+      const seasonOrder = { winter: 1, spring: 2, summer: 3, fall: 4 };
+      const currOrder = seasonOrder[normSeason as keyof typeof seasonOrder] || 0;
+      const animeOrder = seasonOrder[sSeason as keyof typeof seasonOrder] || 0;
+      if (animeOrder > currOrder) return false;
+    }
+  }
+
+  // 4. Airing Continuity for Previous-Season Shows (e.g. Summer/Spring shows for Fall 2026):
+  // Check if broadcast airing has ALREADY ENDED before the start of the target season:
+  const endDateStr = node.end_date || node.aired?.to;
+  const compEndDate = parseDateToComparable(endDateStr);
+
+  // If the anime's broadcast ended before the start of the target season (e.g. before 2026-10-01 for Fall 2026):
+  // -> Airing ended! Unwatched episodes must NOT carry it over.
+  if (compEndDate && compEndDate < period.startDate) {
+    return false;
+  }
+
+  const isFinishedAiring =
+    node.status === 'finished_airing' ||
+    node.status === 'Finished Airing' ||
+    item.status === 'finished_airing';
+
+  // If MAL marks it as finished_airing:
+  // - If compEndDate is known and on/after period.startDate, it aired into this season.
+  // - If compEndDate is missing or before period.startDate, it finished airing in an earlier season.
+  if (isFinishedAiring) {
+    if (compEndDate && compEndDate >= period.startDate) {
+      return true;
+    }
+    return false;
+  }
+
+  // 5. If it is currently airing during the target season:
+  // (marked as currently_airing and not ended before target season)
+  const isCurrentlyAiring =
+    node.status === 'currently_airing' ||
+    node.status === 'Currently Airing' ||
+    node.status === 'airing' ||
+    item.status === 'currently_airing';
+
+  const isOnReleaseCalendar = calendarAiringIds ? calendarAiringIds.has(node.id) : false;
+
+  if (isCurrentlyAiring || isOnReleaseCalendar) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -520,27 +693,10 @@ export function getAnimeForSelectedSeason<T = any>({
   const seenIds = new Set<number>();
   const normSeason = (season || 'summer').trim().toLowerCase();
 
-  // 1. Watching items that strictly belong to this season
+  // 1. Watching items that belong to or are carried over into this season
   for (const item of watchingItems) {
     const node = item?.node || item;
     if (!node?.id) continue;
-    if (isAnimeInSeason(node, year, normSeason, seasonCatalogueIds)) {
-      if (!seenIds.has(node.id)) {
-        seenIds.add(node.id);
-        const original = userMalMap ? userMalMap.get(node.id) : null;
-        items.push(original || (item as T));
-      }
-    }
-  }
-
-  // 2. Completed items belonging to or completed during this season
-  for (const item of completedItems) {
-    const node = item?.node || item;
-    if (!node?.id) continue;
-    // Strict boundary checks between seasons to avoid leakage
-    if (normSeason === 'summer' && isAnimeSpring2026(node)) continue;
-    if (normSeason === 'spring' && isAnimeSummer2026(node)) continue;
-    if (normSeason === 'fall' && isAnimeSummer2026(node)) continue;
     if (!seenIds.has(node.id)) {
       seenIds.add(node.id);
       const original = userMalMap ? userMalMap.get(node.id) : null;
@@ -548,12 +704,24 @@ export function getAnimeForSelectedSeason<T = any>({
     }
   }
 
-  // 3. All other items in the user's MAL list whose start_season matches the target season (PTW, On Hold, Dropped, etc.)
+  // 2. Completed items belonging to or completed during this season
+  for (const item of completedItems) {
+    const node = item?.node || item;
+    if (!node?.id) continue;
+    if (!seenIds.has(node.id)) {
+      seenIds.add(node.id);
+      const original = userMalMap ? userMalMap.get(node.id) : null;
+      items.push(original || (item as T));
+    }
+  }
+
+  // 3. All other items in the user's MAL list whose debut season matches the target season (PTW, On Hold, Dropped, etc.)
   for (const rawItem of malList) {
     const item = rawItem as any;
     const node = item?.node || item;
     if (!node?.id) continue;
     if (seenIds.has(node.id)) continue;
+    if (isPromotionalOrVideoOnlyEntry(node)) continue;
     if (isAnimeInSeason(node, year, normSeason, seasonCatalogueIds)) {
       seenIds.add(node.id);
       items.push(rawItem);
