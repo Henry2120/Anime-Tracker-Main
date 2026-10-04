@@ -735,32 +735,32 @@ export const HumanFigure: React.FC<HumanFigureProps> = ({
               />
               <path d="M96 70 L100 84 L104 70 Z" fill={shirtColor} />
 
-              {/* Head tilted onto violin chinrest */}
-              {renderHead(100, 50, -8)}
+              {/* Head tilted onto violin chinrest (character's anatomical LEFT shoulder / viewer's right) */}
+              {renderHead(100, 50, 8)}
 
-              {/* Classical Violin Held Under Jaw */}
-              <g transform="rotate(-20, 95, 68)">
+              {/* Classical Violin Held Under Anatomical Left Jaw / Shoulder (Viewer's Right) */}
+              <g transform="rotate(20, 105, 68)">
                 <path
-                  d="M90 60 Q84 68 88 78 Q83 88 88 98 Q96 102 104 98 Q109 88 104 78 Q108 68 102 60 Z"
+                  d="M96 60 Q91 68 96 78 Q91 88 96 98 Q104 102 112 98 Q117 88 112 78 Q116 68 110 60 Z"
                   fill={woodMaple}
                   stroke="#5C3516"
                   strokeWidth="1.5"
                 />
-                <line x1="96" y1="44" x2="96" y2="88" stroke={woodEbony} strokeWidth="2.5" />
-                <circle cx="96" cy="42" r="2.5" fill={woodMaple} />
+                <line x1="104" y1="44" x2="104" y2="88" stroke={woodEbony} strokeWidth="2.5" />
+                <circle cx="104" cy="42" r="2.5" fill={woodMaple} />
               </g>
 
-              {/* Left Arm Supporting Violin Fingerboard */}
-              <path d="M86 76 L76 72 L82 56" stroke={suitColor} strokeWidth="5" strokeLinecap="round" fill="none" />
-              <circle cx="83" cy="55" r="2.5" fill={skinTone} />
+              {/* Character's Anatomical LEFT Arm (Viewer's Right) Supporting Violin Fingerboard */}
+              <path d="M114 76 L124 72 L118 56" stroke={suitColor} strokeWidth="5" strokeLinecap="round" fill="none" />
+              <circle cx="117" cy="55" r="2.5" fill={skinTone} />
 
-              {/* Right Arm Bowing */}
-              <g className={isPlaying ? 'animate-violin-bowing' : ''} style={{ transformOrigin: '114px 76px' }}>
-                <path d="M114 76 L124 90 L106 82" stroke={suitColor} strokeWidth="5.5" strokeLinecap="round" fill="none" />
-                <circle cx="105" cy="82" r="3" fill={skinTone} />
-                {/* Horsehair Violin Bow */}
-                <line x1="72" y1="74" x2="128" y2="78" stroke="#EDE8F5" strokeWidth="1.8" />
-                <line x1="70" y1="73" x2="130" y2="77" stroke="#5D3A1A" strokeWidth="1.2" />
+              {/* Character's Anatomical RIGHT Arm (Viewer's Left) Bowing */}
+              <g className={isPlaying ? 'animate-violin-bowing' : ''} style={{ transformOrigin: '86px 76px' }}>
+                <path d="M86 76 L76 90 L94 82" stroke={suitColor} strokeWidth="5.5" strokeLinecap="round" fill="none" />
+                <circle cx="95" cy="82" r="3" fill={skinTone} />
+                {/* Horsehair Violin Bow extending across strings */}
+                <line x1="128" y1="74" x2="72" y2="78" stroke="#EDE8F5" strokeWidth="1.8" />
+                <line x1="130" y1="73" x2="70" y2="77" stroke="#5D3A1A" strokeWidth="1.2" />
               </g>
             </g>
           </g>

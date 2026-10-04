@@ -4,10 +4,12 @@ import { ViolinProfile } from '../profiles/ViolinProfile';
 import { ArmIKSolver } from './ArmIKSolver';
 import { HandInteractionFrameSolver } from './HandInteractionFrame';
 import { InteractionValidator } from './InteractionValidator';
+import { ArmPathValidator } from './ArmPathValidator';
 import {
   InteractionSolution,
   Transform3D,
   HumanoidMetrics,
+  ArmChainWorldTransforms,
 } from './types';
 
 /**
@@ -318,19 +320,50 @@ export class ViolinInteractionSolver {
     // =========================================================================
     // PHASE H — Actual-Pose & Orientation Validation
     // =========================================================================
+    const finalActualLeftShoulder = adapter.getBoneWorldPosition('leftShoulder', new THREE.Vector3()) || adapter.getBoneWorldPosition('leftUpperArm', new THREE.Vector3())!;
+    const finalActualLeftUpperArm = adapter.getBoneWorldPosition('leftUpperArm', new THREE.Vector3())!;
+    const finalActualLeftElbow = adapter.getBoneWorldPosition('leftLowerArm', new THREE.Vector3())!;
     const finalActualLeftWrist = adapter.getBoneWorldPosition('leftHand', new THREE.Vector3())!;
     const finalActualLeftHandQuat = adapter.getBoneWorldQuaternion('leftHand', new THREE.Quaternion())!;
+
+    const finalActualRightShoulder = adapter.getBoneWorldPosition('rightShoulder', new THREE.Vector3()) || adapter.getBoneWorldPosition('rightUpperArm', new THREE.Vector3())!;
+    const finalActualRightUpperArm = adapter.getBoneWorldPosition('rightUpperArm', new THREE.Vector3())!;
+    const finalActualRightElbow = adapter.getBoneWorldPosition('rightLowerArm', new THREE.Vector3())!;
     const finalActualRightWrist = adapter.getBoneWorldPosition('rightHand', new THREE.Vector3())!;
     const finalActualRightHandQuat = adapter.getBoneWorldQuaternion('rightHand', new THREE.Quaternion())!;
+
     const finalActualHead = adapter.getBoneWorldPosition('head', new THREE.Vector3())!;
     const finalActualHeadQuat = adapter.getBoneWorldQuaternion('head', new THREE.Quaternion())!;
-    const finalActualLeftElbow = adapter.getBoneWorldPosition('leftLowerArm', new THREE.Vector3())!;
-    const finalActualRightElbow = adapter.getBoneWorldPosition('rightLowerArm', new THREE.Vector3())!;
+    const finalActualSpine = adapter.getBoneWorldPosition('spine', new THREE.Vector3()) || new THREE.Vector3(0, totalH * 0.5, 0);
+    const finalActualChest = adapter.getBoneWorldPosition('chest', new THREE.Vector3()) || new THREE.Vector3(0, totalH * 0.7, 0);
 
     const leftHandNode = adapter.getBoneNode('leftHand');
     const rightHandNode = adapter.getBoneNode('rightHand');
     const leftHandBoneName = leftHandNode?.name || 'Normalized_J_Bip_L_Hand';
     const rightHandBoneName = rightHandNode?.name || 'Normalized_J_Bip_R_Hand';
+
+    const armTransforms: ArmChainWorldTransforms = {
+      leftShoulder: finalActualLeftShoulder,
+      leftUpperArm: finalActualLeftUpperArm,
+      leftElbow: finalActualLeftElbow,
+      leftWrist: finalActualLeftWrist,
+      leftHand: leftHandFrame.grip.position.clone(),
+
+      rightShoulder: finalActualRightShoulder,
+      rightUpperArm: finalActualRightUpperArm,
+      rightElbow: finalActualRightElbow,
+      rightWrist: finalActualRightWrist,
+      rightHand: rightHandFrame.grip.position.clone(),
+    };
+
+    const armPath = ArmPathValidator.evaluateArmPaths(
+      armTransforms,
+      metrics,
+      leftPoleVec,
+      rightPoleVec,
+      finalActualSpine,
+      finalActualChest
+    );
 
     const validation = InteractionValidator.validateViolinInteraction({
       violinTransform,
@@ -361,6 +394,7 @@ export class ViolinInteractionSolver {
         leftElbow: finalActualLeftElbow,
         rightElbow: finalActualRightElbow,
       },
+      armPath,
     });
 
     return {

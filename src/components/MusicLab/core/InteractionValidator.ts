@@ -53,6 +53,7 @@ export class InteractionValidator {
       leftElbow: THREE.Vector3;
       rightElbow: THREE.Vector3;
     };
+    armPath?: import('./types').ArmPathDiagnostic;
   }): ValidationResult {
     const checks: ValidationCheck[] = [];
     const notes: string[] = [];
@@ -424,6 +425,7 @@ export class InteractionValidator {
       hyperextended: params.leftArmIK.isHyperextended || params.rightArmIK.isHyperextended,
       hardFailures,
       handAssignment,
+      armPath: params.armPath,
       actualBoneErrors: {
         chinMm: actualChinrestMm,
         leftHandCradleMm: actualLeftHandMm,

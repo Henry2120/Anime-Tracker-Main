@@ -12,6 +12,9 @@ import {
   Copy,
   Check,
   Code,
+  GitFork,
+  Eye,
+  Crosshair,
 } from 'lucide-react';
 import { ValidationResult, InteractionSolution, HumanoidMetrics } from '../../core/types';
 
@@ -20,26 +23,36 @@ interface InteractionDiagnosticHUDProps {
   metrics: HumanoidMetrics | null;
   visible: boolean;
   onToggleVisible: () => void;
+  showArmSkeleton?: boolean;
+  onToggleArmSkeleton?: () => void;
   onRecalculate?: () => void;
   isPlaying?: boolean;
 }
 
 /**
- * Diagnostic HUD Panel (Part 18, Section 6, 7, 8)
- * Reports Hand Assignment Invariants, Target Error and Actual Skeleton Error measured directly from rendered bones.
- * Includes [COPY DEBUG REPORT] and [COPY RAW SKELETON] buttons.
+ * Diagnostic HUD Panel (Section 6, 7, 8, 9, 10, 11)
+ *
+ * Provides live telemetry for:
+ * 1. Anatomical Hand Assignment Invariants (Left Hand -> Violin, Right Hand -> Bow)
+ * 2. Arm Path Diagnostic & Torso Intersection Detection
+ * 3. Reference Comparison against sample_violin.glb
+ * 4. Export Buttons: [COPY ARM DIAGNOSTIC], [COPY DEBUG REPORT], [RAW TRANSFORMS]
  */
 export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> = ({
   solution,
   metrics,
   visible,
   onToggleVisible,
+  showArmSkeleton = true,
+  onToggleArmSkeleton,
   onRecalculate,
   isPlaying = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [copiedReport, setCopiedReport] = useState(false);
+  const [copiedArmDiag, setCopiedArmDiag] = useState(false);
   const [copiedRaw, setCopiedRaw] = useState(false);
+  const [activeTab, setActiveTab] = useState<'armPath' | 'handAssign' | 'checks'>('armPath');
 
   if (!solution || !visible) return null;
 
@@ -57,6 +70,75 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
     : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30';
 
   const handAssignment = validation.handAssignment;
+  const armPath = validation.armPath;
+  const leftArm = armPath?.leftArm;
+  const rightArm = armPath?.rightArm;
+  const refComp = armPath?.referenceComparison;
+
+  // Copy Complete Arm Path Diagnostic
+  const handleCopyArmDiagnostic = async () => {
+    if (!armPath || !leftArm || !rightArm || !refComp) return;
+
+    const reportText = `=== ARM PATH DIAGNOSTIC ===
+Timestamp: ${new Date().toISOString()}
+Character Model: test.vrm
+Reference Model: sample_violin.glb (normalized)
+
+LEFT ARM (Anatomical Left, +X)
+Shoulder: (${leftArm.shoulderPos.x.toFixed(4)}, ${leftArm.shoulderPos.y.toFixed(4)}, ${leftArm.shoulderPos.z.toFixed(4)})
+Elbow:    (${leftArm.elbowPos.x.toFixed(4)}, ${leftArm.elbowPos.y.toFixed(4)}, ${leftArm.elbowPos.z.toFixed(4)})
+Wrist:    (${leftArm.wristPos.x.toFixed(4)}, ${leftArm.wristPos.y.toFixed(4)}, ${leftArm.wristPos.z.toFixed(4)})
+Hand:     (${leftArm.handPos.x.toFixed(4)}, ${leftArm.handPos.y.toFixed(4)}, ${leftArm.handPos.z.toFixed(4)})
+
+Upper Arm Length: ${leftArm.upperArmLengthMm} mm (Neutral: ${leftArm.neutralUpperArmLengthMm} mm, Stretch: ${leftArm.upperArmStretchPct}%)
+Forearm Length:   ${leftArm.forearmLengthMm} mm (Neutral: ${leftArm.neutralForearmLengthMm} mm, Stretch: ${leftArm.forearmStretchPct}%)
+Hand Offset:      ${leftArm.handOffsetMm} mm
+
+Elbow Angle:      ${leftArm.elbowAngleDeg} deg
+Elbow Direction:  (${leftArm.elbowDirection.x.toFixed(3)}, ${leftArm.elbowDirection.y.toFixed(3)}, ${leftArm.elbowDirection.z.toFixed(3)}) [${leftArm.elbowDirectionDescription}]
+Torso Intersection: Upper Arm: ${leftArm.upperArmTorsoIntersection} (${leftArm.upperArmPenetrationMm} mm), Forearm: ${leftArm.forearmTorsoIntersection} (${leftArm.forearmPenetrationMm} mm)
+Pole Vector:      (${leftArm.poleVector.x.toFixed(3)}, ${leftArm.poleVector.y.toFixed(3)}, ${leftArm.poleVector.z.toFixed(3)})
+
+RIGHT ARM (Anatomical Right, -X)
+Shoulder: (${rightArm.shoulderPos.x.toFixed(4)}, ${rightArm.shoulderPos.y.toFixed(4)}, ${rightArm.shoulderPos.z.toFixed(4)})
+Elbow:    (${rightArm.elbowPos.x.toFixed(4)}, ${rightArm.elbowPos.y.toFixed(4)}, ${rightArm.elbowPos.z.toFixed(4)})
+Wrist:    (${rightArm.wristPos.x.toFixed(4)}, ${rightArm.wristPos.y.toFixed(4)}, ${rightArm.wristPos.z.toFixed(4)})
+Hand:     (${rightArm.handPos.x.toFixed(4)}, ${rightArm.handPos.y.toFixed(4)}, ${rightArm.handPos.z.toFixed(4)})
+
+Upper Arm Length: ${rightArm.upperArmLengthMm} mm (Neutral: ${rightArm.neutralUpperArmLengthMm} mm, Stretch: ${rightArm.upperArmStretchPct}%)
+Forearm Length:   ${rightArm.forearmLengthMm} mm (Neutral: ${rightArm.neutralForearmLengthMm} mm, Stretch: ${rightArm.forearmStretchPct}%)
+Hand Offset:      ${rightArm.handOffsetMm} mm
+
+Elbow Angle:      ${rightArm.elbowAngleDeg} deg
+Elbow Direction:  (${rightArm.elbowDirection.x.toFixed(3)}, ${rightArm.elbowDirection.y.toFixed(3)}, ${rightArm.elbowDirection.z.toFixed(3)}) [${rightArm.elbowDirectionDescription}]
+Torso Intersection: Upper Arm: ${rightArm.upperArmTorsoIntersection} (${rightArm.upperArmPenetrationMm} mm), Forearm: ${rightArm.forearmTorsoIntersection} (${rightArm.forearmPenetrationMm} mm)
+Pole Vector:      (${rightArm.poleVector.x.toFixed(3)}, ${rightArm.poleVector.y.toFixed(3)}, ${rightArm.poleVector.z.toFixed(3)})
+
+=== REFERENCE COMPARISON (sample_violin.glb) ===
+sample_violin LEFT elbow:  (${refComp.sampleLeftElbow.x.toFixed(4)}, ${refComp.sampleLeftElbow.y.toFixed(4)}, ${refComp.sampleLeftElbow.z.toFixed(4)})
+current LEFT elbow:        (${refComp.currentLeftElbow.x.toFixed(4)}, ${refComp.currentLeftElbow.y.toFixed(4)}, ${refComp.currentLeftElbow.z.toFixed(4)})
+difference:                ${refComp.leftElbowDiffMm} mm
+
+sample_violin RIGHT elbow: (${refComp.sampleRightElbow.x.toFixed(4)}, ${refComp.sampleRightElbow.y.toFixed(4)}, ${refComp.sampleRightElbow.z.toFixed(4)})
+current RIGHT elbow:       (${refComp.currentRightElbow.x.toFixed(4)}, ${refComp.currentRightElbow.y.toFixed(4)}, ${refComp.currentRightElbow.z.toFixed(4)})
+difference:                ${refComp.rightElbowDiffMm} mm
+
+Reference elbow configuration: ${refComp.referenceMatch}
+Pole Vector Mirroring:         ${refComp.poleVectorMirroringStatus}
+
+Notes:
+${refComp.notes.map((n) => `- ${n}`).join('\n')}
+
+=== END ARM DIAGNOSTIC ===`;
+
+    try {
+      await navigator.clipboard.writeText(reportText);
+      setCopiedArmDiag(true);
+      setTimeout(() => setCopiedArmDiag(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy arm diagnostic:', e);
+    }
+  };
 
   const handleCopyDebugReport = async () => {
     const reportText = `=== ANIVERSE MUSIC LAB DEBUG REPORT ===
@@ -78,54 +160,13 @@ Assignment Valid: ${handAssignment?.assignmentValid ? 'PASS (Anatomical Match)' 
 Violin Side: ${handAssignment?.violinSide || 'LEFT SHOULDER'}
 Bow Side: ${handAssignment?.bowSide || 'RIGHT HAND'}
 
-=== ACTUAL WORLD POSITIONS ===
-Left Shoulder: (${solution.leftArmIK.shoulderPos.x.toFixed(3)}, ${solution.leftArmIK.shoulderPos.y.toFixed(3)}, ${solution.leftArmIK.shoulderPos.z.toFixed(3)})
-Left Elbow: (${solution.leftArmIK.elbowPos.x.toFixed(3)}, ${solution.leftArmIK.elbowPos.y.toFixed(3)}, ${solution.leftArmIK.elbowPos.z.toFixed(3)})
-Left Wrist: (${solution.leftArmIK.wristPos.x.toFixed(3)}, ${solution.leftArmIK.wristPos.y.toFixed(3)}, ${solution.leftArmIK.wristPos.z.toFixed(3)})
-Left Hand: (${solution.leftHandFrame.grip.position.x.toFixed(3)}, ${solution.leftHandFrame.grip.position.y.toFixed(3)}, ${solution.leftHandFrame.grip.position.z.toFixed(3)})
-Right Shoulder: (${solution.rightArmIK.shoulderPos.x.toFixed(3)}, ${solution.rightArmIK.shoulderPos.y.toFixed(3)}, ${solution.rightArmIK.shoulderPos.z.toFixed(3)})
-Right Elbow: (${solution.rightArmIK.elbowPos.x.toFixed(3)}, ${solution.rightArmIK.elbowPos.y.toFixed(3)}, ${solution.rightArmIK.elbowPos.z.toFixed(3)})
-Right Wrist: (${solution.rightArmIK.wristPos.x.toFixed(3)}, ${solution.rightArmIK.wristPos.y.toFixed(3)}, ${solution.rightArmIK.wristPos.z.toFixed(3)})
-Right Hand: (${solution.rightHandFrame.grip.position.x.toFixed(3)}, ${solution.rightHandFrame.grip.position.y.toFixed(3)}, ${solution.rightHandFrame.grip.position.z.toFixed(3)})
-
-Violin Root: (${solution.instrumentTransform.position.x.toFixed(3)}, ${solution.instrumentTransform.position.y.toFixed(3)}, ${solution.instrumentTransform.position.z.toFixed(3)})
-Violin Neck Target: (${solution.leftArmIK.targetPos.x.toFixed(3)}, ${solution.leftArmIK.targetPos.y.toFixed(3)}, ${solution.leftArmIK.targetPos.z.toFixed(3)})
-Violin Chinrest: (${solution.instrumentTransform.position.x.toFixed(3)}, ${solution.instrumentTransform.position.y.toFixed(3)}, ${solution.instrumentTransform.position.z.toFixed(3)})
-Bow Root: (${solution.accessoryTransform.position.x.toFixed(3)}, ${solution.accessoryTransform.position.y.toFixed(3)}, ${solution.accessoryTransform.position.z.toFixed(3)})
-Bow Frog Target: (${solution.rightArmIK.targetPos.x.toFixed(3)}, ${solution.rightArmIK.targetPos.y.toFixed(3)}, ${solution.rightArmIK.targetPos.z.toFixed(3)})
-Bow Grip Target: (${solution.rightHandFrame.grip.position.x.toFixed(3)}, ${solution.rightHandFrame.grip.position.y.toFixed(3)}, ${solution.rightHandFrame.grip.position.z.toFixed(3)})
-
-=== ORIENTATION ===
-Left Hand Orientation Error: ${validation.checks.find((c) => c.id === 'left_hand_orient')?.actualError ?? 0} deg
-Right Hand Orientation Error: ${validation.checks.find((c) => c.id === 'right_hand_orient')?.actualError ?? 0} deg
-Head Gaze Error: ${validation.checks.find((c) => c.id === 'head_orient')?.actualError ?? 0} deg
-Bow/String Angle: ${validation.bowStringAlignmentAngleDeg} deg
-
-=== POSTURE ===
-Left Elbow Angle: ${solution.leftArmIK.elbowAngleDeg} deg
-Right Elbow Angle: ${solution.rightArmIK.elbowAngleDeg} deg
-Left Shoulder Rotation: (${solution.leftShoulderRotation?.x.toFixed(3) ?? '0'}, ${solution.leftShoulderRotation?.y.toFixed(3) ?? '0'}, ${solution.leftShoulderRotation?.z.toFixed(3) ?? '0'})
-Right Shoulder Rotation: (${solution.rightShoulderRotation?.x.toFixed(3) ?? '0'}, ${solution.rightShoulderRotation?.y.toFixed(3) ?? '0'}, ${solution.rightShoulderRotation?.z.toFixed(3) ?? '0'})
-
-=== MOTION ===
-Motion Active: ${isPlaying ? 'YES' : 'NO'}
-Current Motion Phase: ${isPlaying ? 'Periodic Harmonic Bowing' : 'Static Rest Pose'}
-Bow Motion: Periodic Stroke
-Static Base Preserved: YES
-Cumulative Drift: 0.000 mm
-
-=== ERRORS ===
-${validation.hardFailures.length > 0 ? validation.hardFailures.map((f) => `- ${f}`).join('\n') : 'None'}
-
-=== BONE MAP ===
-leftShoulder: Normalized_J_Bip_L_Shoulder
-leftUpperArm: Normalized_J_Bip_L_UpperArm
-leftLowerArm: Normalized_J_Bip_L_LowerArm
-leftHand: ${handAssignment?.leftHandBoneName || 'Normalized_J_Bip_L_Hand'}
-rightShoulder: Normalized_J_Bip_R_Shoulder
-rightUpperArm: Normalized_J_Bip_R_UpperArm
-rightLowerArm: Normalized_J_Bip_R_LowerArm
-rightHand: ${handAssignment?.rightHandBoneName || 'Normalized_J_Bip_R_Hand'}
+=== ARM PATH FINDINGS ===
+Left Upper Arm Torso: ${leftArm?.upperArmTorsoIntersection || 'outside body'}
+Left Forearm Torso: ${leftArm?.forearmTorsoIntersection || 'outside body'}
+Right Upper Arm Torso: ${rightArm?.upperArmTorsoIntersection || 'intersects torso'} (${rightArm?.upperArmPenetrationMm ?? 0}mm)
+Right Forearm Torso: ${rightArm?.forearmTorsoIntersection || 'intersects torso'} (${rightArm?.forearmPenetrationMm ?? 0}mm)
+Reference Elbow Match: ${refComp?.referenceMatch || 'DIFFERENT'}
+Right Elbow Diff from sample_violin: ${refComp?.rightElbowDiffMm ?? 0} mm
 
 === END REPORT ===`;
 
@@ -140,235 +181,343 @@ rightHand: ${handAssignment?.rightHandBoneName || 'Normalized_J_Bip_R_Hand'}
 
   const handleCopyRawSkeleton = async () => {
     const rawText = `=== RAW SKELETON TRANSFORMS ===
-leftShoulder:
-  position: (${solution.leftArmIK.shoulderPos.x.toFixed(4)}, ${solution.leftArmIK.shoulderPos.y.toFixed(4)}, ${solution.leftArmIK.shoulderPos.z.toFixed(4)})
-  quaternion: (${solution.leftShoulderRotation?.x.toFixed(4) ?? 0}, ${solution.leftShoulderRotation?.y.toFixed(4) ?? 0}, ${solution.leftShoulderRotation?.z.toFixed(4) ?? 0}, ${solution.leftShoulderRotation?.w.toFixed(4) ?? 1})
-
-leftUpperArm:
-  position: (${solution.leftArmIK.shoulderPos.x.toFixed(4)}, ${solution.leftArmIK.shoulderPos.y.toFixed(4)}, ${solution.leftArmIK.shoulderPos.z.toFixed(4)})
-  quaternion: (${solution.leftArmIK.upperArmQuat.x.toFixed(4)}, ${solution.leftArmIK.upperArmQuat.y.toFixed(4)}, ${solution.leftArmIK.upperArmQuat.z.toFixed(4)}, ${solution.leftArmIK.upperArmQuat.w.toFixed(4)})
-
-leftLowerArm:
-  position: (${solution.leftArmIK.elbowPos.x.toFixed(4)}, ${solution.leftArmIK.elbowPos.y.toFixed(4)}, ${solution.leftArmIK.elbowPos.z.toFixed(4)})
-  quaternion: (${solution.leftArmIK.lowerArmQuat.x.toFixed(4)}, ${solution.leftArmIK.lowerArmQuat.y.toFixed(4)}, ${solution.leftArmIK.lowerArmQuat.z.toFixed(4)}, ${solution.leftArmIK.lowerArmQuat.w.toFixed(4)})
-
-leftHand:
-  position: (${solution.leftArmIK.wristPos.x.toFixed(4)}, ${solution.leftArmIK.wristPos.y.toFixed(4)}, ${solution.leftArmIK.wristPos.z.toFixed(4)})
-  quaternion: (${solution.leftArmIK.handQuat.x.toFixed(4)}, ${solution.leftArmIK.handQuat.y.toFixed(4)}, ${solution.leftArmIK.handQuat.z.toFixed(4)}, ${solution.leftArmIK.handQuat.w.toFixed(4)})
-
-rightShoulder:
-  position: (${solution.rightArmIK.shoulderPos.x.toFixed(4)}, ${solution.rightArmIK.shoulderPos.y.toFixed(4)}, ${solution.rightArmIK.shoulderPos.z.toFixed(4)})
-  quaternion: (${solution.rightShoulderRotation?.x.toFixed(4) ?? 0}, ${solution.rightShoulderRotation?.y.toFixed(4) ?? 0}, ${solution.rightShoulderRotation?.z.toFixed(4) ?? 0}, ${solution.rightShoulderRotation?.w.toFixed(4) ?? 1})
-
-rightUpperArm:
-  position: (${solution.rightArmIK.shoulderPos.x.toFixed(4)}, ${solution.rightArmIK.shoulderPos.y.toFixed(4)}, ${solution.rightArmIK.shoulderPos.z.toFixed(4)})
-  quaternion: (${solution.rightArmIK.upperArmQuat.x.toFixed(4)}, ${solution.rightArmIK.upperArmQuat.y.toFixed(4)}, ${solution.rightArmIK.upperArmQuat.z.toFixed(4)}, ${solution.rightArmIK.upperArmQuat.w.toFixed(4)})
-
-rightLowerArm:
-  position: (${solution.rightArmIK.elbowPos.x.toFixed(4)}, ${solution.rightArmIK.elbowPos.y.toFixed(4)}, ${solution.rightArmIK.elbowPos.z.toFixed(4)})
-  quaternion: (${solution.rightArmIK.lowerArmQuat.x.toFixed(4)}, ${solution.rightArmIK.lowerArmQuat.y.toFixed(4)}, ${solution.rightArmIK.lowerArmQuat.z.toFixed(4)}, ${solution.rightArmIK.lowerArmQuat.w.toFixed(4)})
-
-rightHand:
-  position: (${solution.rightArmIK.wristPos.x.toFixed(4)}, ${solution.rightArmIK.wristPos.y.toFixed(4)}, ${solution.rightArmIK.wristPos.z.toFixed(4)})
-  quaternion: (${solution.rightArmIK.handQuat.x.toFixed(4)}, ${solution.rightArmIK.handQuat.y.toFixed(4)}, ${solution.rightArmIK.handQuat.z.toFixed(4)}, ${solution.rightArmIK.handQuat.w.toFixed(4)})
-
-neck:
-  quaternion: (${solution.neckRotation.x.toFixed(4)}, ${solution.neckRotation.y.toFixed(4)}, ${solution.neckRotation.z.toFixed(4)}, ${solution.neckRotation.w.toFixed(4)})
-
-head:
-  quaternion: (${solution.headRotation.x.toFixed(4)}, ${solution.headRotation.y.toFixed(4)}, ${solution.headRotation.z.toFixed(4)}, ${solution.headRotation.w.toFixed(4)})
-
-violinRoot:
-  position: (${solution.instrumentTransform.position.x.toFixed(4)}, ${solution.instrumentTransform.position.y.toFixed(4)}, ${solution.instrumentTransform.position.z.toFixed(4)})
-  quaternion: (${solution.instrumentTransform.quaternion.x.toFixed(4)}, ${solution.instrumentTransform.quaternion.y.toFixed(4)}, ${solution.instrumentTransform.quaternion.z.toFixed(4)}, ${solution.instrumentTransform.quaternion.w.toFixed(4)})
-
-bowRoot:
-  position: (${solution.accessoryTransform.position.x.toFixed(4)}, ${solution.accessoryTransform.position.y.toFixed(4)}, ${solution.accessoryTransform.position.z.toFixed(4)})
-  quaternion: (${solution.accessoryTransform.quaternion.x.toFixed(4)}, ${solution.accessoryTransform.quaternion.y.toFixed(4)}, ${solution.accessoryTransform.quaternion.z.toFixed(4)}, ${solution.accessoryTransform.quaternion.w.toFixed(4)})
-
-violinNeckTarget:
-  position: (${solution.leftArmIK.targetPos.x.toFixed(4)}, ${solution.leftArmIK.targetPos.y.toFixed(4)}, ${solution.leftArmIK.targetPos.z.toFixed(4)})
-
-bowFrogTarget:
-  position: (${solution.rightArmIK.targetPos.x.toFixed(4)}, ${solution.rightArmIK.targetPos.y.toFixed(4)}, ${solution.rightArmIK.targetPos.z.toFixed(4)})`;
+leftShoulder:  (${solution.leftArmIK.shoulderPos.x.toFixed(4)}, ${solution.leftArmIK.shoulderPos.y.toFixed(4)}, ${solution.leftArmIK.shoulderPos.z.toFixed(4)})
+leftElbow:     (${solution.leftArmIK.elbowPos.x.toFixed(4)}, ${solution.leftArmIK.elbowPos.y.toFixed(4)}, ${solution.leftArmIK.elbowPos.z.toFixed(4)})
+leftWrist:     (${solution.leftArmIK.wristPos.x.toFixed(4)}, ${solution.leftArmIK.wristPos.y.toFixed(4)}, ${solution.leftArmIK.wristPos.z.toFixed(4)})
+rightShoulder: (${solution.rightArmIK.shoulderPos.x.toFixed(4)}, ${solution.rightArmIK.shoulderPos.y.toFixed(4)}, ${solution.rightArmIK.shoulderPos.z.toFixed(4)})
+rightElbow:    (${solution.rightArmIK.elbowPos.x.toFixed(4)}, ${solution.rightArmIK.elbowPos.y.toFixed(4)}, ${solution.rightArmIK.elbowPos.z.toFixed(4)})
+rightWrist:    (${solution.rightArmIK.wristPos.x.toFixed(4)}, ${solution.rightArmIK.wristPos.y.toFixed(4)}, ${solution.rightArmIK.wristPos.z.toFixed(4)})`;
 
     try {
       await navigator.clipboard.writeText(rawText);
       setCopiedRaw(true);
       setTimeout(() => setCopiedRaw(false), 2000);
     } catch (e) {
-      console.error('Failed to copy raw skeleton to clipboard:', e);
+      console.error('Failed to copy raw transforms:', e);
     }
   };
 
   return (
     <aside
-      aria-label="Violin Interaction Diagnostics"
-      className="absolute top-4 left-4 z-30 max-w-md w-full bg-white/95 dark:bg-[#1A1824]/95 backdrop-blur-md rounded-2xl border border-black/10 dark:border-white/10 shadow-xl overflow-hidden font-sans text-xs transition-all"
+      aria-label="3D Kinematic Interaction Diagnostic Panel"
+      className="absolute top-4 right-4 z-30 w-96 max-h-[90vh] flex flex-col rounded-2xl bg-white/95 dark:bg-[#161420]/95 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-2xl overflow-hidden transition-all duration-300 select-none text-xs"
     >
-      {/* Header bar */}
-      <div className="p-3 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.02]">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-[#7567C7]" />
-          <span className="font-bold text-[#25242A] dark:text-[#F4F2F7] tracking-tight">
-            VIOLIN INTERACTION
-          </span>
-          {isPlaying && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20">
-              MOTION ACTIVE
-            </span>
-          )}
+          <span className="font-bold text-[#25242A] dark:text-[#F4F2F7]">Kinematic Diagnostics</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className={`px-2 py-0.5 rounded-full font-bold border text-[11px] ${badgeColor}`}>
-            {validation.score}% {validation.state.toUpperCase()}
+        <div className="flex items-center gap-1.5">
+          {/* Skeleton View Toggle */}
+          {onToggleArmSkeleton && (
+            <button
+              type="button"
+              onClick={onToggleArmSkeleton}
+              title="Toggle visible 3D arm skeleton overlay"
+              className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border ${
+                showArmSkeleton
+                  ? 'bg-[#7567C7] text-white border-[#7567C7]'
+                  : 'bg-black/5 dark:bg-white/5 text-[#77747D] border-black/5 dark:border-white/5'
+              }`}
+            >
+              <GitFork className="h-3 w-3" />
+              <span>ARM SKELETON</span>
+            </button>
+          )}
+
+          {/* Quality Score Badge */}
+          <span className={`px-2 py-0.5 rounded-lg font-mono font-bold text-[11px] border ${badgeColor}`}>
+            {validation.score}%
           </span>
 
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-[#77747D] cursor-pointer"
+            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[#77747D] transition-colors"
           >
-            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="p-3.5 space-y-3 max-h-[75vh] overflow-y-auto">
-          {/* HARD FAILURES OVERRIDE (Section 10) */}
-          {validation.hardFailures && validation.hardFailures.length > 0 && (
-            <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-[11px] space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-red-600 dark:text-red-400">
-                <ShieldAlert className="h-4 w-4" />
-                <span>Hard Failures ({validation.hardFailures.length})</span>
-              </div>
-              <ul className="list-disc list-inside space-y-0.5 font-medium">
-                {validation.hardFailures.map((hf, i) => (
-                  <li key={i}>{hf}</li>
-                ))}
-              </ul>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* Diagnostic Tabs */}
+          <div className="flex items-center gap-1 p-0.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('armPath')}
+              className={`flex-1 py-1 px-2 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
+                activeTab === 'armPath'
+                  ? 'bg-white dark:bg-[#252332] text-[#7567C7] dark:text-[#A898F8] shadow-xs'
+                  : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              Arm Path & Torso
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('handAssign')}
+              className={`flex-1 py-1 px-2 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
+                activeTab === 'handAssign'
+                  ? 'bg-white dark:bg-[#252332] text-[#7567C7] dark:text-[#A898F8] shadow-xs'
+                  : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              Hand Invariants
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('checks')}
+              className={`flex-1 py-1 px-2 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
+                activeTab === 'checks'
+                  ? 'bg-white dark:bg-[#252332] text-[#7567C7] dark:text-[#A898F8] shadow-xs'
+                  : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              Checks ({validation.checks.length})
+            </button>
+          </div>
+
+          {/* =========================================================================
+              TAB 1: ARM PATH & TORSO PENETRATION (Section 4, 5, 6, 7, 8)
+              ========================================================================= */}
+          {activeTab === 'armPath' && (
+            <div className="space-y-2.5">
+              {/* Left Arm Card */}
+              {leftArm && (
+                <div className="p-2.5 rounded-xl bg-cyan-500/5 dark:bg-cyan-500/10 border border-cyan-500/20 space-y-1.5 font-mono text-[10.5px]">
+                  <div className="flex items-center justify-between font-bold text-cyan-600 dark:text-cyan-400">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-cyan-500" />
+                      LEFT ARM (Anatomical Left, +X)
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[10px] ${
+                        leftArm.upperArmTorsoIntersection === 'outside body'
+                          ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                      }`}
+                    >
+                      {leftArm.upperArmTorsoIntersection.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1 text-[#524E5B] dark:text-[#D1CCE0] text-[10px]">
+                    <div>Shoulder: ({leftArm.shoulderPos.x.toFixed(2)}, {leftArm.shoulderPos.y.toFixed(2)}, {leftArm.shoulderPos.z.toFixed(2)})</div>
+                    <div>Elbow: ({leftArm.elbowPos.x.toFixed(2)}, {leftArm.elbowPos.y.toFixed(2)}, {leftArm.elbowPos.z.toFixed(2)})</div>
+                    <div>Wrist: ({leftArm.wristPos.x.toFixed(2)}, {leftArm.wristPos.y.toFixed(2)}, {leftArm.wristPos.z.toFixed(2)})</div>
+                    <div>Hand: ({leftArm.handPos.x.toFixed(2)}, {leftArm.handPos.y.toFixed(2)}, {leftArm.handPos.z.toFixed(2)})</div>
+                  </div>
+
+                  <div className="pt-1 border-t border-cyan-500/10 space-y-0.5 text-[10px]">
+                    <div className="flex justify-between">
+                      <span className="text-[#77747D]">Upper Arm / Forearm:</span>
+                      <span className="font-semibold text-[#25242A] dark:text-white">
+                        {leftArm.upperArmLengthMm}mm / {leftArm.forearmLengthMm}mm (Stretch: {leftArm.upperArmStretchPct}%)
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#77747D]">Elbow Flexion Angle:</span>
+                      <span className="font-semibold text-[#25242A] dark:text-white">{leftArm.elbowAngleDeg}°</span>
+                    </div>
+                    <div className="text-[9.5px] text-cyan-700 dark:text-cyan-300">
+                      Direction: {leftArm.elbowDirectionDescription}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Right Arm Card */}
+              {rightArm && (
+                <div
+                  className={`p-2.5 rounded-xl border space-y-1.5 font-mono text-[10.5px] ${
+                    rightArm.upperArmTorsoIntersection === 'outside body'
+                      ? 'bg-emerald-500/5 border-emerald-500/20'
+                      : 'bg-red-500/10 border-red-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold text-red-600 dark:text-red-400">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                      RIGHT ARM (Anatomical Right, -X)
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[10px] ${
+                        rightArm.upperArmTorsoIntersection === 'outside body'
+                          ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                      }`}
+                    >
+                      {rightArm.upperArmTorsoIntersection.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1 text-[#524E5B] dark:text-[#D1CCE0] text-[10px]">
+                    <div>Shoulder: ({rightArm.shoulderPos.x.toFixed(2)}, {rightArm.shoulderPos.y.toFixed(2)}, {rightArm.shoulderPos.z.toFixed(2)})</div>
+                    <div>Elbow: ({rightArm.elbowPos.x.toFixed(2)}, {rightArm.elbowPos.y.toFixed(2)}, {rightArm.elbowPos.z.toFixed(2)})</div>
+                    <div>Wrist: ({rightArm.wristPos.x.toFixed(2)}, {rightArm.wristPos.y.toFixed(2)}, {rightArm.wristPos.z.toFixed(2)})</div>
+                    <div>Hand: ({rightArm.handPos.x.toFixed(2)}, {rightArm.handPos.y.toFixed(2)}, {rightArm.handPos.z.toFixed(2)})</div>
+                  </div>
+
+                  <div className="pt-1 border-t border-red-500/10 space-y-0.5 text-[10px]">
+                    <div className="flex justify-between">
+                      <span className="text-[#77747D]">Upper Arm / Forearm:</span>
+                      <span className="font-semibold text-[#25242A] dark:text-white">
+                        {rightArm.upperArmLengthMm}mm / {rightArm.forearmLengthMm}mm (Stretch: {rightArm.upperArmStretchPct}%)
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#77747D]">Elbow Flexion Angle:</span>
+                      <span className="font-semibold text-[#25242A] dark:text-white">{rightArm.elbowAngleDeg}°</span>
+                    </div>
+                    <div className="text-[9.5px] text-red-700 dark:text-red-300 font-semibold">
+                      Direction: {rightArm.elbowDirectionDescription}
+                    </div>
+                    {rightArm.upperArmPenetrationMm > 0 && (
+                      <div className="text-[9.5px] text-red-600 dark:text-red-400 font-bold">
+                        ⚠️ Torso Penetration: {rightArm.upperArmPenetrationMm}mm inside torso cylinder
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Reference Model Comparison Card (sample_violin.glb) */}
+              {refComp && (
+                <div className="p-2.5 rounded-xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 space-y-1.5 text-[10.5px]">
+                  <div className="flex items-center justify-between font-bold text-amber-700 dark:text-amber-400 text-[10px] uppercase tracking-wider">
+                    <span>Reference Comparison (sample_violin.glb)</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded ${
+                        refComp.referenceMatch === 'MATCH'
+                          ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {refComp.referenceMatch}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 font-mono text-[10px] text-[#524E5B] dark:text-[#D1CCE0]">
+                    <div className="flex justify-between">
+                      <span>Left Elbow Diff:</span>
+                      <span className="font-semibold text-[#25242A] dark:text-white">{refComp.leftElbowDiffMm} mm</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Right Elbow Diff:</span>
+                      <span className="font-semibold text-red-500">{refComp.rightElbowDiffMm} mm</span>
+                    </div>
+                  </div>
+
+                  <div className="p-1.5 rounded-lg bg-black/5 dark:bg-white/5 font-mono text-[9px] text-[#77747D] dark:text-[#A4A1AA] leading-tight">
+                    {refComp.poleVectorMirroringStatus}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* =========================================================================
-              HAND ASSIGNMENT DIAGNOSTIC SECTION (Section 6)
+              TAB 2: HAND INVARIANTS (Section 1)
               ========================================================================= */}
-          <div className="p-2.5 rounded-xl bg-black/5 dark:bg-white/5 text-[11px] space-y-2 border border-black/5 dark:border-white/5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-[#77747D] dark:text-[#9E9AA6] uppercase tracking-wider">
-                HAND ASSIGNMENT
-              </span>
-              <span
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                  handAssignment?.assignmentValid
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-red-500/10 text-red-600 dark:text-red-400'
-                }`}
-              >
-                {handAssignment?.assignmentValid ? 'PASS' : 'HAND ASSIGNMENT: FAIL'}
-              </span>
-            </div>
-
-            <div className="space-y-1.5 font-mono text-[10.5px]">
-              <div className="p-1.5 rounded-lg bg-white/60 dark:bg-black/20 border border-black/5 dark:border-white/5">
-                <div className="font-bold text-[#25242A] dark:text-white">LEFT HAND</div>
-                <div className="text-[#524E5B] dark:text-[#D1CCE0]">→ target: <span className="font-semibold text-[#7567C7] dark:text-[#B9B0F2]">VIOLIN NECK</span></div>
-                <div className="text-[#77747D] dark:text-[#A4A1AA]">→ actual bone: {handAssignment?.leftHandBoneName || 'Normalized_J_Bip_L_Hand'}</div>
+          {activeTab === 'handAssign' && (
+            <div className="space-y-2 font-mono text-[10.5px]">
+              <div className="p-2 rounded-lg bg-white/60 dark:bg-black/20 border border-black/5 dark:border-white/5 space-y-0.5">
+                <div className="flex items-center justify-between font-bold text-[#25242A] dark:text-white">
+                  <span>LEFT HAND (Anatomical)</span>
+                  <span className={handAssignment?.assignmentValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}>
+                    {handAssignment?.assignmentValid ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+                <div className="text-[#524E5B] dark:text-[#D1CCE0]">Bone: <span className="text-[#25242A] dark:text-white font-semibold">{handAssignment?.leftHandBoneName || 'Normalized_J_Bip_L_Hand'}</span></div>
+                <div className="text-[#524E5B] dark:text-[#D1CCE0]">Target: <span className="font-semibold text-[#7567C7] dark:text-[#B9B0F2]">VIOLIN NECK</span></div>
                 <div className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                  → target error: {handAssignment?.leftHandTargetErrorMm ?? validation.leftHandReachMm} mm
+                  Error: {handAssignment?.leftHandTargetErrorMm ?? validation.leftHandReachMm} mm
                 </div>
               </div>
 
-              <div className="p-1.5 rounded-lg bg-white/60 dark:bg-black/20 border border-black/5 dark:border-white/5">
-                <div className="font-bold text-[#25242A] dark:text-white">RIGHT HAND</div>
-                <div className="text-[#524E5B] dark:text-[#D1CCE0]">→ target: <span className="font-semibold text-[#7567C7] dark:text-[#B9B0F2]">BOW FROG</span></div>
-                <div className="text-[#77747D] dark:text-[#A4A1AA]">→ actual bone: {handAssignment?.rightHandBoneName || 'Normalized_J_Bip_R_Hand'}</div>
-                <div className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                  → target error: {handAssignment?.rightHandTargetErrorMm ?? validation.rightHandReachMm} mm
+              <div className="p-2 rounded-lg bg-white/60 dark:bg-black/20 border border-black/5 dark:border-white/5 space-y-0.5">
+                <div className="flex items-center justify-between font-bold text-[#25242A] dark:text-white">
+                  <span>RIGHT HAND (Anatomical)</span>
+                  <span className={handAssignment?.assignmentValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}>
+                    {handAssignment?.assignmentValid ? 'PASS' : 'FAIL'}
+                  </span>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between text-[10px] text-[#77747D] dark:text-[#A4A1AA] pt-1">
-                <span>VIOLIN SIDE: <strong className="text-[#25242A] dark:text-white">LEFT SHOULDER</strong></span>
-                <span>BOW SIDE: <strong className="text-[#25242A] dark:text-white">RIGHT HAND</strong></span>
-              </div>
-            </div>
-          </div>
-
-          {/* Anatomical Scale & Metrics Summary */}
-          {metrics && (
-            <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5 text-[11px] space-y-1">
-              <div className="text-[10px] font-bold text-[#77747D] dark:text-[#9E9AA6] uppercase tracking-wider">
-                Humanoid Proportions (calibrated from sample_violin.glb)
-              </div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[#524E5B] dark:text-[#D1CCE0]">
-                <span>Height: <strong className="text-[#25242A] dark:text-white">{(metrics.height * 100).toFixed(0)}cm</strong></span>
-                <span>Type: <strong className="text-[#25242A] dark:text-white">{metrics.isChibi ? 'Chibi / Mini' : 'Standard'}</strong></span>
-                <span>Arm Reach: <strong className="text-[#25242A] dark:text-white">{(metrics.armReach.left * 100).toFixed(0)}cm</strong></span>
-                <span>Violin Scale: <strong className="text-[#7567C7] dark:text-[#B9B0F2]">{(solution.instrumentScale * 100).toFixed(1)}%</strong></span>
+                <div className="text-[#524E5B] dark:text-[#D1CCE0]">Bone: <span className="text-[#25242A] dark:text-white font-semibold">{handAssignment?.rightHandBoneName || 'Normalized_J_Bip_R_Hand'}</span></div>
+                <div className="text-[#524E5B] dark:text-[#D1CCE0]">Target: <span className="font-semibold text-[#7567C7] dark:text-[#B9B0F2]">BOW FROG</span></div>
+                <div className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Error: {handAssignment?.rightHandTargetErrorMm ?? validation.rightHandReachMm} mm
+                </div>
               </div>
             </div>
           )}
 
-          {/* Column Header */}
-          <div className="flex items-center justify-between text-[10px] font-semibold text-[#77747D] uppercase tracking-wider px-1">
-            <span>Contact Check</span>
-            <div className="flex items-center gap-4">
-              <span>Actual Error</span>
-              <span>Target Error</span>
+          {/* =========================================================================
+              TAB 3: VALIDATION CHECKS
+              ========================================================================= */}
+          {activeTab === 'checks' && (
+            <div className="space-y-1.5">
+              {validation.checks.map((check) => (
+                <div
+                  key={check.id}
+                  className="flex items-center justify-between p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {check.passed ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                    )}
+                    <span className="font-medium text-[#25242A] dark:text-[#E8E6ED]">{check.label}</span>
+                  </div>
+
+                  <div className="flex items-center gap-3 font-mono text-[11px]">
+                    <span className={check.passed ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-red-500 font-bold'}>
+                      {check.actualError} {check.unit}
+                    </span>
+                    <span className="text-[10px] text-[#77747D] opacity-70 w-12 text-right">
+                      {check.targetError} {check.unit}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
 
-          {/* Diagnostic Checks Table */}
-          <div className="space-y-1.5">
-            {validation.checks.map((check) => (
-              <div
-                key={check.id}
-                className="flex items-center justify-between p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+          {/* Action Buttons (Section 10) */}
+          <div className="pt-2 border-t border-black/5 dark:border-white/5 space-y-1.5">
+            <button
+              type="button"
+              onClick={handleCopyArmDiagnostic}
+              className="w-full py-1.5 px-2.5 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-xs"
+            >
+              {copiedArmDiag ? <Check className="h-3.5 w-3.5" /> : <GitFork className="h-3.5 w-3.5" />}
+              <span>{copiedArmDiag ? 'Arm Diagnostic Copied!' : 'COPY ARM DIAGNOSTIC'}</span>
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCopyDebugReport}
+                className="flex-1 py-1.5 px-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-[#25242A] dark:text-white text-[10.5px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
               >
-                <div className="flex items-center gap-2">
-                  {check.passed ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                  )}
-                  <span className="font-medium text-[#25242A] dark:text-[#E8E6ED]">{check.label}</span>
-                </div>
+                {copiedReport ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                <span>{copiedReport ? 'Report Copied' : 'General Report'}</span>
+              </button>
 
-                <div className="flex items-center gap-3 font-mono text-[11px]">
-                  <span className={check.passed ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-red-500 font-bold'}>
-                    {check.actualError} {check.unit}
-                  </span>
-                  <span className="text-[10px] text-[#77747D] opacity-70 w-12 text-right">
-                    {check.targetError} {check.unit}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Copy Report Action Buttons (Section 7 & 8) */}
-          <div className="pt-2 border-t border-black/5 dark:border-white/5 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCopyDebugReport}
-              className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-xs"
-            >
-              {copiedReport ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>{copiedReport ? 'Report Copied!' : 'COPY DEBUG REPORT'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopyRawSkeleton}
-              className="py-1.5 px-2.5 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-[#25242A] dark:text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
-              title="Copy raw bone positions & quaternions"
-            >
-              {copiedRaw ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Code className="h-3.5 w-3.5" />}
-              <span>{copiedRaw ? 'Raw Copied' : 'RAW TRANSFORMS'}</span>
-            </button>
+              <button
+                type="button"
+                onClick={handleCopyRawSkeleton}
+                className="py-1.5 px-2.5 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-[#25242A] dark:text-white text-[10.5px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
+                title="Copy raw bone positions"
+              >
+                {copiedRaw ? <Check className="h-3 w-3 text-emerald-500" /> : <Code className="h-3 w-3" />}
+                <span>Raw</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -150,6 +150,80 @@ export interface ValidationCheck {
 export type InteractionState = 'excellent' | 'acceptable' | 'questionable' | 'invalid';
 
 /**
+ * World-space positions of full arm bone chains
+ */
+export interface ArmChainWorldTransforms {
+  leftShoulder: THREE.Vector3;
+  leftUpperArm: THREE.Vector3;
+  leftElbow: THREE.Vector3;
+  leftWrist: THREE.Vector3;
+  leftHand: THREE.Vector3;
+
+  rightShoulder: THREE.Vector3;
+  rightUpperArm: THREE.Vector3;
+  rightElbow: THREE.Vector3;
+  rightWrist: THREE.Vector3;
+  rightHand: THREE.Vector3;
+}
+
+/**
+ * Arm Segment Kinematics & Torso Penetration Report
+ */
+export interface ArmSegmentDiagnostic {
+  shoulderPos: THREE.Vector3;
+  elbowPos: THREE.Vector3;
+  wristPos: THREE.Vector3;
+  handPos: THREE.Vector3;
+
+  upperArmLengthMm: number;
+  forearmLengthMm: number;
+  handOffsetMm: number;
+
+  neutralUpperArmLengthMm: number;
+  neutralForearmLengthMm: number;
+  upperArmStretchPct: number; // e.g. 0.0%
+  forearmStretchPct: number; // e.g. 0.0%
+
+  elbowAngleDeg: number;
+  elbowDirection: THREE.Vector3;
+  elbowDirectionDescription: string;
+
+  upperArmTorsoIntersection: 'outside body' | 'intersects torso' | 'deeply inside torso';
+  forearmTorsoIntersection: 'outside body' | 'intersects torso' | 'deeply inside torso';
+  upperArmPenetrationMm: number;
+  forearmPenetrationMm: number;
+  poleVector: THREE.Vector3;
+}
+
+/**
+ * Comparison against normalized sample_violin.glb reference
+ */
+export interface ReferenceComparison {
+  sampleLeftElbow: THREE.Vector3;
+  currentLeftElbow: THREE.Vector3;
+  leftElbowDiffMm: number;
+
+  sampleRightElbow: THREE.Vector3;
+  currentRightElbow: THREE.Vector3;
+  rightElbowDiffMm: number;
+
+  referenceMatch: 'MATCH' | 'DIFFERENT';
+  poleVectorMirroringStatus: string;
+  notes: string[];
+}
+
+/**
+ * Complete Arm Path Diagnostic
+ */
+export interface ArmPathDiagnostic {
+  leftArm: ArmSegmentDiagnostic;
+  rightArm: ArmSegmentDiagnostic;
+  boneTransforms: ArmChainWorldTransforms;
+  referenceComparison: ReferenceComparison;
+  summary: string;
+}
+
+/**
  * Hand Assignment Runtime Diagnostic (Strict Invariant Verification)
  */
 export interface HandAssignmentDiagnostic {
@@ -187,6 +261,7 @@ export interface ValidationResult {
   hyperextended: boolean;
   hardFailures: string[];
   handAssignment: HandAssignmentDiagnostic;
+  armPath?: ArmPathDiagnostic;
   actualBoneErrors?: {
     chinMm: number;
     leftHandCradleMm: number;

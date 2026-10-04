@@ -3,7 +3,7 @@ import { MusicInstrument, PlaybackState, MusicAnalysisResult } from '../types';
 import { AppTheme } from '../../../types/theme';
 import { MusicianFigure } from './MusicianFigure';
 import { getInstrumentDefinition } from '../instruments/registry';
-import { MusicLab3DStage } from './MusicLab3DStage';
+import { Character3DViewer } from '../../CharacterViewer/Character3DViewer';
 import { Box, Sparkles, LayoutGrid } from 'lucide-react';
 
 interface PerformanceStageProps {
@@ -172,12 +172,9 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
       </div>
 
       {stageViewMode === '3d' ? (
-        <MusicLab3DStage
+        <Character3DViewer
           theme={theme}
           className={className}
-          playback={playback}
-          analysisResult={analysisResult}
-          onTogglePlayPause={onTogglePlayPause}
           onReturnToEnsemble={() => setStageViewMode('2d')}
         />
       ) : (

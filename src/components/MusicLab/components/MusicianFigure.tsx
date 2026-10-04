@@ -246,39 +246,39 @@ export const MusicianFigure: React.FC<MusicianFigureProps> = ({
               <path d="M52 62 L78 62 L82 100 L48 100 Z" fill={palette.clothingPrimary} />
               <line x1="65" y1="62" x2="65" y2="98" stroke={palette.clothingAccent} strokeWidth="3" />
 
-              {/* Head resting on Chinrest */}
+              {/* Head resting on Chinrest (Character's Anatomical Left Shoulder / Viewer's Right) */}
               <circle cx="65" cy="40" r="12" fill={palette.skin} />
-              <path d="M52 40 Q62 26 78 30 Q78 44 72 50 Z" fill={palette.hair} />
-              <ellipse cx="69" cy="41" rx="1.5" ry="1.2" fill="#222" />
+              <path d="M52 40 Q68 26 78 40 Q78 44 72 50 Z" fill={palette.hair} />
+              <ellipse cx="61" cy="41" rx="1.5" ry="1.2" fill="#222" />
 
-              {/* Violin Silhouette propped under chin */}
-              <g transform={`rotate(-16 65 52) scale(${bodyScale})`}>
-                <rect x="36" y="50" width="28" height="4" fill="#3D1D11" />
+              {/* Violin Silhouette propped under character's anatomical LEFT jaw/shoulder (Viewer's Right) */}
+              <g transform={`rotate(16 65 52) scale(${bodyScale})`}>
+                <rect x="66" y="50" width="28" height="4" fill="#3D1D11" />
                 {/* Body */}
                 <path
-                  d="M62 46 Q58 40 70 42 Q82 40 78 46 Q80 53 74 61 Q66 65 62 61 Q58 53 62 46 Z"
+                  d="M52 46 Q48 40 60 42 Q72 40 68 46 Q70 53 64 61 Q56 65 52 61 Q48 53 52 46 Z"
                   fill={palette.instrumentWood}
                   stroke={palette.instrumentDarkWood}
                   strokeWidth="1.5"
                 />
                 {/* F-Holes */}
-                <circle cx="68" cy="51" r="1.5" fill="#2D1107" />
-                <circle cx="72" cy="55" r="1.5" fill="#2D1107" />
+                <circle cx="58" cy="51" r="1.5" fill="#2D1107" />
+                <circle cx="62" cy="55" r="1.5" fill="#2D1107" />
               </g>
 
-              {/* Left Hand Gripping Neck */}
-              <line x1="56" y1="64" x2="44" y2="52" stroke={palette.skin} strokeWidth="4.5" strokeLinecap="round" />
-              <circle cx="43" cy="51" r="3.2" fill={palette.skin} />
+              {/* Anatomical LEFT Hand (Viewer's Right) Gripping Violin Neck */}
+              <line x1="74" y1="64" x2="86" y2="52" stroke={palette.skin} strokeWidth="4.5" strokeLinecap="round" />
+              <circle cx="87" cy="51" r="3.2" fill={palette.skin} />
 
-              {/* Right Arm & Bow Performing Across Strings */}
+              {/* Anatomical RIGHT Hand (Viewer's Left) Holding Bow Frog & Performing Across Strings */}
               <g
                 className={isPlaying ? 'animate-violin-bowing' : ''}
-                style={{ transformOrigin: '80px 65px' }}
+                style={{ transformOrigin: '50px 65px' }}
               >
-                <line x1="76" y1="64" x2="92" y2="58" stroke={palette.skin} strokeWidth="4.5" strokeLinecap="round" />
-                <circle cx="93" cy="58" r="3.2" fill={palette.skin} />
-                {/* Horsehair Bow */}
-                <line x1="50" y1="46" x2="108" y2="65" stroke={palette.instrumentGold} strokeWidth="2.2" strokeLinecap="round" />
+                <line x1="54" y1="64" x2="38" y2="58" stroke={palette.skin} strokeWidth="4.5" strokeLinecap="round" />
+                <circle cx="37" cy="58" r="3.2" fill={palette.skin} />
+                {/* Horsehair Bow extending from right-hand frog across strings to viewer's right */}
+                <line x1="22" y1="65" x2="80" y2="46" stroke={palette.instrumentGold} strokeWidth="2.2" strokeLinecap="round" />
               </g>
             </g>
           </svg>
