@@ -3,199 +3,168 @@ import { VRMHumanoidAdapter } from './VRMHumanoidAdapter';
 import { HandInteractionFrame, Transform3D, FingerTargets } from './types';
 
 /**
- * Hand Interaction Frame Manager
- * Enforces the anatomical hierarchy:
- * Forearm -> Wrist -> Palm -> Fingers -> Actual Grip
- * Prevents treating the wrist as the grip or attachment point!
+ * Hand Interaction Frame Manager (Part 4 & Part 5)
+ *
+ * Implements classical violin ergonomics:
+ * - Left Hand: V-cradle neck support, fingers arched over strings, thumb on neck underside.
+ * - Right Hand: Classical Franco-Belgian bow hold with opposing bent thumb, draped index, curved pinky.
+ *
+ * CRITICAL CANONICAL VRM COORDINATE SYSTEM:
+ * - Left Hand bone: local +X points along fingers; local -Y is palm normal; local +Z is thumb.
+ * - Right Hand bone: local -X points along fingers; local -Y is palm normal; local +Z is thumb.
  */
 export class HandInteractionFrameSolver {
   /**
-   * Solves the Right Hand Bow Grip Frame.
-   * Derives grip center, palm normal, and bow orientation from anatomical landmarks.
-   */
-  public static solveRightBowGripFrame(
-    adapter: VRMHumanoidAdapter,
-    wristTransform: Transform3D,
-    desiredBowingDirection: THREE.Vector3, // string crossing direction
-    violinStringsNormal: THREE.Vector3     // strings face normal
-  ): HandInteractionFrame {
-    const tempV = new THREE.Vector3();
-    const metrics = adapter.computeMetrics();
-    const handLen = metrics.handLength.right;
-
-    // Discover anatomical landmarks
-    const rWristPos = wristTransform.position.clone();
-    const rThumbDistal = adapter.getBoneWorldPosition('rightThumbDistal', new THREE.Vector3());
-    const rThumbProximal = adapter.getBoneWorldPosition('rightThumbProximal', new THREE.Vector3());
-    const rIndexProx = adapter.getBoneWorldPosition('rightIndexProximal', new THREE.Vector3());
-    const rIndexInter = adapter.getBoneWorldPosition('rightIndexIntermediate', new THREE.Vector3());
-    const rMiddleProx = adapter.getBoneWorldPosition('rightMiddleProximal', new THREE.Vector3());
-    const rMiddleInter = adapter.getBoneWorldPosition('rightMiddleIntermediate', new THREE.Vector3());
-    const rLittleProx = adapter.getBoneWorldPosition('rightLittleProximal', new THREE.Vector3());
-
-    // 1. Palm Center & Normal
-    // Palm center lies in the metacarpal plane between wrist and knuckles
-    const knucklesCenter = new THREE.Vector3();
-    if (rIndexProx && rLittleProx) {
-      knucklesCenter.addVectors(rIndexProx, rLittleProx).multiplyScalar(0.5);
-    } else {
-      // Estimated forward along hand direction
-      const forwardDir = desiredBowingDirection.clone().cross(violinStringsNormal).normalize();
-      knucklesCenter.copy(rWristPos).addScaledVector(forwardDir, handLen * 0.5);
-    }
-
-    const palmCenter = new THREE.Vector3().addVectors(rWristPos, knucklesCenter).multiplyScalar(0.5);
-
-    // Palm normal: points outward from palm surface (palmar direction)
-    const handLongitudinal = new THREE.Vector3().subVectors(knucklesCenter, rWristPos).normalize();
-    const knucklesAxis = new THREE.Vector3();
-    if (rIndexProx && rLittleProx) {
-      knucklesAxis.subVectors(rIndexProx, rLittleProx).normalize();
-    } else {
-      knucklesAxis.crossVectors(violinStringsNormal, handLongitudinal).normalize();
-    }
-
-    const palmNormal = new THREE.Vector3().crossVectors(handLongitudinal, knucklesAxis).normalize();
-
-    // 2. Authoritative Grip Center
-    // The classical bow hold places the stick between the curved thumb tip and index/middle fingers:
-    let gripCenter = new THREE.Vector3();
-    if (rThumbDistal && (rIndexInter || rMiddleInter)) {
-      const opposingFingers = (rIndexInter || rMiddleInter)!;
-      // Grip center is the midpoint of the opposition cradle
-      gripCenter.addVectors(rThumbDistal, opposingFingers).multiplyScalar(0.5);
-    } else if (rThumbProximal && rIndexProx) {
-      gripCenter.addVectors(rThumbProximal, rIndexProx).multiplyScalar(0.5);
-      gripCenter.addScaledVector(handLongitudinal, handLen * 0.2);
-    } else {
-      // Geometric fallback using hand length offset from palm
-      gripCenter.copy(palmCenter).addScaledVector(handLongitudinal, handLen * 0.25);
-    }
-
-    // 3. Grip Orientation Frame
-    // Longitudinal axis of bow stick (+Y in bow coordinates) aligns with desired bowing direction
-    const bowStickDir = desiredBowingDirection.clone().normalize();
-    // Hair faces down into strings (-violinStringsNormal), so +Z is +violinStringsNormal
-    const bowUpNormal = violinStringsNormal.clone().normalize();
-    // Lateral axis orthogonal to stick and strings
-    const bowLateralAxis = new THREE.Vector3().crossVectors(bowStickDir, bowUpNormal).normalize();
-    // Ensure strict orthonormal basis
-    bowUpNormal.crossVectors(bowLateralAxis, bowStickDir).normalize();
-
-    const gripMat = new THREE.Matrix4().makeBasis(bowLateralAxis, bowStickDir, bowUpNormal);
-    gripMat.setPosition(gripCenter);
-    const gripQuat = new THREE.Quaternion().setFromRotationMatrix(gripMat);
-
-    // Palm Transform
-    const palmMat = new THREE.Matrix4().makeBasis(knucklesAxis, handLongitudinal, palmNormal);
-    palmMat.setPosition(palmCenter);
-    const palmQuat = new THREE.Quaternion().setFromRotationMatrix(palmMat);
-
-    // Finger targets for bow hold (curved thumb, relaxed draped index, curled middle/ring, pinky on top)
-    const fingerTargets: FingerTargets = {
-      thumbCurl: 0.65,
-      thumbOpposition: 0.60,
-      indexCurl: 0.70,
-      middleCurl: 0.85,
-      ringCurl: 0.80,
-      littleCurl: 0.65,
-      fingerSpread: 0.15,
-    };
-
-    return {
-      wrist: {
-        position: rWristPos,
-        quaternion: wristTransform.quaternion.clone(),
-        scale: new THREE.Vector3(1, 1, 1),
-      },
-      palm: {
-        position: palmCenter,
-        quaternion: palmQuat,
-        scale: new THREE.Vector3(1, 1, 1),
-      },
-      grip: {
-        position: gripCenter,
-        quaternion: gripQuat,
-        scale: new THREE.Vector3(1, 1, 1),
-      },
-      fingerTargets,
-    };
-  }
-
-  /**
    * Solves the Left Hand Violin Neck Support & Grip Frame.
-   * Separates wrist from the neck cradle between thumb web and index knuckle.
    */
   public static solveLeftNeckGripFrame(
     adapter: VRMHumanoidAdapter,
-    neckTargetPos: THREE.Vector3,        // Violin neck underside target
-    violinLongitudinal: THREE.Vector3,   // Axis along fingerboard
-    violinTopNormal: THREE.Vector3       // Strings face normal
+    neckTargetPos: THREE.Vector3,
+    violinLongitudinal: THREE.Vector3,
+    violinTopNormal: THREE.Vector3
   ): { frame: HandInteractionFrame; requiredWristPos: THREE.Vector3 } {
     const metrics = adapter.computeMetrics();
     const handLen = metrics.handLength.left;
 
-    // Discover left landmarks
-    const lThumbProx = adapter.getBoneWorldPosition('leftThumbProximal', new THREE.Vector3());
-    const lIndexProx = adapter.getBoneWorldPosition('leftIndexProximal', new THREE.Vector3());
-
-    // Neck cradle is the V-space between thumb base and index knuckle
-    // The violin rests inside this cradle (NOT at the wrist)
+    // Neck cradle position: under violin neck between thumb web and index base
     const cradlePos = neckTargetPos.clone();
 
-    // Palm direction: Supinated, facing inward toward neck (+X in local violin space) and upward (+Z)
+    // Finger direction: fingers extend forward and arch over fingerboard
+    const desiredFingersDir = violinLongitudinal
+      .clone()
+      .multiplyScalar(0.82)
+      .addScaledVector(violinTopNormal, 0.57)
+      .normalize();
+
+    // Lateral direction towards the player (outer flank of neck)
     const neckSideAxis = new THREE.Vector3().crossVectors(violinLongitudinal, violinTopNormal).normalize();
-    const palmFacing = neckSideAxis.clone().multiplyScalar(0.7).addScaledVector(violinTopNormal, 0.7).normalize();
 
-    // From cradle to wrist:
-    // Wrist sits down and back along the hand longitudinal axis
-    const handLongitudinal = violinLongitudinal.clone().multiplyScalar(-0.4).addScaledVector(violinTopNormal, -0.9).normalize();
-    const requiredWristPos = cradlePos.clone().addScaledVector(handLongitudinal, handLen * 0.75);
+    // Palm normal: faces inward and upward toward strings & neck
+    const desiredPalmNormal = neckSideAxis
+      .clone()
+      .multiplyScalar(0.60)
+      .addScaledVector(violinTopNormal, 0.80)
+      .normalize();
 
-    // Palm center is midway between wrist and cradle
+    // In VRM normalized skeleton for LEFT hand:
+    // col0 (+X): fingers direction
+    // col1 (+Y): back-of-hand (opposite to palm normal)
+    // col2 (+Z): thumb direction
+    const lCol0 = desiredFingersDir.clone().normalize();
+    const lBackOfHand = desiredPalmNormal.clone().negate().normalize();
+    const lCol2 = new THREE.Vector3().crossVectors(lCol0, lBackOfHand).normalize();
+    const lCol1 = new THREE.Vector3().crossVectors(lCol2, lCol0).normalize();
+
+    const leftHandWorldMat = new THREE.Matrix4().makeBasis(lCol0, lCol1, lCol2);
+    const leftHandWorldQuat = new THREE.Quaternion().setFromRotationMatrix(leftHandWorldMat);
+
+    // Required wrist position: backtracked from cradle along hand longitudinal axis
+    const requiredWristPos = cradlePos
+      .clone()
+      .addScaledVector(desiredFingersDir, -handLen * 0.72)
+      .addScaledVector(desiredPalmNormal, -handLen * 0.38);
+
     const palmCenter = new THREE.Vector3().addVectors(requiredWristPos, cradlePos).multiplyScalar(0.5);
 
-    // Grip frame at the neck cradle
-    const gripZ = violinTopNormal.clone();
-    const gripY = violinLongitudinal.clone();
-    const gripX = new THREE.Vector3().crossVectors(gripY, gripZ).normalize();
-
-    const gripMat = new THREE.Matrix4().makeBasis(gripX, gripY, gripZ).setPosition(cradlePos);
-    const gripQuat = new THREE.Quaternion().setFromRotationMatrix(gripMat);
-
-    // Palm transform
-    const palmMat = new THREE.Matrix4().makeBasis(gripX, handLongitudinal, palmFacing).setPosition(palmCenter);
-    const palmQuat = new THREE.Quaternion().setFromRotationMatrix(palmMat);
-
+    // Finger targets for left hand (Part 4: subtle natural progression)
+    // index: slightly extended; middle: curved; ring: curved; little: poised
     const fingerTargets: FingerTargets = {
-      thumbCurl: 0.35,        // Open thumb resting on neck flank
-      thumbOpposition: 0.40,
-      indexCurl: 0.60,        // Arched over string
-      middleCurl: 0.65,
-      ringCurl: 0.70,
-      littleCurl: 0.55,
-      fingerSpread: 0.20,
+      thumbCurl: 0.25,        // Open curved thumb resting gently on neck flank
+      thumbOpposition: 0.45,  // Opposes index knuckle
+      indexCurl: 0.52,        // Slightly extended, poised to press string
+      middleCurl: 0.68,       // Curved naturally over D/A strings
+      ringCurl: 0.72,         // Curved naturally over string
+      littleCurl: 0.60,       // Poised above fingerboard
+      fingerSpread: 0.18,     // Natural string-spacing spread
     };
 
     const frame: HandInteractionFrame = {
       wrist: {
         position: requiredWristPos,
-        quaternion: gripQuat.clone(),
+        quaternion: leftHandWorldQuat.clone(),
         scale: new THREE.Vector3(1, 1, 1),
       },
       palm: {
         position: palmCenter,
-        quaternion: palmQuat,
+        quaternion: leftHandWorldQuat.clone(),
         scale: new THREE.Vector3(1, 1, 1),
       },
       grip: {
         position: cradlePos,
-        quaternion: gripQuat,
+        quaternion: leftHandWorldQuat.clone(),
         scale: new THREE.Vector3(1, 1, 1),
       },
       fingerTargets,
     };
 
     return { frame, requiredWristPos };
+  }
+
+  /**
+   * Solves the Right Hand Bow Grip Frame.
+   */
+  public static solveRightBowGripFrame(
+    adapter: VRMHumanoidAdapter,
+    wristTransform: Transform3D,
+    desiredBowingDirection: THREE.Vector3,
+    violinStringsNormal: THREE.Vector3
+  ): HandInteractionFrame {
+    const metrics = adapter.computeMetrics();
+    const handLen = metrics.handLength.right;
+
+    const rWristPos = wristTransform.position.clone();
+    const bowStickDir = desiredBowingDirection.clone().normalize();
+    const bowUpNormal = violinStringsNormal.clone().normalize();
+
+    // Finger direction: fingers drape across the bow stick and point downward/inward
+    const desiredFingersDir = new THREE.Vector3().crossVectors(bowStickDir, bowUpNormal).normalize();
+
+    // Palm normal: faces down-inward toward frog and hair
+    const desiredPalmNormal = bowUpNormal.clone().negate().normalize();
+
+    // In VRM normalized skeleton for RIGHT hand:
+    // col0 (+X): opposite to fingers direction (-X is fingers)
+    // col1 (+Y): back-of-hand (opposite to palm normal)
+    // col2 (+Z): thumb direction
+    const rCol0 = desiredFingersDir.clone().negate().normalize();
+    const rBackOfHand = desiredPalmNormal.clone().negate().normalize();
+    const rCol2 = new THREE.Vector3().crossVectors(rCol0, rBackOfHand).normalize();
+    const rCol1 = new THREE.Vector3().crossVectors(rCol2, rCol0).normalize();
+
+    const rightHandWorldMat = new THREE.Matrix4().makeBasis(rCol0, rCol1, rCol2);
+    const rightHandWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rightHandWorldMat);
+
+    const palmCenter = rWristPos.clone().addScaledVector(desiredFingersDir, handLen * 0.4);
+    const gripCenter = rWristPos.clone().addScaledVector(desiredFingersDir, handLen * 0.55);
+
+    // Finger targets for right hand (Part 5: classical violin bow hold)
+    const fingerTargets: FingerTargets = {
+      thumbCurl: 0.48,        // Bent thumb opposing middle finger at frog notch
+      thumbOpposition: 0.75,  // Opposes middle finger
+      indexCurl: 0.60,        // Index drapes over stick at intermediate phalanx
+      middleCurl: 0.78,       // Middle finger wraps around frog
+      ringCurl: 0.82,         // Ring finger rests against frog eye
+      littleCurl: 0.45,       // Pinky curved with tip resting on top of stick
+      fingerSpread: 0.16,     // Natural bow-hold spread
+    };
+
+    return {
+      wrist: {
+        position: rWristPos,
+        quaternion: rightHandWorldQuat.clone(),
+        scale: new THREE.Vector3(1, 1, 1),
+      },
+      palm: {
+        position: palmCenter,
+        quaternion: rightHandWorldQuat.clone(),
+        scale: new THREE.Vector3(1, 1, 1),
+      },
+      grip: {
+        position: gripCenter,
+        quaternion: rightHandWorldQuat.clone(),
+        scale: new THREE.Vector3(1, 1, 1),
+      },
+      fingerTargets,
+    };
   }
 }

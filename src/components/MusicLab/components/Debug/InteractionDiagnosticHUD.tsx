@@ -18,11 +18,12 @@ interface InteractionDiagnosticHUDProps {
   visible: boolean;
   onToggleVisible: () => void;
   onRecalculate?: () => void;
+  isPlaying?: boolean;
 }
 
 /**
- * Diagnostic HUD Panel (Section 17)
- * Displays real-time kinematic interaction scores, reach measurements, and joint diagnostics.
+ * Diagnostic HUD Panel (Part 18)
+ * Reports BOTH Target Error and Actual Skeleton Error measured directly from rendered bones.
  * Hard failures are prominently highlighted.
  */
 export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> = ({
@@ -31,6 +32,7 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
   visible,
   onToggleVisible,
   onRecalculate,
+  isPlaying = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -40,7 +42,6 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
   const isExcellent = validation.state === 'excellent';
   const isAcceptable = validation.state === 'acceptable';
   const isQuestionable = validation.state === 'questionable';
-  const isInvalid = validation.state === 'invalid';
 
   const badgeColor = isExcellent
     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
@@ -53,7 +54,7 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
   return (
     <aside
       aria-label="Violin Interaction Diagnostics"
-      className="absolute top-4 left-4 z-30 max-w-sm w-full bg-white/95 dark:bg-[#1A1824]/95 backdrop-blur-md rounded-2xl border border-black/10 dark:border-white/10 shadow-xl overflow-hidden font-sans text-xs transition-all"
+      className="absolute top-4 left-4 z-30 max-w-md w-full bg-white/95 dark:bg-[#1A1824]/95 backdrop-blur-md rounded-2xl border border-black/10 dark:border-white/10 shadow-xl overflow-hidden font-sans text-xs transition-all"
     >
       {/* Header bar */}
       <div className="p-3 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
@@ -62,6 +63,11 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
           <span className="font-bold text-[#25242A] dark:text-[#F4F2F7] tracking-tight">
             VIOLIN INTERACTION
           </span>
+          {isPlaying && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20">
+              MOTION ACTIVE
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -81,7 +87,7 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
 
       {isExpanded && (
         <div className="p-3.5 space-y-3 max-h-[75vh] overflow-y-auto">
-          {/* HARD FAILURES OVERRIDE (Section 17) */}
+          {/* HARD FAILURES OVERRIDE (Part 4, 5, 18) */}
           {validation.hardFailures && validation.hardFailures.length > 0 && (
             <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-[11px] space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-red-600 dark:text-red-400">
@@ -111,6 +117,15 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
             </div>
           )}
 
+          {/* Column Header */}
+          <div className="flex items-center justify-between text-[10px] font-semibold text-[#77747D] uppercase tracking-wider px-1">
+            <span>Contact Check</span>
+            <div className="flex items-center gap-4">
+              <span>Actual Error</span>
+              <span>Target Error</span>
+            </div>
+          </div>
+
           {/* Diagnostic Checks Table */}
           <div className="space-y-1.5">
             {validation.checks.map((check) => (
@@ -127,12 +142,12 @@ export const InteractionDiagnosticHUD: React.FC<InteractionDiagnosticHUDProps> =
                   <span className="font-medium text-[#25242A] dark:text-[#E8E6ED]">{check.label}</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                <div className="flex items-center gap-3 font-mono text-[11px]">
                   <span className={check.passed ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-red-500 font-bold'}>
-                    {check.measurementValue} {check.unit}
+                    {check.actualError} {check.unit}
                   </span>
-                  <span className="text-[10px] text-[#77747D] opacity-60">
-                    ({check.achievedScore}/{check.weight})
+                  <span className="text-[10px] text-[#77747D] opacity-70 w-12 text-right">
+                    {check.targetError} {check.unit}
                   </span>
                 </div>
               </div>

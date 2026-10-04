@@ -140,6 +140,8 @@ export interface ValidationCheck {
   achievedScore: number;
   passed: boolean;
   measurementValue: number;
+  targetError: number; // theoretical target error (mm or deg)
+  actualError: number; // measured from actual rendered VRM bones in world space (mm or deg)
   unit: string;
   threshold: number;
   details: string;
@@ -151,7 +153,7 @@ export type InteractionState = 'excellent' | 'acceptable' | 'questionable' | 'in
  * Interaction Validation Report
  */
 export interface ValidationResult {
-  score: number; // 0 to 100 percentage
+  score: number; // 0 to 100 percentage based on actual rendered skeleton
   state: InteractionState;
   checks: ValidationCheck[];
   leftHandReachMm: number;
@@ -163,6 +165,15 @@ export interface ValidationResult {
   rightElbowValid: boolean;
   hyperextended: boolean;
   hardFailures: string[];
+  actualBoneErrors?: {
+    chinMm: number;
+    leftHandCradleMm: number;
+    rightHandGripMm: number;
+    bowHairMm: number;
+    bowAngleDeg: number;
+    leftElbowDeg: number;
+    rightElbowDeg: number;
+  };
   notes: string[];
 }
 
@@ -177,6 +188,8 @@ export interface InteractionSolution {
   rightArmIK: ArmIKSolution;
   leftHandFrame: HandInteractionFrame;
   rightHandFrame: HandInteractionFrame;
+  leftShoulderRotation?: THREE.Quaternion;
+  rightShoulderRotation?: THREE.Quaternion;
   headRotation: THREE.Quaternion;
   neckRotation: THREE.Quaternion;
   spineRotation: THREE.Quaternion;

@@ -429,6 +429,7 @@ export const MusicLab3DStage: React.FC<MusicLab3DStageProps> = ({
           visible={showDebug}
           onToggleVisible={() => setShowDebug(!showDebug)}
           onRecalculate={handleRecalculate}
+          isPlaying={isPlaying}
         />
 
         {/* =====================================================================

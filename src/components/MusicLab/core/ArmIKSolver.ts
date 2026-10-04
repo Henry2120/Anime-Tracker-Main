@@ -8,12 +8,17 @@ export type ArmSide = 'left' | 'right';
  * Analytical Two-Bone Arm Inverse Kinematics Solver
  * Solves Shoulder -> Upper Arm -> Elbow -> Forearm -> Wrist.
  *
- * CRITICAL HIERARCHY FIX:
- * In a 3D skeletal hierarchy, lowerArm is a child of upperArm, and hand is a child of lowerArm.
- * To achieve the desired world-space orientation on lowerArm and hand, their local quaternions
- * must be multiplied by the inverse of their parent's world quaternion:
- *   qLowerLocal = qUpperWorld⁻¹ * qLowerWorld
- *   qHandLocal = qLowerWorld⁻¹ * qHandWorld
+ * RIGOROUS PARENT-RELATIVE LOCAL ROTATIONS (Part 6 & Part 7):
+ * In 3D skeletal hierarchies:
+ *   worldRotation = parentWorldRotation × localRotation
+ *   localRotation = parentWorldRotation⁻¹ × desiredWorldRotation
+ *
+ * Applied strictly at every joint:
+ *   1. upperArm.quaternion = shoulderWorld⁻¹ × upperArmWorld
+ *   2. lowerArm.quaternion = upperArmWorld⁻¹ × lowerArmWorld
+ *   3. hand.quaternion = lowerArmWorld⁻¹ × handWorld
+ *
+ * Uses dynamic rest bone directions measured from the loaded model instead of fixed axis assumptions.
  */
 export class ArmIKSolver {
   /**
@@ -25,12 +30,15 @@ export class ArmIKSolver {
     targetWristPos: THREE.Vector3,
     upperArmLength: number,
     forearmLength: number,
-    poleDirection: THREE.Vector3
+    poleDirection: THREE.Vector3,
+    parentShoulderWorldQuat: THREE.Quaternion,
+    refUpperArmDir?: THREE.Vector3,
+    refLowerArmDir?: THREE.Vector3
   ): ArmIKSolution {
     const isLeft = side === 'left';
-    // Canonical reference bone vector in standard VRM T-pose:
-    // Left arm extends along +X; right arm extends along -X
-    const refBoneDir = new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
+    // Dynamic rest bone directions (defaults to standard VRM T-pose if not provided)
+    const refUpper = refUpperArmDir ? refUpperArmDir.clone().normalize() : new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
+    const refLower = refLowerArmDir ? refLowerArmDir.clone().normalize() : new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
 
     const D = new THREE.Vector3().subVectors(targetWristPos, shoulderPos);
     const targetDist = D.length();
@@ -87,7 +95,7 @@ export class ArmIKSolver {
 
     // 5. Upper Arm World Rotation Quaternion
     const upperArmDir = new THREE.Vector3().subVectors(elbowPos, shoulderPos).normalize();
-    const upperArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, upperArmDir);
+    const upperArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refUpper, upperArmDir);
 
     // Roll alignment with elbow swivel plane
     const curUp = new THREE.Vector3(0, 1, 0).applyQuaternion(upperArmWorldQuat);
@@ -101,9 +109,11 @@ export class ArmIKSolver {
 
     // 6. Forearm / Lower Arm World Rotation Quaternion
     const lowerArmDir = new THREE.Vector3().subVectors(achievedWristPos, elbowPos).normalize();
-    const lowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refBoneDir, lowerArmDir);
+    const lowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refLower, lowerArmDir);
 
-    // 7. CRITICAL: SKELETAL LOCAL ROTATIONS
+    // 7. RIGOROUS PARENT-RELATIVE LOCAL ROTATIONS (Part 6)
+    // upperArm local rotation is parented to shoulder
+    const upperArmLocalQuat = parentShoulderWorldQuat.clone().invert().multiply(upperArmWorldQuat);
     // lowerArm local rotation is parented to upperArm
     const lowerArmLocalQuat = upperArmWorldQuat.clone().invert().multiply(lowerArmWorldQuat);
 
@@ -111,7 +121,7 @@ export class ArmIKSolver {
     const reachRatio = parseFloat((targetDist / maxReach).toFixed(3));
 
     return {
-      upperArmQuat: upperArmWorldQuat,
+      upperArmQuat: upperArmLocalQuat,
       lowerArmQuat: lowerArmLocalQuat,
       handQuat: new THREE.Quaternion(), // Will be solved relative to lowerArmWorldQuat
       shoulderPos: shoulderPos.clone(),
@@ -128,24 +138,21 @@ export class ArmIKSolver {
   }
 
   /**
-   * Independently solves Wrist and Palm Orientation (Phase 9).
-   * Returns the LOCAL quaternion for the hand bone, relative to lowerArm's world orientation.
+   * Independently solves Wrist and Palm Orientation (Part 6 & Part 10).
+   * Returns the LOCAL quaternion for the hand bone: handLocal = lowerArmWorld⁻¹ × handWorld.
    */
   public static solveHandOrientation(
     side: ArmSide,
     handInteractionFrame: HandInteractionFrame,
     lowerArmWorldQuat: THREE.Quaternion
   ): THREE.Quaternion {
-    // Desired world orientation for the hand
     const targetWorldQuat = handInteractionFrame.grip.quaternion.clone();
-
-    // Hand bone is child of lowerArm: local quat = lowerArmWorld⁻¹ * handWorld
-    const handLocalQuat = lowerArmWorldQuat.clone().invert().multiply(targetWorldQuat);
-    return handLocalQuat;
+    return lowerArmWorldQuat.clone().invert().multiply(targetWorldQuat);
   }
 
   /**
-   * Applies finger joint curls to the character model (Phase 10)
+   * Applies finger joint curls to the character model (Part 10 & Part 16)
+   * Safely ignores any optional finger bones that do not exist.
    */
   public static applyFingerPoses(
     adapter: VRMHumanoidAdapter,

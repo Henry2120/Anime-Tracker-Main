@@ -5,14 +5,21 @@ import { HumanoidMetrics } from './types';
 /**
  * Reusable Humanoid Character Adapter for VRM models.
  * Automatically discovers skeletal bones and derives anatomical proportions dynamically.
- * Never relies on hardcoded heights or bone lengths.
+ *
+ * CRITICAL API COMPLIANCE:
+ * Never calls deprecated `vrm.humanoid.getBoneNode()`.
+ * Uses `getNormalizedBoneNode()` and `getRawBoneNode()`.
+ * Captures true model rest quaternions upon load to support universal rest-pose resetting.
  */
 export class VRMHumanoidAdapter {
   private vrm: VRM;
   private metricsCache: HumanoidMetrics | null = null;
+  private restPoseMap = new Map<VRMHumanBoneName, THREE.Quaternion>();
+  private restBoneDirections = new Map<string, THREE.Vector3>();
 
   constructor(vrm: VRM) {
     this.vrm = vrm;
+    this.captureRestPose();
   }
 
   public getVRM(): VRM {
@@ -20,17 +27,78 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Retrieves normalized bone node if available, otherwise raw bone node
+   * Safe non-deprecated bone node retriever.
+   * Prefers normalized humanoid bone, falls back cleanly to raw bone node.
    */
   public getBoneNode(boneName: VRMHumanBoneName): THREE.Object3D | null {
     if (!this.vrm.humanoid) return null;
     const normalized = this.vrm.humanoid.getNormalizedBoneNode(boneName);
     if (normalized) return normalized;
-    return this.vrm.humanoid.getBoneNode(boneName);
+    return this.vrm.humanoid.getRawBoneNode(boneName);
   }
 
   /**
-   * Retrieves world position of a humanoid bone
+   * Captures the initial rest rotations of all humanoid bones.
+   */
+  private captureRestPose(): void {
+    if (!this.vrm.humanoid) return;
+    this.vrm.scene.updateMatrixWorld(true);
+
+    const allBones: VRMHumanBoneName[] = [
+      'hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
+      'leftShoulder', 'leftUpperArm', 'leftLowerArm', 'leftHand',
+      'rightShoulder', 'rightUpperArm', 'rightLowerArm', 'rightHand',
+      'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+      'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+      'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+      'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+      'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+      'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+      'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+      'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+      'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+      'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+    ];
+
+    allBones.forEach((b) => {
+      const node = this.getBoneNode(b);
+      if (node) {
+        this.restPoseMap.set(b, node.quaternion.clone());
+      }
+    });
+
+    // Compute dynamic canonical rest bone directions (parent -> child)
+    const computeDir = (parentBone: VRMHumanBoneName, childBone: VRMHumanBoneName) => {
+      const pParent = this.getBoneWorldPosition(parentBone);
+      const pChild = this.getBoneWorldPosition(childBone);
+      if (pParent && pChild) {
+        const dir = new THREE.Vector3().subVectors(pChild, pParent).normalize();
+        this.restBoneDirections.set(`${parentBone}_to_${childBone}`, dir);
+      }
+    };
+
+    computeDir('leftUpperArm', 'leftLowerArm');
+    computeDir('leftLowerArm', 'leftHand');
+    computeDir('rightUpperArm', 'rightLowerArm');
+    computeDir('rightLowerArm', 'rightHand');
+  }
+
+  /**
+   * Gets the dynamic canonical rest bone direction measured directly from rest pose.
+   * Defaults to normalized VRM T-pose conventions (+X for left, -X for right) if unavailable.
+   */
+  public getRestBoneDirection(parentBone: VRMHumanBoneName, childBone: VRMHumanBoneName): THREE.Vector3 {
+    const key = `${parentBone}_to_${childBone}`;
+    const cached = this.restBoneDirections.get(key);
+    if (cached) return cached.clone();
+
+    // Fallback: standard VRM normalized T-pose axis
+    const isLeft = parentBone.startsWith('left');
+    return new THREE.Vector3(isLeft ? 1 : -1, 0, 0);
+  }
+
+  /**
+   * Retrieves world position of a humanoid bone.
    */
   public getBoneWorldPosition(boneName: VRMHumanBoneName, target: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 | null {
     const node = this.getBoneNode(boneName);
@@ -40,7 +108,7 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Retrieves world quaternion of a humanoid bone
+   * Retrieves world quaternion of a humanoid bone.
    */
   public getBoneWorldQuaternion(boneName: VRMHumanBoneName, target: THREE.Quaternion = new THREE.Quaternion()): THREE.Quaternion | null {
     const node = this.getBoneNode(boneName);
@@ -50,7 +118,17 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Checks if a bone exists in this humanoid
+   * Retrieves world quaternion of a bone's parent object in Three.js hierarchy.
+   */
+  public getParentWorldQuaternion(boneName: VRMHumanBoneName, target: THREE.Quaternion = new THREE.Quaternion()): THREE.Quaternion {
+    const node = this.getBoneNode(boneName);
+    if (!node || !node.parent) return target.identity();
+    node.parent.updateWorldMatrix(true, false);
+    return node.parent.getWorldQuaternion(target);
+  }
+
+  /**
+   * Checks if a bone exists in this humanoid.
    */
   public hasBone(boneName: VRMHumanBoneName): boolean {
     return Boolean(this.getBoneNode(boneName));
@@ -102,7 +180,6 @@ export class VRMHumanoidAdapter {
     const leftForearmLen = Math.max(0.08, leftLowerArm.distanceTo(leftHand));
     const rightForearmLen = Math.max(0.08, rightLowerArm.distanceTo(rightHand));
 
-    // Hand length: distance from wrist to index/middle knuckle or finger tip
     let leftHandLen = 0.10;
     const leftIndexProx = this.getBoneWorldPosition('leftIndexProximal', tempV);
     if (leftIndexProx) {
@@ -123,9 +200,8 @@ export class VRMHumanoidAdapter {
     const torsoLength = Math.max(0.2, hips.distanceTo(neck));
     const neckLength = Math.max(0.05, neck.distanceTo(head));
 
-    // Head Radius & Chin Target derived dynamically from head and neck
+    // Head Radius & Chin Target derived dynamically
     const headRadius = Math.max(0.08, neckLength * 0.9);
-    // Chin sits below head, forward along face direction
     const chin = head.clone().add(new THREE.Vector3(0, -headRadius * 0.6, headRadius * 0.7));
 
     // Left collarbone shelf (between neck base and left shoulder)
@@ -140,11 +216,10 @@ export class VRMHumanoidAdapter {
     const totalHeight = Math.max(0.5, headTopY - groundY);
     const eyeHeight = head.y + headRadius * 0.2 - groundY;
 
-    // Detect Chibi proportions: large head relative to height or very short limbs
+    // Detect Chibi proportions
     const headToHeightRatio = (headRadius * 2) / totalHeight;
     const isChibi = headToHeightRatio > 0.26 || totalHeight < 1.25;
 
-    // Check finger bone presence
     const hasLeftFingers = this.hasBone('leftIndexProximal') && this.hasBone('leftThumbProximal');
     const hasRightFingers = this.hasBone('rightIndexProximal') && this.hasBone('rightThumbProximal');
 
@@ -203,61 +278,15 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Resets all humanoid bones to their neutral / T-pose identity rotation
+   * Resets all humanoid bones to their initial captured rest pose (Part 15).
    */
   public resetToRestPose(): void {
     if (!this.vrm.humanoid) return;
-    const bones: VRMHumanBoneName[] = [
-      'hips',
-      'spine',
-      'chest',
-      'upperChest',
-      'neck',
-      'head',
-      'leftShoulder',
-      'leftUpperArm',
-      'leftLowerArm',
-      'leftHand',
-      'rightShoulder',
-      'rightUpperArm',
-      'rightLowerArm',
-      'rightHand',
-      'leftThumbMetacarpal',
-      'leftThumbProximal',
-      'leftThumbDistal',
-      'leftIndexProximal',
-      'leftIndexIntermediate',
-      'leftIndexDistal',
-      'leftMiddleProximal',
-      'leftMiddleIntermediate',
-      'leftMiddleDistal',
-      'leftRingProximal',
-      'leftRingIntermediate',
-      'leftRingDistal',
-      'leftLittleProximal',
-      'leftLittleIntermediate',
-      'leftLittleDistal',
-      'rightThumbMetacarpal',
-      'rightThumbProximal',
-      'rightThumbDistal',
-      'rightIndexProximal',
-      'rightIndexIntermediate',
-      'rightIndexDistal',
-      'rightMiddleProximal',
-      'rightMiddleIntermediate',
-      'rightMiddleDistal',
-      'rightRingProximal',
-      'rightRingIntermediate',
-      'rightRingDistal',
-      'rightLittleProximal',
-      'rightLittleIntermediate',
-      'rightLittleDistal',
-    ];
 
-    bones.forEach((name) => {
-      const node = this.getBoneNode(name);
+    this.restPoseMap.forEach((quat, boneName) => {
+      const node = this.getBoneNode(boneName);
       if (node) {
-        node.quaternion.identity();
+        node.quaternion.copy(quat);
       }
     });
 
@@ -265,7 +294,7 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Applies local rotation quaternion to a specific bone
+   * Applies local rotation quaternion to a specific bone.
    */
   public setBoneRotation(boneName: VRMHumanBoneName, quat: THREE.Quaternion): void {
     const node = this.getBoneNode(boneName);
@@ -275,7 +304,7 @@ export class VRMHumanoidAdapter {
   }
 
   /**
-   * Updates world matrix of VRM scene
+   * Updates world matrix of VRM scene.
    */
   public updateWorldMatrix(): void {
     this.vrm.scene.updateMatrixWorld(true);

@@ -4,14 +4,15 @@ import { ArmIKSolver } from './ArmIKSolver';
 import { InteractionSolution } from './types';
 
 /**
- * Simple Performance Layer (Phase 15 & 18)
- * Moves the already-solved, kinematically correct violin playing pose gently:
- * - Down-bow / up-bow stroke along the bow stick axis
- * - Synchronized right arm IK tracking the moving bow frog
- * - Subtle left hand finger vibrato
- * - Subtle musical breathing sway (head & torso)
+ * Performance Animation Engine (Part 11, 15, 17, 18, 19)
  *
- * NEVER breaks physical hand/instrument contacts!
+ * Implements subtle, expressive violin bowing motion:
+ * - Down-bow and up-bow periodic stroke along the bow stick axis.
+ * - Right hand remains attached to the moving frog grip.
+ * - Right arm IK follows the animated stroke using parent-relative local rotations.
+ * - Left hand remains stable in neck cradle with subtle finger vibrato.
+ * - Chinrest remains stable with subtle breathing sway.
+ * - Stops cleanly and resets without cumulative drift.
  */
 export class PerformanceAnimator {
   public static animate(
@@ -24,8 +25,7 @@ export class PerformanceAnimator {
     animatedBowTransform: { position: THREE.Vector3; quaternion: THREE.Quaternion };
     animatedViolinTransform: { position: THREE.Vector3; quaternion: THREE.Quaternion };
   } {
-    if (!isPlaying) {
-      // Static pose
+    if (!isPlaying || !adapter || !baseSolution) {
       ViolinInteractionSolverApplyStatic(adapter, baseSolution);
       return {
         animatedBowTransform: {
@@ -39,57 +39,79 @@ export class PerformanceAnimator {
       };
     }
 
-    // Musical frequency based on tempo
+    // 1. Musical Frequency based on tempo (BASE + OFFSET, no drift)
     const beatFreq = (bpm / 60) * Math.PI; // radians/sec
     const strokePhase = currentTime * beatFreq;
 
-    // 1. Bow Stroke: periodic motion along the bow stick direction (+Y in local bow frame)
+    // 2. Bow Stroke: periodic motion along the bow stick direction (+Y in local bow frame)
     const bowStickDir = new THREE.Vector3(0, 1, 0)
       .applyQuaternion(baseSolution.accessoryTransform.quaternion)
       .normalize();
 
-    // Amplitude ~ 3.5 cm stroke
-    const strokeOffset = Math.sin(strokePhase) * 0.035 * baseSolution.instrumentScale;
+    // Subtle natural bowing stroke ~ 2.8cm along bow stick
+    const strokeOffset = Math.sin(strokePhase) * 0.028 * baseSolution.instrumentScale;
     const animatedBowPos = baseSolution.accessoryTransform.position
       .clone()
       .addScaledVector(bowStickDir, strokeOffset);
 
-    // 2. Right Arm Tracking Bow: moves right wrist with the bow stroke
-    const metrics = adapter.computeMetrics();
+    // 3. Right Arm Tracking: wrist target moves with the bow stroke
     const animatedRightWristTarget = baseSolution.rightArmIK.targetPos
       .clone()
       .addScaledVector(bowStickDir, strokeOffset);
 
-    const rightPoleVec = new THREE.Vector3(0.75, -0.40, 0.50).normalize();
-    const animatedRightArmIK = ArmIKSolver.solveArmIK(
-      'right',
-      metrics.anchors.rightUpperArm,
-      animatedRightWristTarget,
-      metrics.upperArmLength.right,
-      metrics.forearmLength.right,
-      rightPoleVec
-    );
+    // Re-read current right shoulder world position and parent world quaternion
+    const curRightShoulderPos = adapter.getBoneWorldPosition('rightUpperArm', new THREE.Vector3());
+    const parentRightShoulderQuat = adapter.getParentWorldQuaternion('rightUpperArm');
 
-    const rLowerArmDir = new THREE.Vector3()
-      .subVectors(animatedRightArmIK.wristPos, animatedRightArmIK.elbowPos)
-      .normalize();
-    const rLowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(-1, 0, 0), rLowerArmDir);
-    const animatedRightHandQuat = ArmIKSolver.solveHandOrientation(
-      'right',
-      baseSolution.rightHandFrame,
-      rLowerArmWorldQuat
-    );
+    if (curRightShoulderPos) {
+      const refRightUpper = adapter.getRestBoneDirection('rightUpperArm', 'rightLowerArm');
+      const refRightLower = adapter.getRestBoneDirection('rightLowerArm', 'rightHand');
+      const rightPoleVec = new THREE.Vector3(0.75, -0.45, 0.45).normalize();
 
-    // 3. Subtle Left Hand Vibrato
-    const vibratoOsc = Math.sin(currentTime * 30) * 0.08;
+      const animatedRightArmIK = ArmIKSolver.solveArmIK(
+        'right',
+        curRightShoulderPos,
+        animatedRightWristTarget,
+        baseSolution.rightArmIK.shoulderPos.distanceTo(baseSolution.rightArmIK.elbowPos),
+        baseSolution.rightArmIK.elbowPos.distanceTo(baseSolution.rightArmIK.wristPos),
+        rightPoleVec,
+        parentRightShoulderQuat,
+        refRightUpper,
+        refRightLower
+      );
+
+      const rLowerArmDir = new THREE.Vector3()
+        .subVectors(animatedRightArmIK.wristPos, animatedRightArmIK.elbowPos)
+        .normalize();
+      const rLowerArmWorldQuat = new THREE.Quaternion().setFromUnitVectors(refRightLower, rLowerArmDir);
+      const animatedRightHandQuat = ArmIKSolver.solveHandOrientation(
+        'right',
+        baseSolution.rightHandFrame,
+        rLowerArmWorldQuat
+      );
+
+      adapter.setBoneRotation('rightUpperArm', animatedRightArmIK.upperArmQuat);
+      adapter.setBoneRotation('rightLowerArm', animatedRightArmIK.lowerArmQuat);
+      adapter.setBoneRotation('rightHand', animatedRightHandQuat);
+      ArmIKSolver.applyFingerPoses(adapter, 'right', baseSolution.rightHandFrame.fingerTargets);
+    }
+
+    // 4. Subtle Left Hand Vibrato
+    const vibratoOsc = Math.sin(currentTime * 28) * 0.06;
     const vibratoTargets = {
       ...baseSolution.leftHandFrame.fingerTargets,
-      indexCurl: THREE.MathUtils.clamp(baseSolution.leftHandFrame.fingerTargets.indexCurl + vibratoOsc, 0.4, 0.8),
-      middleCurl: THREE.MathUtils.clamp(baseSolution.leftHandFrame.fingerTargets.middleCurl + vibratoOsc * 0.8, 0.4, 0.8),
+      indexCurl: THREE.MathUtils.clamp(baseSolution.leftHandFrame.fingerTargets.indexCurl + vibratoOsc, 0.45, 0.65),
+      middleCurl: THREE.MathUtils.clamp(baseSolution.leftHandFrame.fingerTargets.middleCurl + vibratoOsc * 0.8, 0.55, 0.78),
     };
+    ArmIKSolver.applyFingerPoses(adapter, 'left', vibratoTargets);
 
-    // 4. Subtle Musical Breathing Sway (Head & Torso)
-    const swayAngle = Math.sin(currentTime * (beatFreq * 0.5)) * 0.02; // ~1.1 degrees
+    // Left arm remains rock-solid in cradle
+    adapter.setBoneRotation('leftUpperArm', baseSolution.leftArmIK.upperArmQuat);
+    adapter.setBoneRotation('leftLowerArm', baseSolution.leftArmIK.lowerArmQuat);
+    adapter.setBoneRotation('leftHand', baseSolution.leftArmIK.handQuat);
+
+    // 5. Subtle Musical Sway (Head & Torso)
+    const swayAngle = Math.sin(currentTime * (beatFreq * 0.5)) * 0.012; // ~0.7 degrees
     const animatedSpineRot = baseSolution.spineRotation.clone().multiply(
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), swayAngle * 0.5)
     );
@@ -97,29 +119,20 @@ export class PerformanceAnimator {
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), swayAngle * 0.6)
     );
 
-    // Apply animated transforms to humanoid bones
     adapter.setBoneRotation('spine', animatedSpineRot);
     adapter.setBoneRotation('chest', baseSolution.chestRotation);
     if (adapter.hasBone('upperChest')) {
       adapter.setBoneRotation('upperChest', baseSolution.chestRotation);
     }
-
     adapter.setBoneRotation('neck', baseSolution.neckRotation);
     adapter.setBoneRotation('head', animatedHeadRot);
 
-    // Left arm remains rock-solid in cradle
-    adapter.setBoneRotation('leftUpperArm', baseSolution.leftArmIK.upperArmQuat);
-    adapter.setBoneRotation('leftLowerArm', baseSolution.leftArmIK.lowerArmQuat);
-    adapter.setBoneRotation('leftHand', baseSolution.leftArmIK.handQuat);
-
-    // Right arm moves with bowing stroke
-    adapter.setBoneRotation('rightUpperArm', animatedRightArmIK.upperArmQuat);
-    adapter.setBoneRotation('rightLowerArm', animatedRightArmIK.lowerArmQuat);
-    adapter.setBoneRotation('rightHand', animatedRightHandQuat);
-
-    // Fingers
-    ArmIKSolver.applyFingerPoses(adapter, 'left', vibratoTargets);
-    ArmIKSolver.applyFingerPoses(adapter, 'right', baseSolution.rightHandFrame.fingerTargets);
+    if (baseSolution.leftShoulderRotation && adapter.hasBone('leftShoulder')) {
+      adapter.setBoneRotation('leftShoulder', baseSolution.leftShoulderRotation);
+    }
+    if (baseSolution.rightShoulderRotation && adapter.hasBone('rightShoulder')) {
+      adapter.setBoneRotation('rightShoulder', baseSolution.rightShoulderRotation);
+    }
 
     adapter.updateWorldMatrix();
 
@@ -147,6 +160,13 @@ function ViolinInteractionSolverApplyStatic(
   }
   adapter.setBoneRotation('neck', solution.neckRotation);
   adapter.setBoneRotation('head', solution.headRotation);
+
+  if (solution.leftShoulderRotation && adapter.hasBone('leftShoulder')) {
+    adapter.setBoneRotation('leftShoulder', solution.leftShoulderRotation);
+  }
+  if (solution.rightShoulderRotation && adapter.hasBone('rightShoulder')) {
+    adapter.setBoneRotation('rightShoulder', solution.rightShoulderRotation);
+  }
 
   adapter.setBoneRotation('leftUpperArm', solution.leftArmIK.upperArmQuat);
   adapter.setBoneRotation('leftLowerArm', solution.leftArmIK.lowerArmQuat);
