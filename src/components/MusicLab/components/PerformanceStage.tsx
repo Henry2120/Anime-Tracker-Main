@@ -17,6 +17,8 @@ interface PerformanceStageProps {
   onTogglePlayPause?: () => void;
   className?: string;
   onSelectInstrument?: (instrument: MusicInstrument) => void;
+  stageViewMode?: '2d' | '3d';
+  onStageViewModeChange?: (mode: '2d' | '3d') => void;
 }
 
 export const PerformanceStage: React.FC<PerformanceStageProps> = ({
@@ -30,9 +32,17 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
   onTogglePlayPause,
   className = '',
   onSelectInstrument,
+  stageViewMode: controlledMode,
+  onStageViewModeChange,
 }) => {
   // Toggle between 2D ensemble stage and 3D character viewport (defaults to 3D)
-  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d'>('3d');
+  const [internalMode, setInternalMode] = useState<'2d' | '3d'>('3d');
+  const currentMode = controlledMode ?? internalMode;
+
+  const setMode = (m: '2d' | '3d') => {
+    setInternalMode(m);
+    onStageViewModeChange?.(m);
+  };
 
   // Theme styling for the stage floor, wooden platform, and backdrop
   const stageStyles = {
@@ -140,30 +150,36 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
     return { frontRow: front.length > 0 ? front : back, backRow: front.length > 0 ? back : [], isSolo: false, isDuo: false };
   }, [activeInstruments]);
 
+  // When in 3D Character Viewport mode: Expand to fill full available space
+  if (currentMode === '3d') {
+    return (
+      <div className={`flex-1 min-h-0 w-full h-full flex flex-col ${className}`}>
+        <Character3DViewer
+          theme={theme}
+          className="flex-1 min-h-0 w-full h-full"
+          onReturnToEnsemble={() => setMode('2d')}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full space-y-2">
+    <div className={`w-full flex flex-col space-y-2 ${className}`}>
+      {/* Stage Mode Switcher (2D Mode) */}
       <div className="flex items-center justify-end px-2">
         <div className="inline-flex items-center p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs">
           <button
             type="button"
-            onClick={() => setStageViewMode('3d')}
-            className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              stageViewMode === '3d'
-                ? 'bg-[#7567C7] text-white shadow-xs'
-                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-            }`}
+            onClick={() => setMode('3d')}
+            className="px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer text-[#77747D] hover:text-[#25242A] dark:hover:text-white"
           >
             <Box className="h-3.5 w-3.5" />
-            <span>3D Character Viewport</span>
+            <span>3D Character Studio</span>
           </button>
           <button
             type="button"
-            onClick={() => setStageViewMode('2d')}
-            className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              stageViewMode === '2d'
-                ? 'bg-[#7567C7] text-white shadow-xs'
-                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-            }`}
+            onClick={() => setMode('2d')}
+            className="px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer bg-[#7567C7] text-white shadow-xs"
           >
             <LayoutGrid className="h-3.5 w-3.5" />
             <span>2D Ensemble Stage</span>
@@ -171,85 +187,54 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
         </div>
       </div>
 
-      {stageViewMode === '3d' ? (
-        <Character3DViewer
-          theme={theme}
-          className={className}
-          onReturnToEnsemble={() => setStageViewMode('2d')}
-        />
-      ) : (
-        <div
-          className={`relative w-full rounded-3xl overflow-hidden border ${stageStyles.border} ${stageStyles.backdrop} p-4 sm:p-8 flex flex-col justify-between min-h-[380px] sm:min-h-[460px] shadow-2xl transition-colors duration-500 ${className}`}
-          style={{ boxShadow: stageStyles.stageShadow }}
-        >
-          {/* Diorama Ambient Atmosphere */}
-          <div className="absolute inset-0 pointer-events-none" style={{ background: stageStyles.glow }} />
+      <div
+        className={`relative w-full rounded-3xl overflow-hidden border ${stageStyles.border} ${stageStyles.backdrop} p-4 sm:p-8 flex flex-col justify-between min-h-[380px] sm:min-h-[460px] shadow-2xl transition-colors duration-500`}
+        style={{ boxShadow: stageStyles.stageShadow }}
+      >
+        {/* Diorama Ambient Atmosphere */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: stageStyles.glow }} />
 
-          {/* Top Stage Bar: Live Ensemble & Performance Status */}
-          <div className="relative z-10 flex items-center justify-between gap-3 text-xs mb-3">
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  isPlaying && playingInstruments.size > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-                }`}
-              />
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#25242A] dark:text-[#F4F2F7]">
-                {isPlaying && playingInstruments.size > 0
-                  ? `Concert Performance (${playingInstruments.size} Playing)`
-                  : 'Concert Stage • Ready'}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] font-semibold text-[#77747D] dark:text-[#9E9AA6]">
-                Ensemble: {activeInstruments.length} {activeInstruments.length === 1 ? 'Musician' : 'Musicians'}
-              </span>
-            </div>
+        {/* Top Stage Bar: Live Ensemble & Performance Status */}
+        <div className="relative z-10 flex items-center justify-between gap-3 text-xs mb-3">
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                isPlaying && playingInstruments.size > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              }`}
+            />
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#25242A] dark:text-[#F4F2F7]">
+              {isPlaying && playingInstruments.size > 0
+                ? `Concert Performance (${playingInstruments.size} Playing)`
+                : 'Concert Stage • Ready'}
+            </span>
           </div>
 
-          {/* Main Diorama Stage Floor & Performers Array */}
-          <div className="relative z-10 flex-1 flex flex-col justify-end items-center my-auto pb-4 w-full">
-            {activeInstruments.length === 0 ? (
-              <div className="py-16 text-center text-[#77747D] dark:text-[#9E9AA6] space-y-2">
-                <span className="text-4xl select-none">🎭</span>
-                <p className="text-sm font-semibold">Stage is empty</p>
-                <p className="text-xs">Provide a song above to detect instruments and assemble your band.</p>
-              </div>
-            ) : (
-              <div className="w-full flex flex-col items-center justify-center gap-4 sm:gap-6">
-                {/* Back Row (Drums, Organ, Brass, Bass) */}
-                {backRow.length > 0 && (
-                  <div className="flex flex-wrap items-end justify-center gap-4 sm:gap-8 w-full transform sm:scale-95 origin-bottom opacity-95">
-                    {backRow.map((inst) => {
-                      const isInstPlaying = isPlaying && playingInstruments.has(inst);
-                      const instIntensity = instrumentIntensities[inst] ?? 0.8;
-                      return (
-                        <div
-                          key={`back-${inst}`}
-                          onClick={() => onSelectInstrument?.(inst)}
-                          className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
-                        >
-                          <MusicianFigure
-                            instrumentId={inst}
-                            isPlaying={isInstPlaying}
-                            intensity={instIntensity}
-                            theme={theme}
-                            size={isSolo ? 'large' : 'medium'}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-semibold text-[#77747D] dark:text-[#9E9AA6]">
+              Ensemble: {activeInstruments.length} {activeInstruments.length === 1 ? 'Musician' : 'Musicians'}
+            </span>
+          </div>
+        </div>
 
-                {/* Front Row (Soloists, Vocalist, Lead Guitars, Piano) */}
-                <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-6 w-full">
-                  {frontRow.map((inst) => {
+        {/* Main Diorama Stage Floor & Performers Array */}
+        <div className="relative z-10 flex-1 flex flex-col justify-end items-center my-auto pb-4 w-full">
+          {activeInstruments.length === 0 ? (
+            <div className="py-16 text-center text-[#77747D] dark:text-[#9E9AA6] space-y-2">
+              <span className="text-4xl select-none">🎭</span>
+              <p className="text-sm font-semibold">Stage is empty</p>
+              <p className="text-xs">Provide a song above to detect instruments and assemble your band.</p>
+            </div>
+          ) : (
+            <div className="w-full flex flex-col items-center justify-center gap-4 sm:gap-6">
+              {/* Back Row (Drums, Organ, Brass, Bass) */}
+              {backRow.length > 0 && (
+                <div className="flex flex-wrap items-end justify-center gap-4 sm:gap-8 w-full transform sm:scale-95 origin-bottom opacity-95">
+                  {backRow.map((inst) => {
                     const isInstPlaying = isPlaying && playingInstruments.has(inst);
                     const instIntensity = instrumentIntensities[inst] ?? 0.8;
                     return (
                       <div
-                        key={`front-${inst}`}
+                        key={`back-${inst}`}
                         onClick={() => onSelectInstrument?.(inst)}
                         className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
                       >
@@ -258,47 +243,70 @@ export const PerformanceStage: React.FC<PerformanceStageProps> = ({
                           isPlaying={isInstPlaying}
                           intensity={instIntensity}
                           theme={theme}
-                          size={isSolo ? 'large' : isDuo ? 'medium' : 'medium'}
+                          size={isSolo ? 'large' : 'medium'}
                         />
                       </div>
                     );
                   })}
                 </div>
+              )}
+
+              {/* Front Row (Soloists, Vocalist, Lead Guitars, Piano) */}
+              <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-6 w-full">
+                {frontRow.map((inst) => {
+                  const isInstPlaying = isPlaying && playingInstruments.has(inst);
+                  const instIntensity = instrumentIntensities[inst] ?? 0.8;
+                  return (
+                    <div
+                      key={`front-${inst}`}
+                      onClick={() => onSelectInstrument?.(inst)}
+                      className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                    >
+                      <MusicianFigure
+                        instrumentId={inst}
+                        isPlaying={isInstPlaying}
+                        intensity={instIntensity}
+                        theme={theme}
+                        size={isSolo ? 'large' : isDuo ? 'medium' : 'medium'}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
-
-          {/* Stage Wooden Deck Floor with Quick Status Indicators */}
-          <div
-            className={`relative z-10 w-full h-9 sm:h-12 rounded-2xl ${stageStyles.floor} flex items-center justify-between px-4 sm:px-6 shadow-md`}
-          >
-            <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto py-1 scrollbar-none">
-              {activeInstruments.map((inst) => {
-                const def = getInstrumentDefinition(inst);
-                const isInstPlaying = isPlaying && playingInstruments.has(inst);
-                return (
-                  <span
-                    key={`deck-${inst}`}
-                    className={`text-xs sm:text-sm transition-all duration-200 cursor-pointer ${
-                      isInstPlaying
-                        ? 'scale-125 filter drop-shadow-sm opacity-100'
-                        : 'opacity-40 hover:opacity-80'
-                    }`}
-                    title={`${def.performerTitle} (${def.name}) — ${isInstPlaying ? 'Playing ♪' : 'Resting'}`}
-                    onClick={() => onSelectInstrument?.(inst)}
-                  >
-                    {def.icon}
-                  </span>
-                );
-              })}
             </div>
-
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[#77747D] dark:text-[#9E9AA6] shrink-0 ml-2">
-              Miniature Music Stage
-            </span>
-          </div>
+          )}
         </div>
-      )}
+
+        {/* Stage Wooden Deck Floor with Quick Status Indicators */}
+        <div
+          className={`relative z-10 w-full h-9 sm:h-12 rounded-2xl ${stageStyles.floor} flex items-center justify-between px-4 sm:px-6 shadow-md`}
+        >
+          <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto py-1 scrollbar-none">
+            {activeInstruments.map((inst) => {
+              const def = getInstrumentDefinition(inst);
+              const isInstPlaying = isPlaying && playingInstruments.has(inst);
+              return (
+                <span
+                  key={`deck-${inst}`}
+                  className={`text-xs sm:text-sm transition-all duration-200 cursor-pointer ${
+                    isInstPlaying
+                      ? 'scale-125 filter drop-shadow-sm opacity-100'
+                      : 'opacity-40 hover:opacity-80'
+                  }`}
+                  title={`${def.performerTitle} (${def.name}) — ${isInstPlaying ? 'Playing ♪' : 'Resting'}`}
+                  onClick={() => onSelectInstrument?.(inst)}
+                >
+                  {def.icon}
+                </span>
+              );
+            })}
+          </div>
+
+          <span className="font-mono text-[10px] uppercase tracking-widest text-[#77747D] dark:text-[#9E9AA6] shrink-0 ml-2">
+            Miniature Music Stage
+          </span>
+        </div>
+      </div>
     </div>
   );
 };

@@ -16,6 +16,7 @@ import {
   Check,
   ChevronRight,
   Info,
+  Film,
 } from 'lucide-react';
 import {
   BLUE_ARCHIVE_CHARACTERS,
@@ -366,12 +367,20 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
                       </div>
                     </div>
 
-                    {/* Stats */}
+                    {/* Stats & Animation info */}
                     <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-[#77747D] dark:text-[#A4A1AA] pt-1 border-t border-black/5 dark:border-white/5">
                       <div>Pos X: {char.position.x.toFixed(2)}m</div>
                       <div>Meshes: {char.meshCount}</div>
                       <div>Verts: {(char.vertexCount / 1000).toFixed(1)}k</div>
                     </div>
+
+                    {char.availableAnimations.length > 0 && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#7567C7] dark:text-[#A898F8] font-medium pt-0.5">
+                        <Film className="h-3 w-3 shrink-0" />
+                        <span className="truncate">Clip: {char.currentAnimationName || 'None'}</span>
+                        <span className="opacity-60 text-[9px]">({char.availableAnimations.length} clips)</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}

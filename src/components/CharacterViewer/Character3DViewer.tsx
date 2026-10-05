@@ -15,6 +15,8 @@ import {
   FolderOpen,
   Info,
   Sliders,
+  Play,
+  Film,
 } from 'lucide-react';
 import { AppTheme } from '../../types/theme';
 import { BLUE_ARCHIVE_CHARACTERS, CharacterManifestEntry } from '../../data/blueArchiveCharacters';
@@ -152,35 +154,51 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
 };
 
 /**
- * Camera Auto-Framer for dynamic models of variable heights & counts
+ * Camera Auto-Framer for dynamic models of variable heights & counts (Part 1)
+ * Calculates accurate bounds to frame character from head to feet with comfortable margins.
  */
 const DynamicCameraAutoFramer: React.FC<{
   loadedCharacters: LoadedCharacterInstance[];
   cameraPreset: ViewerCameraPreset;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }> = ({ loadedCharacters, cameraPreset, controlsRef }) => {
-  const { camera } = useThree();
-  const prevCountRef = useRef(0);
+  const { camera, size } = useThree();
 
   const calculateBounds = useCallback(() => {
     if (loadedCharacters.length === 0) {
       return {
         center: new THREE.Vector3(0, 0.75, 0),
+        minY: 0,
+        maxY: 1.5,
+        height: 1.5,
+        width: 0.8,
+        depth: 0.8,
         radius: 1.2,
       };
     }
 
     const collectiveBox = new THREE.Box3();
+    let visibleCount = 0;
+
     loadedCharacters.forEach((char) => {
       if (char.visible && char.scene) {
+        char.scene.updateMatrixWorld(true);
         const charBox = new THREE.Box3().setFromObject(char.scene);
-        collectiveBox.union(charBox);
+        if (!charBox.isEmpty()) {
+          collectiveBox.union(charBox);
+          visibleCount++;
+        }
       }
     });
 
-    if (collectiveBox.isEmpty()) {
+    if (collectiveBox.isEmpty() || visibleCount === 0) {
       return {
         center: new THREE.Vector3(0, 0.75, 0),
+        minY: 0,
+        maxY: 1.5,
+        height: 1.5,
+        width: 0.8,
+        depth: 0.8,
         radius: 1.2,
       };
     }
@@ -190,43 +208,90 @@ const DynamicCameraAutoFramer: React.FC<{
     const sphere = new THREE.Sphere();
     collectiveBox.getBoundingSphere(sphere);
 
+    const height = Math.max(0.4, collectiveBox.max.y - collectiveBox.min.y);
+    const width = Math.max(0.4, collectiveBox.max.x - collectiveBox.min.x);
+    const depth = Math.max(0.4, collectiveBox.max.z - collectiveBox.min.z);
+
     return {
       center,
-      radius: Math.max(0.8, sphere.radius),
+      minY: collectiveBox.min.y,
+      maxY: collectiveBox.max.y,
+      height,
+      width,
+      depth,
+      radius: Math.max(0.6, sphere.radius),
     };
   }, [loadedCharacters]);
 
-  // Adjust camera when preset or loaded characters change
+  // Adjust camera whenever models load, preset changes, or viewport resizes
   useEffect(() => {
-    const { center, radius } = calculateBounds();
-    const distance = radius * 2.2;
+    const { center, minY, height, width, radius } = calculateBounds();
+
+    const persCamera = camera as THREE.PerspectiveCamera;
+    const fovRad = (persCamera.fov * Math.PI) / 180;
+    const aspect = Math.max(0.2, size.width / Math.max(1, size.height));
+
+    // Distance needed to comfortably frame full height with headroom and footroom (35% margin)
+    const distY = (height * 1.35) / (2 * Math.tan(fovRad / 2));
+
+    // Distance needed to comfortably frame full width on narrow/mobile viewports (30% margin)
+    const distX = (width * 1.3) / (2 * Math.tan(fovRad / 2) * aspect);
+
+    // Diagonal clearance
+    const distSphere = radius * 2.2;
+
+    // Use max distance so entire model is completely visible
+    const distance = Math.max(distY, distX, distSphere, 1.8);
+
+    // Vertical target: Center of character body
+    const targetY = minY + height * 0.5;
+    const target = new THREE.Vector3(center.x, targetY, center.z);
 
     const controls = controlsRef.current;
     if (controls) {
-      controls.target.copy(center);
+      controls.target.copy(target);
+      controls.minDistance = 0.3;
+      controls.maxDistance = 25.0;
     }
 
     if (cameraPreset === 'front') {
-      camera.position.set(center.x, center.y, center.z + distance);
+      // Clean frontal view, slight 3-degree elevation so feet and floor circle are visible
+      camera.position.set(center.x, targetY + distance * 0.05, center.z + distance);
     } else if (cameraPreset === 'perspective') {
-      camera.position.set(center.x + distance * 0.75, center.y + distance * 0.35, center.z + distance * 0.85);
+      // Dynamic 3/4 showcase view (26 deg azimuth, 14 deg elevation)
+      const radAzim = 0.45;
+      const radElev = 0.24;
+      camera.position.set(
+        center.x + distance * Math.sin(radAzim) * Math.cos(radElev),
+        targetY + distance * Math.sin(radElev),
+        center.z + distance * Math.cos(radAzim) * Math.cos(radElev)
+      );
     } else if (cameraPreset === 'side') {
-      camera.position.set(center.x + distance, center.y + distance * 0.1, center.z);
+      // 90-degree profile view
+      camera.position.set(center.x + distance, targetY + distance * 0.05, center.z);
     } else if (cameraPreset === 'closeUp') {
-      // Focus on upper half / face
-      const portraitTarget = center.clone().add(new THREE.Vector3(0, radius * 0.3, 0));
+      // Portrait / upper body & halo framing
+      const portraitTargetY = minY + height * 0.72;
+      const portraitTarget = new THREE.Vector3(center.x, portraitTargetY, center.z);
       if (controls) controls.target.copy(portraitTarget);
-      camera.position.set(portraitTarget.x, portraitTarget.y, portraitTarget.z + distance * 0.55);
+
+      const closeDist = Math.max(0.65, (height * 0.5) / (2 * Math.tan(fovRad / 2)));
+      camera.position.set(center.x + closeDist * 0.15, portraitTargetY + 0.05, center.z + closeDist * 0.98);
+      camera.lookAt(portraitTarget);
+      if (controls) controls.update();
+      return;
     } else if (cameraPreset === 'top') {
-      camera.position.set(center.x, center.y + distance * 1.3, center.z + 0.05);
+      // Top down view
+      camera.position.set(center.x, targetY + distance * 1.3, center.z + 0.05);
     }
 
-    camera.lookAt(center);
+    camera.lookAt(target);
+    persCamera.updateProjectionMatrix();
+
     if (controls) {
       controls.update();
     }
-    prevCountRef.current = loadedCharacters.length;
-  }, [loadedCharacters, cameraPreset, camera, controlsRef, calculateBounds]);
+  }, [loadedCharacters, cameraPreset, camera, size.width, size.height, controlsRef, calculateBounds]);
 
   return null;
 };
@@ -256,7 +321,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
-  // Multi-GLB Character Loader
+  // Multi-GLB Character Loader with Animation Support (Parts 2-7)
   const {
     loadedCharacters,
     selectedInstanceId,
@@ -266,6 +331,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     loadingProgress,
     error,
     loadCharacter,
+    playAnimation,
+    togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,
@@ -279,7 +346,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
     // Load first character e.g. "Airi"
     const initial =
-      BLUE_ARCHIVE_CHARACTERS.find((c) => c.name.toLowerCase().includes('airi')) ||
+      BLUE_ARCHIVE_CHARACTERS.find((c) => c.name.toLowerCase() === 'airi') ||
       BLUE_ARCHIVE_CHARACTERS[0];
     if (initial) {
       loadCharacter(initial, { replace: true });
@@ -309,12 +376,12 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
   return (
     <div
-      className={`relative w-full rounded-3xl overflow-hidden border shadow-2xl flex flex-col min-h-[580px] sm:min-h-[660px] select-none ${containerBg} ${className}`}
+      className={`relative w-full h-full min-h-0 flex-1 rounded-2xl sm:rounded-3xl overflow-hidden border shadow-2xl flex flex-col select-none ${containerBg} ${className}`}
     >
       {/* =========================================================================
           TOP CONTROL BAR
           ========================================================================= */}
-      <div className="relative z-20 flex items-center justify-between p-3.5 bg-white/75 dark:bg-[#1A1824]/75 backdrop-blur-md border-b border-black/5 dark:border-white/5">
+      <div className="relative shrink-0 z-20 flex items-center justify-between p-3 sm:p-3.5 bg-white/75 dark:bg-[#1A1824]/75 backdrop-blur-md border-b border-black/5 dark:border-white/5">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -330,6 +397,13 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 <User className="h-3 w-3" />
                 <span>{selectedCharacter.manifestEntry.name}</span>
               </span>
+
+              {selectedCharacter.currentAnimationName && (
+                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1 font-semibold text-[10.5px]">
+                  <Film className="h-3 w-3" />
+                  <span>{selectedCharacter.currentAnimationName}</span>
+                </span>
+              )}
 
               {loadedCharacters.length > 1 && (
                 <span className="px-2 py-0.5 rounded-lg bg-black/5 dark:bg-white/5 text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-1 font-medium">
@@ -367,13 +441,13 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       </div>
 
       {/* =========================================================================
-          3D CANVAS VIEWPORT
+          3D CANVAS VIEWPORT (Part 1: Viewport / Canvas sizing & framing)
           ========================================================================= */}
-      <div className="relative flex-1 w-full h-[520px] sm:h-[600px] bg-radial from-transparent to-black/15">
+      <div className="relative flex-1 min-h-0 w-full h-full bg-radial from-transparent to-black/15 overflow-hidden">
         <Canvas
           shadows
-          camera={{ position: [0.0, 1.2, 2.5], fov: 42, near: 0.1, far: 30 }}
-          className="w-full h-full"
+          camera={{ position: [0.0, 1.2, 2.5], fov: 40, near: 0.1, far: 50 }}
+          style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
             <ViewerEnvironment3D environment={environment} />
@@ -382,8 +456,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               ref={orbitControlsRef}
               enableDamping
               dampingFactor={0.08}
-              minDistance={0.4}
-              maxDistance={8.0}
+              minDistance={0.3}
+              maxDistance={25.0}
               maxPolarAngle={Math.PI / 2 + 0.05}
               target={[0, 0.75, 0]}
             />
@@ -447,10 +521,11 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           </div>
         )}
 
-        {/* Bottom Viewport Toolbar */}
+        {/* Bottom Viewport Toolbar with Dynamic Animation Controls */}
         <CharacterViewerToolbar
           theme={theme}
           loadedCharacters={loadedCharacters}
+          selectedInstanceId={selectedInstanceId}
           cameraPreset={cameraPreset}
           onSelectCameraPreset={setCameraPreset}
           environment={environment}
@@ -461,6 +536,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           onToggleWireframe={() => setShowWireframe(!showWireframe)}
           onOpenBrowser={() => setDrawerOpen(true)}
           onResetCamera={handleResetCamera}
+          onSelectAnimation={playAnimation}
+          onTogglePlayPause={togglePlayPauseAnimation}
         />
 
         {/* 295 Character Roster Browser Drawer */}

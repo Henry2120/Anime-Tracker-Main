@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Box,
+  LayoutGrid,
 } from 'lucide-react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
 import { AppearanceSelector } from '../AppearanceSelector';
@@ -56,6 +58,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
 }) => {
   // Source State
   const [sourceType, setSourceType] = useState<MusicSourceType>('none');
+  const [stageViewMode, setStageViewMode] = useState<'2d' | '3d'>('3d');
   const [youtubeInput, setYoutubeInput] = useState('');
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [youtubeTrack, setYoutubeTrack] = useState<YouTubeTrackInfo | null>(null);
@@ -376,12 +379,12 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
     : 'bg-white/90 border-[#E7E3DF]';
 
   return (
-    <div className={`min-h-screen w-full flex flex-col font-sans transition-colors duration-300 ${containerClasses}`}>
+    <div className={`w-full h-screen min-h-0 flex flex-col font-sans transition-colors duration-300 overflow-hidden ${containerClasses}`}>
       {/* =========================================================================
           MINIMAL HEADER
           ========================================================================= */}
-      <header className={`w-full sticky top-0 z-50 backdrop-blur-md border-b px-4 sm:px-8 py-3 ${headerBg} shadow-2xs`}>
-        <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
+      <header className={`w-full shrink-0 z-50 backdrop-blur-md border-b px-4 sm:px-6 py-2.5 ${headerBg} shadow-2xs`}>
+        <div className="w-full flex items-center justify-between gap-4">
           {/* Left: Return to Anime Tracker */}
           <div className="flex items-center gap-3">
             <button
@@ -406,7 +409,36 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
 
           {/* Right: Theme & Status Badge */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {sourceType !== 'none' && (
+            {/* Viewport Mode Switcher */}
+            <div className="inline-flex items-center p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setStageViewMode('3d')}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  stageViewMode === '3d'
+                    ? 'bg-[#7567C7] text-white shadow-xs'
+                    : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+                }`}
+              >
+                <Box className="h-3.5 w-3.5" />
+                <span>3D Character Studio</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStageViewMode('2d')}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  stageViewMode === '2d'
+                    ? 'bg-[#7567C7] text-white shadow-xs'
+                    : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">2D Ensemble Stage</span>
+                <span className="sm:hidden">2D Stage</span>
+              </button>
+            </div>
+
+            {sourceType !== 'none' && stageViewMode === '2d' && (
               <button
                 type="button"
                 onClick={handleResetSource}
@@ -416,12 +448,6 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
                 <span className="hidden sm:inline">Change Song</span>
               </button>
             )}
-
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#7567C7]/10 text-[#7567C7] dark:text-[#A294EE] border border-[#7567C7]/25 text-[11px] font-bold">
-              <span className="text-xs">🎵</span>
-              <span className="hidden xs:inline">Music Lab</span>
-              <span>Virtual Band</span>
-            </div>
 
             {onThemeChange && (
               <AppearanceSelector
@@ -434,9 +460,37 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
       </header>
 
       {/* =========================================================================
-          MAIN WORKSPACE
+          MAIN WORKSPACE (Full Viewport for 3D Character Studio, Document flow for 2D)
           ========================================================================= */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col space-y-6">
+      {stageViewMode === '3d' ? (
+        <main className="flex-1 min-h-0 w-full h-full flex flex-col p-2 sm:p-3 overflow-hidden">
+          <PerformanceStage
+            activeInstruments={activeInstruments}
+            playingInstruments={playingInstruments}
+            instrumentIntensities={instrumentIntensities}
+            theme={theme}
+            isPlaying={playback.isPlaying}
+            playback={playback}
+            analysisResult={analysisResult}
+            stageViewMode="3d"
+            onStageViewModeChange={setStageViewMode}
+            onTogglePlayPause={() => {
+              if (sourceType === 'local_audio' && audioPlayerRef.current) {
+                if (playback.isPlaying) {
+                  audioPlayerRef.current.pause();
+                } else {
+                  audioPlayerRef.current.play();
+                }
+              } else {
+                setPlayback((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+              }
+            }}
+            onSelectInstrument={handleToggleInstrument}
+            className="flex-1 min-h-0 w-full h-full"
+          />
+        </main>
+      ) : (
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col space-y-6 overflow-y-auto">
         {/* =======================================================================
             SECTION 1: MUSIC SOURCE / INPUT AREA
             ======================================================================= */}
@@ -621,6 +675,8 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
             isPlaying={playback.isPlaying}
             playback={playback}
             analysisResult={analysisResult}
+            stageViewMode="2d"
+            onStageViewModeChange={setStageViewMode}
             onTogglePlayPause={() => {
               if (sourceType === 'local_audio' && audioPlayerRef.current) {
                 if (playback.isPlaying) {
@@ -897,6 +953,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
           </div>
         )}
       </main>
+    )}
     </div>
   );
 };

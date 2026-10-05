@@ -89,18 +89,18 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
         <div className="flex items-center gap-2">
           <span
             className={`text-base sm:text-lg font-bold transition-transform duration-200 group-hover:scale-110 ${
-              currentMode === 'music' ? 'text-[#EC4899]' : 'text-[#7567C7]'
+              currentMode === 'music' ? 'text-[#7567C7]' : 'text-[#7567C7]'
             }`}
           >
-            {currentMode === 'music' ? '🎵' : '✦'}
+            {currentMode === 'music' ? '✨' : '✦'}
           </span>
           <div className="flex flex-col text-left">
             <div className="flex items-center gap-1.5">
               <span className="text-base sm:text-lg font-bold tracking-tight">
-                {currentMode === 'music' ? 'Music Lab' : 'AniVerse'}
+                {currentMode === 'music' ? '3D Character Viewer' : 'AniVerse'}
               </span>
               <span className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden sm:inline-block">
-                {currentMode === 'music' ? '音楽室' : 'アニバース'}
+                {currentMode === 'music' ? '3Dモデル' : 'アニバース'}
               </span>
             </div>
           </div>
@@ -182,7 +182,7 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
           {/* Divider */}
           <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
 
-          {/* Mode 2: Music Lab */}
+          {/* Mode 2: 3D Character Viewer */}
           <button
             type="button"
             role="menuitem"
@@ -190,38 +190,37 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
             onClick={() => handleModeChange('music')}
             className={`w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative ${
               currentMode === 'music'
-                ? 'bg-[#FDF2F8] text-[#EC4899] dark:bg-[#EC4899]/20 dark:text-[#FBCFE8] border border-[#EC4899]/30'
+                ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF] border border-[#7567C7]/30'
                 : 'text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]'
             }`}
           >
             <div
               className={`p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 ${
                 currentMode === 'music'
-                  ? 'bg-gradient-to-br from-[#EC4899] to-[#8B5CF6] text-white shadow-sm'
-                  : 'bg-[#FCE7F3] dark:bg-[#3D1E30] text-[#EC4899]'
+                  ? 'bg-gradient-to-br from-[#7567C7] to-[#8B5CF6] text-white shadow-sm'
+                  : 'bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]'
               }`}
             >
-              <Music2 className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-1">
                 <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
-                  🎵 Music Lab
+                  ✨ 3D Character Viewer
                 </span>
-                <span className="text-[10px] font-bold bg-gradient-to-r from-[#EC4899] to-[#8B5CF6] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
-                  <Sparkles className="h-2.5 w-2.5" />
-                  Experimental
+                <span className="text-[10px] font-bold bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
+                  295 Models
                 </span>
               </div>
               <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
-                Turn music into an atmospheric visual performance & soundstage.
+                Browse, load & inspect 295 Blue Archive 3D GLB character models.
               </p>
-              <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#EC4899] dark:text-[#F472B6] uppercase tracking-wider">
-                <span>Soundstage</span>
+              <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#7567C7] dark:text-[#A898F8] uppercase tracking-wider">
+                <span>Blue Archive</span>
                 <span>•</span>
-                <span>Acoustic Visuals</span>
+                <span>Multi-GLB Engine</span>
                 <span>•</span>
-                <span>Scene Generator</span>
+                <span>Studio Viewport</span>
               </div>
             </div>
           </button>

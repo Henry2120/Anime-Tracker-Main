@@ -1,0 +1,2067 @@
+[
+  {
+    "id": "airi-band",
+    "displayName": "Airi (Band)",
+    "filename": "Airi (Band).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Airi%20(Band).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "airi",
+    "displayName": "Airi",
+    "filename": "Airi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Airi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "akane-bunny-girl",
+    "displayName": "Akane (Bunny Girl)",
+    "filename": "Akane (Bunny Girl).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Akane%20(Bunny%20Girl).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "akane-school-uniform",
+    "displayName": "Akane (School Uniform)",
+    "filename": "Akane (School Uniform).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Akane%20(School%20Uniform).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "akane",
+    "displayName": "Akane",
+    "filename": "Akane.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Akane.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "akari-new-year",
+    "displayName": "Akari (New Year)",
+    "filename": "Akari (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Akari%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "akari",
+    "displayName": "Akari",
+    "filename": "Akari.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Akari.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ako-dress",
+    "displayName": "Ako (Dress)",
+    "filename": "Ako (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ako%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ako",
+    "displayName": "Ako",
+    "filename": "Ako.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ako.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "aoba",
+    "displayName": "Aoba",
+    "filename": "Aoba.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Aoba.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "arisu-battle-carrier",
+    "displayName": "Arisu (Battle) (Carrier)",
+    "filename": "Arisu (Battle) (Carrier).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Arisu%20(Battle)%20(Carrier).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "arisu-battle-scenario",
+    "displayName": "Arisu (Battle) (Scenario)",
+    "filename": "Arisu (Battle) (Scenario).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Arisu%20(Battle)%20(Scenario).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "arisu-battle",
+    "displayName": "Arisu (Battle)",
+    "filename": "Arisu (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Arisu%20(Battle).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "arisu-maid",
+    "displayName": "Arisu (Maid)",
+    "filename": "Arisu (Maid).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Arisu%20(Maid).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "arisu",
+    "displayName": "Arisu",
+    "filename": "Arisu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Arisu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "aru-dress",
+    "displayName": "Aru (Dress)",
+    "filename": "Aru (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Aru%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "aru-new-year",
+    "displayName": "Aru (New Year)",
+    "filename": "Aru (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Aru%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "aru",
+    "displayName": "Aru",
+    "filename": "Aru.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Aru.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "asuna-bunny-girl",
+    "displayName": "Asuna (Bunny Girl)",
+    "filename": "Asuna (Bunny Girl).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Asuna%20(Bunny%20Girl).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "asuna-school-uniform",
+    "displayName": "Asuna (School Uniform)",
+    "filename": "Asuna (School Uniform).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Asuna%20(School%20Uniform).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "asuna",
+    "displayName": "Asuna",
+    "filename": "Asuna.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Asuna.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "atsuko-swimsuit",
+    "displayName": "Atsuko (Swimsuit)",
+    "filename": "Atsuko (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Atsuko%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "atsuko",
+    "displayName": "Atsuko",
+    "filename": "Atsuko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Atsuko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ayane-swimsuit",
+    "displayName": "Ayane (Swimsuit)",
+    "filename": "Ayane (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ayane%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ayane",
+    "displayName": "Ayane",
+    "filename": "Ayane.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ayane.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "azusa-swimsuit",
+    "displayName": "Azusa (Swimsuit)",
+    "filename": "Azusa (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Azusa%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "azusa",
+    "displayName": "Azusa",
+    "filename": "Azusa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Azusa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "cherino-hot-spring",
+    "displayName": "Cherino (Hot Spring)",
+    "filename": "Cherino (Hot Spring).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Cherino%20(Hot%20Spring).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "cherino",
+    "displayName": "Cherino",
+    "filename": "Cherino.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Cherino.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chiaki",
+    "displayName": "Chiaki",
+    "filename": "Chiaki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chiaki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chihiro",
+    "displayName": "Chihiro",
+    "filename": "Chihiro.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chihiro.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chinatsu-hot-spring",
+    "displayName": "Chinatsu (Hot Spring)",
+    "filename": "Chinatsu (Hot Spring).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chinatsu%20(Hot%20Spring).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chinatsu",
+    "displayName": "Chinatsu",
+    "filename": "Chinatsu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chinatsu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chise-swimsuit",
+    "displayName": "Chise (Swimsuit)",
+    "filename": "Chise (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chise%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "chise",
+    "displayName": "Chise",
+    "filename": "Chise.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Chise.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eimi-battle-carrier",
+    "displayName": "Eimi (Battle) (Carrier)",
+    "filename": "Eimi (Battle) (Carrier).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eimi%20(Battle)%20(Carrier).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eimi-battle-scenario",
+    "displayName": "Eimi (Battle) (Scenario)",
+    "filename": "Eimi (Battle) (Scenario).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eimi%20(Battle)%20(Scenario).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eimi-battle",
+    "displayName": "Eimi (Battle)",
+    "filename": "Eimi (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eimi%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eimi-swimsuit",
+    "displayName": "Eimi (Swimsuit)",
+    "filename": "Eimi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eimi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eimi",
+    "displayName": "Eimi",
+    "filename": "Eimi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eimi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "eri",
+    "displayName": "Eri",
+    "filename": "Eri.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Eri.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "erika",
+    "displayName": "Erika",
+    "filename": "Erika.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Erika.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "fubuki-swimsuit",
+    "displayName": "Fubuki (Swimsuit)",
+    "filename": "Fubuki (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Fubuki%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "fubuki",
+    "displayName": "Fubuki",
+    "filename": "Fubuki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Fubuki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "fuuka-new-year",
+    "displayName": "Fuuka (New Year)",
+    "filename": "Fuuka (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Fuuka%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "fuuka",
+    "displayName": "Fuuka",
+    "filename": "Fuuka.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Fuuka.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "fuyu",
+    "displayName": "Fuyu",
+    "filename": "Fuyu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Fuyu.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "hanae-christmas",
+    "displayName": "Hanae (Christmas)",
+    "filename": "Hanae (Christmas).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hanae%20(Christmas).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hanae",
+    "displayName": "Hanae",
+    "filename": "Hanae.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hanae.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hanako-swimsuit",
+    "displayName": "Hanako (Swimsuit)",
+    "filename": "Hanako (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hanako%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hanako",
+    "displayName": "Hanako",
+    "filename": "Hanako.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hanako.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hare-camping",
+    "displayName": "Hare (Camping)",
+    "filename": "Hare (Camping).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hare%20(Camping).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hare",
+    "displayName": "Hare",
+    "filename": "Hare.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hare.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruka-dress",
+    "displayName": "Haruka (Dress)",
+    "filename": "Haruka (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruka%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruka-new-year",
+    "displayName": "Haruka (New Year)",
+    "filename": "Haruka (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruka%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruka",
+    "displayName": "Haruka",
+    "filename": "Haruka.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruka.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruna-new-year",
+    "displayName": "Haruna (New Year)",
+    "filename": "Haruna (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruna%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruna-sportswear",
+    "displayName": "Haruna (Sportswear)",
+    "filename": "Haruna (Sportswear).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruna%20(Sportswear).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "haruna",
+    "displayName": "Haruna",
+    "filename": "Haruna.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Haruna.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hasumi-sportswear",
+    "displayName": "Hasumi (Sportswear)",
+    "filename": "Hasumi (Sportswear).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hasumi%20(Sportswear).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hasumi-swimsuit",
+    "displayName": "Hasumi (Swimsuit)",
+    "filename": "Hasumi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hasumi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hasumi",
+    "displayName": "Hasumi",
+    "filename": "Hasumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hasumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hatsune-miku",
+    "displayName": "Hatsune Miku",
+    "filename": "Hatsune Miku.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hatsune%20Miku.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hibiki-cheerleader",
+    "displayName": "Hibiki (Cheerleader)",
+    "filename": "Hibiki (Cheerleader).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hibiki%20(Cheerleader).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hibiki",
+    "displayName": "Hibiki",
+    "filename": "Hibiki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hibiki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hifumi-swimsuit",
+    "displayName": "Hifumi (Swimsuit)",
+    "filename": "Hifumi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hifumi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hifumi",
+    "displayName": "Hifumi",
+    "filename": "Hifumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hifumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hikari",
+    "displayName": "Hikari",
+    "filename": "Hikari.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hikari.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "himari-battle",
+    "displayName": "Himari (Battle)",
+    "filename": "Himari (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Himari%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "himari",
+    "displayName": "Himari",
+    "filename": "Himari.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Himari.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hina-dress",
+    "displayName": "Hina (Dress)",
+    "filename": "Hina (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hina%20(Dress).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "hina-swimsuit",
+    "displayName": "Hina (Swimsuit)",
+    "filename": "Hina (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hina%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hina",
+    "displayName": "Hina",
+    "filename": "Hina.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hina.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hinata-swimsuit",
+    "displayName": "Hinata (Swimsuit)",
+    "filename": "Hinata (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hinata%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hinata",
+    "displayName": "Hinata",
+    "filename": "Hinata.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hinata.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hiyori-swimsuit",
+    "displayName": "Hiyori (Swimsuit)",
+    "filename": "Hiyori (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hiyori%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hiyori",
+    "displayName": "Hiyori",
+    "filename": "Hiyori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hiyori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hoshino-battle",
+    "displayName": "Hoshino (Battle)",
+    "filename": "Hoshino (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hoshino%20(Battle).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "hoshino-swimsuit",
+    "displayName": "Hoshino (Swimsuit)",
+    "filename": "Hoshino (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hoshino%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "hoshino",
+    "displayName": "Hoshino",
+    "filename": "Hoshino.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hoshino.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ibuki",
+    "displayName": "Ibuki",
+    "filename": "Ibuki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ibuki.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "ichika-swimsuit",
+    "displayName": "Ichika (Swimsuit)",
+    "filename": "Ichika (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ichika%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ichika",
+    "displayName": "Ichika",
+    "filename": "Ichika.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ichika.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "iori-swimsuit",
+    "displayName": "Iori (Swimsuit)",
+    "filename": "Iori (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Iori%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "iori",
+    "displayName": "Iori",
+    "filename": "Iori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Iori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "iroha",
+    "displayName": "Iroha",
+    "filename": "Iroha.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Iroha.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "izumi-new-year",
+    "displayName": "Izumi (New Year)",
+    "filename": "Izumi (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Izumi%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "izumi-swimsuit",
+    "displayName": "Izumi (Swimsuit)",
+    "filename": "Izumi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Izumi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "izumi",
+    "displayName": "Izumi",
+    "filename": "Izumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Izumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "izuna-swimsuit",
+    "displayName": "Izuna (Swimsuit)",
+    "filename": "Izuna (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Izuna%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "izuna",
+    "displayName": "Izuna",
+    "filename": "Izuna.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Izuna.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "junko-new-year",
+    "displayName": "Junko (New Year)",
+    "filename": "Junko (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Junko%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "junko",
+    "displayName": "Junko",
+    "filename": "Junko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Junko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "juri-part-timer",
+    "displayName": "Juri (Part-Timer)",
+    "filename": "Juri (Part-Timer).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Juri%20(Part-Timer).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "juri",
+    "displayName": "Juri",
+    "filename": "Juri.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Juri.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kaede",
+    "displayName": "Kaede",
+    "filename": "Kaede.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kaede.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kaho",
+    "displayName": "Kaho",
+    "filename": "Kaho.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kaho.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kanna-swimsuit",
+    "displayName": "Kanna (Swimsuit)",
+    "filename": "Kanna (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kanna%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kanna",
+    "displayName": "Kanna",
+    "filename": "Kanna.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kanna.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kanoe",
+    "displayName": "Kanoe",
+    "filename": "Kanoe.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kanoe.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "karin-bunny-girl",
+    "displayName": "Karin (Bunny Girl)",
+    "filename": "Karin (Bunny Girl).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Karin%20(Bunny%20Girl).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "karin-school-uniform",
+    "displayName": "Karin (School Uniform)",
+    "filename": "Karin (School Uniform).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Karin%20(School%20Uniform).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "karin",
+    "displayName": "Karin",
+    "filename": "Karin.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Karin.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kasumi",
+    "displayName": "Kasumi",
+    "filename": "Kasumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kasumi.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "kayoko-dress",
+    "displayName": "Kayoko (Dress)",
+    "filename": "Kayoko (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kayoko%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kayoko-new-year",
+    "displayName": "Kayoko (New Year)",
+    "filename": "Kayoko (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kayoko%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kayoko",
+    "displayName": "Kayoko",
+    "filename": "Kayoko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kayoko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kazusa-band",
+    "displayName": "Kazusa (Band)",
+    "filename": "Kazusa (Band).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kazusa%20(Band).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kazusa",
+    "displayName": "Kazusa",
+    "filename": "Kazusa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kazusa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kei-carrier-2",
+    "displayName": "Kei (Carrier 2)",
+    "filename": "Kei (Carrier 2).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei%20(Carrier%202).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kei-carrier",
+    "displayName": "Kei (Carrier)",
+    "filename": "Kei (Carrier).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei%20(Carrier).glb",
+    "fileSize": 131
+  },
+  {
+    "id": "kei-prototype",
+    "displayName": "Kei (Prototype)",
+    "filename": "Kei (Prototype).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei%20(Prototype).glb",
+    "fileSize": 131
+  },
+  {
+    "id": "kei-scenario-1",
+    "displayName": "Kei (Scenario 1)",
+    "filename": "Kei (Scenario 1).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei%20(Scenario%201).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kei-scenario-2",
+    "displayName": "Kei (Scenario 2)",
+    "filename": "Kei (Scenario 2).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei%20(Scenario%202).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kei",
+    "displayName": "Kei",
+    "filename": "Kei.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kei.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kikyou-swimsuit",
+    "displayName": "Kikyou (Swimsuit)",
+    "filename": "Kikyou (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kikyou%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kikyou",
+    "displayName": "Kikyou",
+    "filename": "Kikyou.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kikyou.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "kirara",
+    "displayName": "Kirara",
+    "filename": "Kirara.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kirara.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kirino-swimsuit",
+    "displayName": "Kirino (Swimsuit)",
+    "filename": "Kirino (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kirino%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kirino",
+    "displayName": "Kirino",
+    "filename": "Kirino.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kirino.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kisaki-swimsuit",
+    "displayName": "Kisaki (Swimsuit)",
+    "filename": "Kisaki (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kisaki%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kisaki",
+    "displayName": "Kisaki",
+    "filename": "Kisaki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kisaki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "koharu-swimsuit",
+    "displayName": "Koharu (Swimsuit)",
+    "filename": "Koharu (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Koharu%20(Swimsuit).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "koharu",
+    "displayName": "Koharu",
+    "filename": "Koharu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Koharu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kokona",
+    "displayName": "Kokona",
+    "filename": "Kokona.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kokona.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "konoka",
+    "displayName": "Konoka",
+    "filename": "Konoka.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Konoka.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kotama-camping",
+    "displayName": "Kotama (Camping)",
+    "filename": "Kotama (Camping).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kotama%20(Camping).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kotama",
+    "displayName": "Kotama",
+    "filename": "Kotama.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kotama.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kotori-cheerleader",
+    "displayName": "Kotori (Cheerleader)",
+    "filename": "Kotori (Cheerleader).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kotori%20(Cheerleader).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kotori",
+    "displayName": "Kotori",
+    "filename": "Kotori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kotori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "koyuki-pajama",
+    "displayName": "Koyuki (Pajama)",
+    "filename": "Koyuki (Pajama).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Koyuki%20(Pajama).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "koyuki",
+    "displayName": "Koyuki",
+    "filename": "Koyuki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Koyuki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "kurumi",
+    "displayName": "Kurumi",
+    "filename": "Kurumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Kurumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "maki-camping",
+    "displayName": "Maki (Camping)",
+    "filename": "Maki (Camping).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Maki%20(Camping).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "maki",
+    "displayName": "Maki",
+    "filename": "Maki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Maki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "makoto",
+    "displayName": "Makoto",
+    "filename": "Makoto.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Makoto.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mari-idol",
+    "displayName": "Mari (Idol)",
+    "filename": "Mari (Idol).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mari%20(Idol).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mari-sportswear",
+    "displayName": "Mari (Sportswear)",
+    "filename": "Mari (Sportswear).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mari%20(Sportswear).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mari",
+    "displayName": "Mari",
+    "filename": "Mari.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mari.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "marina-qipao",
+    "displayName": "Marina (Qipao)",
+    "filename": "Marina (Qipao).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Marina%20(Qipao).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "marina",
+    "displayName": "Marina",
+    "filename": "Marina.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Marina.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mashiro-swimsuit",
+    "displayName": "Mashiro (Swimsuit)",
+    "filename": "Mashiro (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mashiro%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mashiro",
+    "displayName": "Mashiro",
+    "filename": "Mashiro.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mashiro.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "material-development-club-member",
+    "displayName": "Material Development Club Member",
+    "filename": "Material Development Club Member.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Material%20Development%20Club%20Member.glb",
+    "fileSize": 131
+  },
+  {
+    "id": "megu",
+    "displayName": "Megu",
+    "filename": "Megu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Megu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "meru",
+    "displayName": "Meru",
+    "filename": "Meru.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Meru.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "michiru-dress",
+    "displayName": "Michiru (Dress)",
+    "filename": "Michiru (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Michiru%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "michiru",
+    "displayName": "Michiru",
+    "filename": "Michiru.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Michiru.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "midori-battle",
+    "displayName": "Midori (Battle)",
+    "filename": "Midori (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Midori%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "midori-maid",
+    "displayName": "Midori (Maid)",
+    "filename": "Midori (Maid).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Midori%20(Maid).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "midori",
+    "displayName": "Midori",
+    "filename": "Midori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Midori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mika-cut-in",
+    "displayName": "Mika (Cut-in)",
+    "filename": "Mika (Cut-in).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mika%20(Cut-in).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mika-swimsuit",
+    "displayName": "Mika (Swimsuit)",
+    "filename": "Mika (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mika%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mika",
+    "displayName": "Mika",
+    "filename": "Mika.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mika.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mimori-swimsuit",
+    "displayName": "Mimori (Swimsuit)",
+    "filename": "Mimori (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mimori%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mimori",
+    "displayName": "Mimori",
+    "filename": "Mimori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mimori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mina",
+    "displayName": "Mina",
+    "filename": "Mina.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mina.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mine-idol",
+    "displayName": "Mine (Idol)",
+    "filename": "Mine (Idol).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mine%20(Idol).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mine",
+    "displayName": "Mine",
+    "filename": "Mine.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mine.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "minori",
+    "displayName": "Minori",
+    "filename": "Minori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Minori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "misaka-mikoto",
+    "displayName": "Misaka Mikoto",
+    "filename": "Misaka Mikoto.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Misaka%20Mikoto.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "misaki-swimsuit",
+    "displayName": "Misaki (Swimsuit)",
+    "filename": "Misaki (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Misaki%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "misaki",
+    "displayName": "Misaki",
+    "filename": "Misaki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Misaki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "miyako-swimsuit",
+    "displayName": "Miyako (Swimsuit)",
+    "filename": "Miyako (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Miyako%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "miyako",
+    "displayName": "Miyako",
+    "filename": "Miyako.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Miyako.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "miyo",
+    "displayName": "Miyo",
+    "filename": "Miyo.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Miyo.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "miyu-swimsuit",
+    "displayName": "Miyu (Swimsuit)",
+    "filename": "Miyu (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Miyu%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "miyu",
+    "displayName": "Miyu",
+    "filename": "Miyu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Miyu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "moe-swimsuit",
+    "displayName": "Moe (Swimsuit)",
+    "filename": "Moe (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Moe%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "moe",
+    "displayName": "Moe",
+    "filename": "Moe.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Moe.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "momiji",
+    "displayName": "Momiji",
+    "filename": "Momiji.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Momiji.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "momoi-battle",
+    "displayName": "Momoi (Battle)",
+    "filename": "Momoi (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Momoi%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "momoi-maid",
+    "displayName": "Momoi (Maid)",
+    "filename": "Momoi (Maid).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Momoi%20(Maid).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "momoi",
+    "displayName": "Momoi",
+    "filename": "Momoi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Momoi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mutsuki-dress",
+    "displayName": "Mutsuki (Dress)",
+    "filename": "Mutsuki (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mutsuki%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mutsuki-new-year",
+    "displayName": "Mutsuki (New Year)",
+    "filename": "Mutsuki (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mutsuki%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "mutsuki",
+    "displayName": "Mutsuki",
+    "filename": "Mutsuki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Mutsuki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nagisa-swimsuit",
+    "displayName": "Nagisa (Swimsuit)",
+    "filename": "Nagisa (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nagisa%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nagisa",
+    "displayName": "Nagisa",
+    "filename": "Nagisa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nagisa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nagusa-cut-in",
+    "displayName": "Nagusa (Cut-in)",
+    "filename": "Nagusa (Cut-in).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nagusa%20(Cut-in).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nagusa-swimsuit",
+    "displayName": "Nagusa (Swimsuit)",
+    "filename": "Nagusa (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nagusa%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nagusa",
+    "displayName": "Nagusa",
+    "filename": "Nagusa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nagusa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "natsu-band-no-weapon",
+    "displayName": "Natsu (Band) (No Weapon)",
+    "filename": "Natsu (Band) (No Weapon).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Natsu%20(Band)%20(No%20Weapon).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "natsu-band",
+    "displayName": "Natsu (Band)",
+    "filename": "Natsu (Band).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Natsu%20(Band).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "natsu",
+    "displayName": "Natsu",
+    "filename": "Natsu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Natsu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "neru-bunny-girl",
+    "displayName": "Neru (Bunny Girl)",
+    "filename": "Neru (Bunny Girl).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Neru%20(Bunny%20Girl).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "neru-school-uniform",
+    "displayName": "Neru (School Uniform)",
+    "filename": "Neru (School Uniform).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Neru%20(School%20Uniform).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "neru",
+    "displayName": "Neru",
+    "filename": "Neru.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Neru.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "niko",
+    "displayName": "Niko",
+    "filename": "Niko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Niko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "niya",
+    "displayName": "Niya",
+    "filename": "Niya.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Niya.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "noa-pajama",
+    "displayName": "Noa (Pajama)",
+    "filename": "Noa (Pajama).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Noa%20(Pajama).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "noa",
+    "displayName": "Noa",
+    "filename": "Noa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Noa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nodoka-hot-spring",
+    "displayName": "Nodoka (Hot Spring)",
+    "filename": "Nodoka (Hot Spring).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nodoka%20(Hot%20Spring).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nodoka",
+    "displayName": "Nodoka",
+    "filename": "Nodoka.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nodoka.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nonomi-swimsuit",
+    "displayName": "Nonomi (Swimsuit)",
+    "filename": "Nonomi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nonomi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nonomi",
+    "displayName": "Nonomi",
+    "filename": "Nonomi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nonomi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "nozomi",
+    "displayName": "Nozomi",
+    "filename": "Nozomi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Nozomi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "otogi",
+    "displayName": "Otogi",
+    "filename": "Otogi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Otogi.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "pina-guide",
+    "displayName": "Pina (Guide)",
+    "filename": "Pina (Guide).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Pina%20(Guide).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "pina",
+    "displayName": "Pina",
+    "filename": "Pina.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Pina.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rabu",
+    "displayName": "Rabu",
+    "filename": "Rabu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rabu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rei",
+    "displayName": "Rei",
+    "filename": "Rei.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rei.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "reijo",
+    "displayName": "Reijo",
+    "filename": "Reijo.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Reijo.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "reisa-magical",
+    "displayName": "Reisa (Magical)",
+    "filename": "Reisa (Magical).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Reisa%20(Magical).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "reisa",
+    "displayName": "Reisa",
+    "filename": "Reisa.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Reisa.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rena",
+    "displayName": "Rena",
+    "filename": "Rena.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rena.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "renge-swimsuit",
+    "displayName": "Renge (Swimsuit)",
+    "filename": "Renge (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Renge%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "renge",
+    "displayName": "Renge",
+    "filename": "Renge.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Renge.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rio-battle-scenario",
+    "displayName": "Rio (Battle) (Scenario)",
+    "filename": "Rio (Battle) (Scenario).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rio%20(Battle)%20(Scenario).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rio-battle",
+    "displayName": "Rio (Battle)",
+    "filename": "Rio (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rio%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rio",
+    "displayName": "Rio",
+    "filename": "Rio.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rio.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ritsu",
+    "displayName": "Ritsu",
+    "filename": "Ritsu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ritsu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "rumi",
+    "displayName": "Rumi",
+    "filename": "Rumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Rumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saki-swimsuit",
+    "displayName": "Saki (Swimsuit)",
+    "filename": "Saki (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saki%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saki",
+    "displayName": "Saki",
+    "filename": "Saki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sakurako-idol",
+    "displayName": "Sakurako (Idol)",
+    "filename": "Sakurako (Idol).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sakurako%20(Idol).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sakurako",
+    "displayName": "Sakurako",
+    "filename": "Sakurako.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sakurako.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saori-dress-cafe",
+    "displayName": "Saori (Dress) (Cafe)",
+    "filename": "Saori (Dress) (Cafe).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saori%20(Dress)%20(Cafe).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saori-dress",
+    "displayName": "Saori (Dress)",
+    "filename": "Saori (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saori%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saori-swimsuit",
+    "displayName": "Saori (Swimsuit)",
+    "filename": "Saori (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saori%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saori",
+    "displayName": "Saori",
+    "filename": "Saori.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saori.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saten-ruiko",
+    "displayName": "Saten Ruiko",
+    "filename": "Saten Ruiko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saten%20Ruiko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "satsuki",
+    "displayName": "Satsuki",
+    "filename": "Satsuki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Satsuki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saya-casual",
+    "displayName": "Saya (Casual)",
+    "filename": "Saya (Casual).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saya%20(Casual).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "saya",
+    "displayName": "Saya",
+    "filename": "Saya.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Saya.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "seia-swimsuit",
+    "displayName": "Seia (Swimsuit)",
+    "filename": "Seia (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Seia%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "seia",
+    "displayName": "Seia",
+    "filename": "Seia.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Seia.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sena-casual",
+    "displayName": "Sena (Casual)",
+    "filename": "Sena (Casual).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sena%20(Casual).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sena",
+    "displayName": "Sena",
+    "filename": "Sena.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sena.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "serika-new-year",
+    "displayName": "Serika (New Year)",
+    "filename": "Serika (New Year).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Serika%20(New%20Year).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "serika-swimsuit",
+    "displayName": "Serika (Swimsuit)",
+    "filename": "Serika (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Serika%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "serika",
+    "displayName": "Serika",
+    "filename": "Serika.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Serika.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "serina-christmas",
+    "displayName": "Serina (Christmas)",
+    "filename": "Serina (Christmas).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Serina%20(Christmas).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "serina",
+    "displayName": "Serina",
+    "filename": "Serina.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Serina.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shigure-hot-spring",
+    "displayName": "Shigure (Hot Spring)",
+    "filename": "Shigure (Hot Spring).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shigure%20(Hot%20Spring).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shigure",
+    "displayName": "Shigure",
+    "filename": "Shigure.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shigure.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shimiko",
+    "displayName": "Shimiko",
+    "filename": "Shimiko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shimiko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shiroko-riding",
+    "displayName": "Shiroko (Riding)",
+    "filename": "Shiroko (Riding).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shiroko%20(Riding).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shiroko-swimsuit",
+    "displayName": "Shiroko (Swimsuit)",
+    "filename": "Shiroko (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shiroko%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shiroko",
+    "displayName": "Shiroko",
+    "filename": "Shiroko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shiroko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shiroko-terror",
+    "displayName": "Shiroko＊Terror",
+    "filename": "Shiroko＊Terror.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shiroko%EF%BC%8ATerror.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shizuko-swimsuit",
+    "displayName": "Shizuko (Swimsuit)",
+    "filename": "Shizuko (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shizuko%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shizuko",
+    "displayName": "Shizuko",
+    "filename": "Shizuko.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shizuko.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shokuhou-misaki",
+    "displayName": "Shokuhou Misaki",
+    "filename": "Shokuhou Misaki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shokuhou%20Misaki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shun-kid",
+    "displayName": "Shun (Kid)",
+    "filename": "Shun (Kid).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shun%20(Kid).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shun-swimsuit-1",
+    "displayName": "Shun (Swimsuit) (1)",
+    "filename": "Shun (Swimsuit) (1).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shun%20(Swimsuit)%20(1).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shun-swimsuit-2",
+    "displayName": "Shun (Swimsuit) (2)",
+    "filename": "Shun (Swimsuit) (2).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shun%20(Swimsuit)%20(2).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shun",
+    "displayName": "Shun",
+    "filename": "Shun.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Shun.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "subaru",
+    "displayName": "Subaru",
+    "filename": "Subaru.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Subaru.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "sumire-part-timer",
+    "displayName": "Sumire (Part-Timer)",
+    "filename": "Sumire (Part-Timer).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sumire%20(Part-Timer).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sumire",
+    "displayName": "Sumire",
+    "filename": "Sumire.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Sumire.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "suzumi-magical",
+    "displayName": "Suzumi (Magical)",
+    "filename": "Suzumi (Magical).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Suzumi%20(Magical).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "suzumi",
+    "displayName": "Suzumi",
+    "filename": "Suzumi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Suzumi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "takane",
+    "displayName": "Takane",
+    "filename": "Takane.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Takane.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "toki-battle-scenario",
+    "displayName": "Toki (Battle) (Scenario)",
+    "filename": "Toki (Battle) (Scenario).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Toki%20(Battle)%20(Scenario).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "toki-battle",
+    "displayName": "Toki (Battle)",
+    "filename": "Toki (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Toki%20(Battle).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "toki-bunny-girl",
+    "displayName": "Toki (Bunny Girl)",
+    "filename": "Toki (Bunny Girl).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Toki%20(Bunny%20Girl).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "toki-cafe",
+    "displayName": "Toki (Cafe)",
+    "filename": "Toki (Cafe).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Toki%20(Cafe).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "toki",
+    "displayName": "Toki",
+    "filename": "Toki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Toki.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "tomoe-qipao",
+    "displayName": "Tomoe (Qipao)",
+    "filename": "Tomoe (Qipao).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tomoe%20(Qipao).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tomoe",
+    "displayName": "Tomoe",
+    "filename": "Tomoe.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tomoe.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tsubaki-guide",
+    "displayName": "Tsubaki (Guide)",
+    "filename": "Tsubaki (Guide).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsubaki%20(Guide).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tsubaki",
+    "displayName": "Tsubaki",
+    "filename": "Tsubaki.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsubaki.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tsukuyo-dress",
+    "displayName": "Tsukuyo (Dress)",
+    "filename": "Tsukuyo (Dress).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsukuyo%20(Dress).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tsukuyo",
+    "displayName": "Tsukuyo",
+    "filename": "Tsukuyo.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsukuyo.glb",
+    "fileSize": 133
+  },
+  {
+    "id": "tsurugi-swimsuit",
+    "displayName": "Tsurugi (Swimsuit)",
+    "filename": "Tsurugi (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsurugi%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "tsurugi",
+    "displayName": "Tsurugi",
+    "filename": "Tsurugi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Tsurugi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ui-swimsuit",
+    "displayName": "Ui (Swimsuit)",
+    "filename": "Ui (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ui%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ui",
+    "displayName": "Ui",
+    "filename": "Ui.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Ui.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "umika",
+    "displayName": "Umika",
+    "filename": "Umika.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Umika.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "utaha-cheerleader",
+    "displayName": "Utaha (Cheerleader)",
+    "filename": "Utaha (Cheerleader).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Utaha%20(Cheerleader).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "utaha",
+    "displayName": "Utaha",
+    "filename": "Utaha.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Utaha.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "wakamo-swimsuit",
+    "displayName": "Wakamo (Swimsuit)",
+    "filename": "Wakamo (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Wakamo%20(Swimsuit).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "wakamo",
+    "displayName": "Wakamo",
+    "filename": "Wakamo.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Wakamo.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yakumo",
+    "displayName": "Yakumo",
+    "filename": "Yakumo.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yakumo.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yoshimi-band",
+    "displayName": "Yoshimi (Band)",
+    "filename": "Yoshimi (Band).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yoshimi%20(Band).glb",
+    "fileSize": 133
+  },
+  {
+    "id": "yoshimi",
+    "displayName": "Yoshimi",
+    "filename": "Yoshimi.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yoshimi.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yukari-swimsuit",
+    "displayName": "Yukari (Swimsuit)",
+    "filename": "Yukari (Swimsuit).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yukari%20(Swimsuit).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yukari",
+    "displayName": "Yukari",
+    "filename": "Yukari.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yukari.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuuka-pajama",
+    "displayName": "Yuuka (Pajama)",
+    "filename": "Yuuka (Pajama).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuuka%20(Pajama).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuuka-sportswear",
+    "displayName": "Yuuka (Sportswear)",
+    "filename": "Yuuka (Sportswear).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuuka%20(Sportswear).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuuka",
+    "displayName": "Yuuka",
+    "filename": "Yuuka.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuuka.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuzu-battle-carrier",
+    "displayName": "Yuzu (Battle) (Carrier)",
+    "filename": "Yuzu (Battle) (Carrier).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuzu%20(Battle)%20(Carrier).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuzu-battle-cut-in",
+    "displayName": "Yuzu (Battle) (Cut-in)",
+    "filename": "Yuzu (Battle) (Cut-in).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuzu%20(Battle)%20(Cut-in).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuzu-battle",
+    "displayName": "Yuzu (Battle)",
+    "filename": "Yuzu (Battle).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuzu%20(Battle).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuzu-maid",
+    "displayName": "Yuzu (Maid)",
+    "filename": "Yuzu (Maid).glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuzu%20(Maid).glb",
+    "fileSize": 132
+  },
+  {
+    "id": "yuzu",
+    "displayName": "Yuzu",
+    "filename": "Yuzu.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Yuzu.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "ladies-biker-ar",
+    "displayName": "Ladies Biker Ar",
+    "filename": "ladies_biker_ar.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/ladies_biker_ar.glb",
+    "fileSize": 129
+  },
+  {
+    "id": "ladies-biker-mg",
+    "displayName": "Ladies Biker Mg",
+    "filename": "ladies_biker_mg.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/ladies_biker_mg.glb",
+    "fileSize": 129
+  },
+  {
+    "id": "ladies-biker-sg",
+    "displayName": "Ladies Biker Sg",
+    "filename": "ladies_biker_sg.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/ladies_biker_sg.glb",
+    "fileSize": 129
+  },
+  {
+    "id": "ladiesboss-biker-ar",
+    "displayName": "Ladiesboss Biker Ar",
+    "filename": "ladiesboss_biker_ar.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/ladiesboss_biker_ar.glb",
+    "fileSize": 129
+  },
+  {
+    "id": "sm030001",
+    "displayName": "SM030001",
+    "filename": "sm030001.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/sm030001.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "sm032601",
+    "displayName": "SM032601",
+    "filename": "sm032601.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/sm032601.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "st0004",
+    "displayName": "ST0004",
+    "filename": "st0004.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/st0004.glb",
+    "fileSize": 130
+  },
+  {
+    "id": "st0005",
+    "displayName": "ST0005",
+    "filename": "st0005.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/st0005.glb",
+    "fileSize": 130
+  }
+]

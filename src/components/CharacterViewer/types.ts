@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
 
+export interface CharacterAnimationInfo {
+  name: string;
+  duration: number;
+}
+
 export interface LoadedCharacterInstance {
   id: string; // Unique instance ID
   characterId: string; // Manifest ID
@@ -16,6 +21,14 @@ export interface LoadedCharacterInstance {
   centerOffset: THREE.Vector3;
   vertexCount: number;
   meshCount: number;
+
+  // Animation system per character instance
+  animations: THREE.AnimationClip[];
+  availableAnimations: CharacterAnimationInfo[];
+  mixer: THREE.AnimationMixer;
+  currentAction: THREE.AnimationAction | null;
+  currentAnimationName: string | null;
+  isPlayingAnimation: boolean;
 }
 
 export type ViewerCameraPreset = 'front' | 'perspective' | 'side' | 'closeUp' | 'top';

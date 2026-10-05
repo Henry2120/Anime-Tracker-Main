@@ -2,12 +2,21 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
-import { LoadedCharacterInstance } from './types';
+import { LoadedCharacterInstance, CharacterAnimationInfo } from './types';
 
 /**
- * Deeply disposes a Three.js Object3D hierarchy (geometries, materials, textures)
+ * Deeply disposes a Three.js Object3D hierarchy and associated AnimationMixer
  */
-export function disposeHierarchy(root: THREE.Object3D) {
+export function disposeHierarchy(root: THREE.Object3D, mixer?: THREE.AnimationMixer) {
+  if (mixer) {
+    mixer.stopAllAction();
+    try {
+      mixer.uncacheRoot(root);
+    } catch {
+      // Ignore if root was already uncached
+    }
+  }
+
   root.traverse((obj) => {
     if ((obj as THREE.Mesh).isMesh) {
       const mesh = obj as THREE.Mesh;
@@ -47,7 +56,7 @@ export function useCharacterLoader() {
   useEffect(() => {
     return () => {
       loadedCharactersRef.current.forEach((char) => {
-        disposeHierarchy(char.scene);
+        disposeHierarchy(char.scene, char.mixer);
       });
       loadedCharactersRef.current = [];
     };
@@ -135,7 +144,7 @@ export function useCharacterLoader() {
                 } else {
                   // Offset based on existing character count
                   const count = loadedCharactersRef.current.length;
-                  const xOffset = count % 2 === 1 ? (Math.ceil(count / 2) * 1.1) : -(Math.ceil(count / 2) * 1.1);
+                  const xOffset = count % 2 === 1 ? Math.ceil(count / 2) * 1.1 : -(Math.ceil(count / 2) * 1.1);
                   initialPos = new THREE.Vector3(xOffset, 0, 0);
                 }
               }
@@ -147,6 +156,66 @@ export function useCharacterLoader() {
               // Position inner scene with grounding offset
               scene.position.copy(centerOffset);
               instanceGroup.add(scene);
+
+              // =========================================================================
+              // ANIMATION DISCOVERY & ANIMATION MIXER SETUP (Part 3, 4, 5, 9)
+              // =========================================================================
+              const animations: THREE.AnimationClip[] = gltf.animations || [];
+              const availableAnimations: CharacterAnimationInfo[] = animations.map((clip) => ({
+                name: clip.name,
+                duration: parseFloat(clip.duration.toFixed(2)),
+              }));
+
+              // Development / Debugging output (Part 3)
+              console.log(
+                '[Blue Archive Viewer] Animation clips:',
+                availableAnimations
+              );
+
+              // Create independent AnimationMixer for this character (Part 4)
+              const mixer = new THREE.AnimationMixer(scene);
+
+              // Search for Cafe_Reaction (Part 5)
+              let currentAction: THREE.AnimationAction | null = null;
+              let currentAnimationName: string | null = null;
+
+              const cafeClip = THREE.AnimationClip.findByName(animations, 'Cafe_Reaction');
+
+              if (cafeClip) {
+                currentAction = mixer.clipAction(cafeClip);
+                currentAction.reset();
+                currentAction.setLoop(THREE.LoopRepeat, Infinity);
+                currentAction.play();
+                currentAnimationName = 'Cafe_Reaction';
+
+                // Debug output format (Part 9)
+                console.log(
+                  `[Blue Archive Viewer]\n` +
+                    `Model: ${entry.filename}\n` +
+                    `Animations: ${animations.length}\n` +
+                    `Cafe_Reaction: FOUND\n` +
+                    `Default animation: Cafe_Reaction\n` +
+                    `Mixer: created`
+                );
+              } else {
+                // Fail gracefully if Cafe_Reaction is missing, play first available clip if present
+                if (animations.length > 0) {
+                  const fallbackClip = animations[0];
+                  currentAction = mixer.clipAction(fallbackClip);
+                  currentAction.reset();
+                  currentAction.setLoop(THREE.LoopRepeat, Infinity);
+                  currentAction.play();
+                  currentAnimationName = fallbackClip.name;
+                }
+
+                // Debug output format (Part 9)
+                console.log(
+                  `[Blue Archive Viewer]\n` +
+                    `Model: ${entry.filename}\n` +
+                    `Cafe_Reaction: NOT FOUND\n` +
+                    `Available animations: ${animations.map((a) => a.name).join(', ') || 'none'}`
+                );
+              }
 
               const newInstance: LoadedCharacterInstance = {
                 id: `instance-${entry.id}-${Date.now()}`,
@@ -163,12 +232,18 @@ export function useCharacterLoader() {
                 centerOffset,
                 vertexCount,
                 meshCount,
+                animations,
+                availableAnimations,
+                mixer,
+                currentAction,
+                currentAnimationName,
+                isPlayingAnimation: currentAction !== null,
               };
 
               setLoadedCharacters((prev) => {
                 if (options.replace) {
-                  // Dispose old characters
-                  prev.forEach((p) => disposeHierarchy(p.scene));
+                  // Dispose old characters & mixers
+                  prev.forEach((p) => disposeHierarchy(p.scene, p.mixer));
                   return [newInstance];
                 } else {
                   return [...prev, newInstance];
@@ -213,13 +288,67 @@ export function useCharacterLoader() {
   );
 
   /**
+   * Reusable animation playback function (Part 6 & 7)
+   */
+  const playAnimation = useCallback((instanceId: string, animationName: string) => {
+    setLoadedCharacters((prev) =>
+      prev.map((char) => {
+        if (char.id !== instanceId) return char;
+
+        const clip = THREE.AnimationClip.findByName(char.animations, animationName);
+        if (!clip) {
+          console.warn(`[Blue Archive Viewer] Animation "${animationName}" not found in model ${char.manifestEntry.name}`);
+          return char;
+        }
+
+        const prevAction = char.currentAction;
+        const nextAction = char.mixer.clipAction(clip);
+        nextAction.reset();
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+
+        if (prevAction && prevAction !== nextAction) {
+          prevAction.fadeOut(0.25);
+          nextAction.fadeIn(0.25);
+        }
+        nextAction.play();
+
+        return {
+          ...char,
+          currentAction: nextAction,
+          currentAnimationName: animationName,
+          isPlayingAnimation: true,
+        };
+      })
+    );
+  }, []);
+
+  /**
+   * Toggle play / pause for character's current animation
+   */
+  const togglePlayPauseAnimation = useCallback((instanceId: string) => {
+    setLoadedCharacters((prev) =>
+      prev.map((char) => {
+        if (char.id !== instanceId || !char.currentAction) return char;
+
+        const isPaused = char.currentAction.paused;
+        char.currentAction.paused = !isPaused;
+
+        return {
+          ...char,
+          isPlayingAnimation: isPaused,
+        };
+      })
+    );
+  }, []);
+
+  /**
    * Remove a single loaded character instance and dispose its resources
    */
   const removeCharacter = useCallback((instanceId: string) => {
     setLoadedCharacters((prev) => {
       const target = prev.find((c) => c.id === instanceId);
       if (target) {
-        disposeHierarchy(target.scene);
+        disposeHierarchy(target.scene, target.mixer);
       }
       const remaining = prev.filter((c) => c.id !== instanceId);
       if (selectedInstanceId === instanceId) {
@@ -234,7 +363,7 @@ export function useCharacterLoader() {
    */
   const clearCharacters = useCallback(() => {
     setLoadedCharacters((prev) => {
-      prev.forEach((c) => disposeHierarchy(c.scene));
+      prev.forEach((c) => disposeHierarchy(c.scene, c.mixer));
       return [];
     });
     setSelectedInstanceId(null);
@@ -278,6 +407,8 @@ export function useCharacterLoader() {
     loadingProgress,
     error,
     loadCharacter,
+    playAnimation,
+    togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,

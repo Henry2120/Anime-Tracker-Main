@@ -1723,7 +1723,7 @@ export default function App() {
   // If in Music Lab mode and Music Lab is enabled, render the dedicated atmospheric Music Lab world
   if (MUSIC_LAB_ENABLED && appMode === 'music' && MusicLabView) {
     return (
-      <div className={`w-full min-h-screen ${isEffectiveDark ? 'dark' : ''}`}>
+      <div className={`w-full h-screen min-h-0 flex flex-col overflow-hidden ${isEffectiveDark ? 'dark' : ''}`}>
         <ViewErrorBoundary
           viewName="Music Lab"
           onReset={() => setAppMode('anime')}

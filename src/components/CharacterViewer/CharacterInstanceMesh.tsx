@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { LoadedCharacterInstance } from './types';
 
 interface CharacterInstanceMeshProps {
@@ -18,6 +19,18 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   receiveShadow = true,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
+
+  // =========================================================================
+  // ANIMATION MIXER FRAME UPDATE (Part 4)
+  // Each character instance updates its own independent mixer using delta time
+  // =========================================================================
+  useFrame((_, delta) => {
+    if (instance.mixer && instance.visible) {
+      // Clamp delta to avoid huge time jumps when switching tabs
+      const safeDelta = Math.min(delta, 0.1);
+      instance.mixer.update(safeDelta);
+    }
+  });
 
   // Synchronize wireframe & shadow settings
   useEffect(() => {

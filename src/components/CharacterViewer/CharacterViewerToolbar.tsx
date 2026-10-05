@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Camera,
   Layers,
@@ -7,9 +7,10 @@ import {
   Sparkles,
   UserPlus,
   RotateCcw,
-  Sliders,
-  Eye,
-  Maximize2,
+  Play,
+  Pause,
+  Film,
+  ChevronDown,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
@@ -17,6 +18,7 @@ import { AppTheme } from '../../types/theme';
 interface CharacterViewerToolbarProps {
   theme: AppTheme;
   loadedCharacters: LoadedCharacterInstance[];
+  selectedInstanceId: string | null;
   cameraPreset: ViewerCameraPreset;
   onSelectCameraPreset: (preset: ViewerCameraPreset) => void;
   environment: ViewerEnvironment;
@@ -27,11 +29,14 @@ interface CharacterViewerToolbarProps {
   onToggleWireframe: () => void;
   onOpenBrowser: () => void;
   onResetCamera: () => void;
+  onSelectAnimation?: (instanceId: string, animationName: string) => void;
+  onTogglePlayPause?: (instanceId: string) => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   theme,
   loadedCharacters,
+  selectedInstanceId,
   cameraPreset,
   onSelectCameraPreset,
   environment,
@@ -42,7 +47,31 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   onToggleWireframe,
   onOpenBrowser,
   onResetCamera,
+  onSelectAnimation,
+  onTogglePlayPause,
 }) => {
+  const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
+  const animDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (animDropdownRef.current && !animDropdownRef.current.contains(e.target as Node)) {
+        setAnimDropdownOpen(false);
+      }
+    };
+    if (animDropdownOpen) {
+      document.addEventListener('mousedown', handleOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [animDropdownOpen]);
+
+  // Current active character
+  const activeChar =
+    loadedCharacters.find((c) => c.id === selectedInstanceId) || loadedCharacters[0];
+
+  const hasAnimations = activeChar && activeChar.availableAnimations.length > 0;
+
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 p-1.5 rounded-2xl bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl max-w-[95vw] select-none text-xs">
       {/* Browse Roster Button */}
@@ -56,6 +85,91 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
       </button>
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
+
+      {/* =========================================================================
+          DYNAMIC ANIMATION SELECTOR & CONTROLS (Part 6, 7, 8)
+          ========================================================================= */}
+      {hasAnimations && (
+        <div className="relative flex items-center gap-1" ref={animDropdownRef}>
+          {/* Play/Pause Button */}
+          {onTogglePlayPause && (
+            <button
+              type="button"
+              onClick={() => onTogglePlayPause(activeChar.id)}
+              title={activeChar.isPlayingAnimation ? 'Pause Animation' : 'Play Animation'}
+              className="p-1.5 rounded-lg bg-black/5 dark:bg-white/10 hover:bg-[#7567C7] hover:text-white text-[#25242A] dark:text-white transition-colors cursor-pointer"
+            >
+              {activeChar.isPlayingAnimation ? (
+                <Pause className="h-3.5 w-3.5 text-[#7567C7] hover:text-white" />
+              ) : (
+                <Play className="h-3.5 w-3.5 text-[#7567C7] hover:text-white" />
+              )}
+            </button>
+          )}
+
+          {/* Animation Selector Dropdown Trigger */}
+          <button
+            type="button"
+            onClick={() => setAnimDropdownOpen((prev) => !prev)}
+            title="Select embedded animation clip"
+            className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-[#25242A] dark:text-white font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
+          >
+            <Film className="h-3.5 w-3.5 text-[#7567C7]" />
+            <span className="max-w-[110px] truncate">
+              {activeChar.currentAnimationName || 'Animation'}
+            </span>
+            <span className="text-[9px] font-mono opacity-60">
+              ({activeChar.availableAnimations.length})
+            </span>
+            <ChevronDown className="h-3 w-3 opacity-60" />
+          </button>
+
+          {/* Animation Popover List */}
+          {animDropdownOpen && (
+            <div className="absolute bottom-full left-0 mb-2 w-56 max-h-64 overflow-y-auto bg-white dark:bg-[#1C192E] rounded-2xl shadow-2xl border border-[#E7E3DF] dark:border-[#2D2A4A] p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
+              <div className="px-2.5 py-1.5 border-b border-black/5 dark:border-white/5 mb-1 flex items-center justify-between text-[10px] font-bold text-[#77747D] uppercase tracking-wider">
+                <span>Embedded Clips</span>
+                <span>{activeChar.availableAnimations.length}</span>
+              </div>
+
+              <div className="space-y-0.5">
+                {activeChar.availableAnimations.map((clip) => {
+                  const isCurrent = activeChar.currentAnimationName === clip.name;
+                  const isCafeReaction = clip.name === 'Cafe_Reaction';
+
+                  return (
+                    <button
+                      key={clip.name}
+                      type="button"
+                      onClick={() => {
+                        onSelectAnimation?.(activeChar.id, clip.name);
+                        setAnimDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
+                        isCurrent
+                          ? 'bg-[#7567C7] text-white font-bold'
+                          : 'text-[#25242A] dark:text-[#F4F2F7] hover:bg-black/5 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        {isCafeReaction && (
+                          <Sparkles className={`h-3 w-3 ${isCurrent ? 'text-amber-300' : 'text-amber-500'}`} />
+                        )}
+                        <span className="truncate">{clip.name}</span>
+                      </div>
+                      <span className={`text-[9px] font-mono shrink-0 opacity-70`}>
+                        {clip.duration}s
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
+        </div>
+      )}
 
       {/* Camera Presets */}
       <div className="flex items-center gap-0.5">
