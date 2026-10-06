@@ -73,6 +73,9 @@ export function useCharacterLoader() {
         position?: THREE.Vector3;
         rotation?: THREE.Euler;
         scale?: THREE.Vector3;
+        slotIndex?: number;
+        stageRow?: 'front' | 'back';
+        initialAnimation?: string;
       } = { replace: true }
     ): Promise<LoadedCharacterInstance> => {
       setLoading(true);
@@ -158,7 +161,7 @@ export function useCharacterLoader() {
               instanceGroup.add(scene);
 
               // =========================================================================
-              // ANIMATION DISCOVERY & ANIMATION MIXER SETUP (Part 3, 4, 5, 9)
+              // ANIMATION DISCOVERY & ANIMATION MIXER SETUP (Parts 2, 3, 4, 8)
               // =========================================================================
               const animations: THREE.AnimationClip[] = gltf.animations || [];
               const availableAnimations: CharacterAnimationInfo[] = animations.map((clip) => ({
@@ -166,59 +169,46 @@ export function useCharacterLoader() {
                 duration: parseFloat(clip.duration.toFixed(2)),
               }));
 
-              // Development / Debugging output (Part 3)
-              console.log(
-                '[Blue Archive Viewer] Animation clips:',
-                availableAnimations
-              );
-
-              // Create independent AnimationMixer for this character (Part 4)
+              // Create independent AnimationMixer for this character
               const mixer = new THREE.AnimationMixer(scene);
 
-              // Search for Cafe_Reaction (Part 5)
+              // Target animation: defaults to Cafe_Idle for initial concert state
               let currentAction: THREE.AnimationAction | null = null;
               let currentAnimationName: string | null = null;
 
-              const cafeClip = THREE.AnimationClip.findByName(animations, 'Cafe_Reaction');
+              const targetAnimName = options.initialAnimation || 'Cafe_Idle';
+              const targetClip = THREE.AnimationClip.findByName(animations, targetAnimName);
 
-              if (cafeClip) {
-                currentAction = mixer.clipAction(cafeClip);
+              if (targetClip) {
+                currentAction = mixer.clipAction(targetClip);
                 currentAction.reset();
                 currentAction.setLoop(THREE.LoopRepeat, Infinity);
                 currentAction.play();
-                currentAnimationName = 'Cafe_Reaction';
+                currentAnimationName = targetAnimName;
 
-                // Debug output format (Part 9)
                 console.log(
-                  `[Blue Archive Viewer]\n` +
-                    `Model: ${entry.filename}\n` +
-                    `Animations: ${animations.length}\n` +
-                    `Cafe_Reaction: FOUND\n` +
-                    `Default animation: Cafe_Reaction\n` +
-                    `Mixer: created`
+                  `[Concert] Character ${entry.name}: ${targetAnimName} FOUND & PLAYING`
                 );
               } else {
-                // Fail gracefully if Cafe_Reaction is missing, play first available clip if present
-                if (animations.length > 0) {
-                  const fallbackClip = animations[0];
+                console.warn(
+                  `[Concert] Character ${entry.name}: ${targetAnimName} not found`
+                );
+                // Graceful fallback to Cafe_Reaction or first clip if target not found
+                const fallbackClip =
+                  THREE.AnimationClip.findByName(animations, 'Cafe_Reaction') ||
+                  (animations.length > 0 ? animations[0] : null);
+
+                if (fallbackClip) {
                   currentAction = mixer.clipAction(fallbackClip);
                   currentAction.reset();
                   currentAction.setLoop(THREE.LoopRepeat, Infinity);
                   currentAction.play();
                   currentAnimationName = fallbackClip.name;
                 }
-
-                // Debug output format (Part 9)
-                console.log(
-                  `[Blue Archive Viewer]\n` +
-                    `Model: ${entry.filename}\n` +
-                    `Cafe_Reaction: NOT FOUND\n` +
-                    `Available animations: ${animations.map((a) => a.name).join(', ') || 'none'}`
-                );
               }
 
               const newInstance: LoadedCharacterInstance = {
-                id: `instance-${entry.id}-${Date.now()}`,
+                id: `instance-${entry.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
                 characterId: entry.id,
                 manifestEntry: entry,
                 scene: instanceGroup,
@@ -232,6 +222,8 @@ export function useCharacterLoader() {
                 centerOffset,
                 vertexCount,
                 meshCount,
+                slotIndex: options.slotIndex,
+                stageRow: options.stageRow,
                 animations,
                 availableAnimations,
                 mixer,
@@ -245,6 +237,16 @@ export function useCharacterLoader() {
                   // Dispose old characters & mixers
                   prev.forEach((p) => disposeHierarchy(p.scene, p.mixer));
                   return [newInstance];
+                } else if (options.slotIndex !== undefined) {
+                  // Replace specific slot
+                  const existingIdx = prev.findIndex((p) => p.slotIndex === options.slotIndex);
+                  if (existingIdx !== -1) {
+                    disposeHierarchy(prev[existingIdx].scene, prev[existingIdx].mixer);
+                    const next = [...prev];
+                    next[existingIdx] = newInstance;
+                    return next;
+                  }
+                  return [...prev, newInstance];
                 } else {
                   return [...prev, newInstance];
                 }
@@ -286,6 +288,40 @@ export function useCharacterLoader() {
     },
     []
   );
+
+  /**
+   * Batch switch animation for all loaded characters simultaneously (Part 3, 4, 7)
+   * Smoothly crossfades and resets actions so performers visually begin together.
+   */
+  const setAllCharactersAnimation = useCallback((animationName: string) => {
+    setLoadedCharacters((prev) =>
+      prev.map((char) => {
+        const clip = THREE.AnimationClip.findByName(char.animations, animationName);
+        if (!clip) {
+          console.warn(`[Concert] Character ${char.manifestEntry.name}: ${animationName} not found`);
+          return char;
+        }
+
+        const prevAction = char.currentAction;
+        const nextAction = char.mixer.clipAction(clip);
+        nextAction.reset();
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+
+        if (prevAction && prevAction !== nextAction) {
+          prevAction.fadeOut(0.3);
+          nextAction.fadeIn(0.3);
+        }
+        nextAction.play();
+
+        return {
+          ...char,
+          currentAction: nextAction,
+          currentAnimationName: animationName,
+          isPlayingAnimation: true,
+        };
+      })
+    );
+  }, []);
 
   /**
    * Reusable animation playback function (Part 6 & 7)
@@ -408,6 +444,7 @@ export function useCharacterLoader() {
     error,
     loadCharacter,
     playAnimation,
+    setAllCharactersAnimation,
     togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,

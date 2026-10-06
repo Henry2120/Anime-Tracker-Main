@@ -31,6 +31,8 @@ interface CharacterViewerToolbarProps {
   onResetCamera: () => void;
   onSelectAnimation?: (instanceId: string, animationName: string) => void;
   onTogglePlayPause?: (instanceId: string) => void;
+  isConcertPlaying?: boolean;
+  onToggleConcertMusic?: () => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
@@ -49,6 +51,8 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   onResetCamera,
   onSelectAnimation,
   onTogglePlayPause,
+  isConcertPlaying,
+  onToggleConcertMusic,
 }) => {
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
   const animDropdownRef = useRef<HTMLDivElement>(null);
@@ -83,6 +87,36 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         <UserPlus className="h-3.5 w-3.5" />
         <span>Roster (295)</span>
       </button>
+
+      {/* Concert Music Master Toggle */}
+      {onToggleConcertMusic && (
+        <button
+          type="button"
+          onClick={onToggleConcertMusic}
+          className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs ${
+            isConcertPlaying
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse'
+              : 'bg-black/10 dark:bg-white/10 hover:bg-[#7567C7] hover:text-white text-[#25242A] dark:text-white'
+          }`}
+          title={
+            isConcertPlaying
+              ? 'Stop Concert Music (Switches all 10 to Cafe_Idle)'
+              : 'Play Concert Music (Switches all 10 to Cafe_Reaction)'
+          }
+        >
+          {isConcertPlaying ? (
+            <>
+              <Pause className="h-3.5 w-3.5 fill-white" />
+              <span>Stop Music</span>
+            </>
+          ) : (
+            <>
+              <Play className="h-3.5 w-3.5 fill-current" />
+              <span>Play Music</span>
+            </>
+          )}
+        </button>
+      )}
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
 

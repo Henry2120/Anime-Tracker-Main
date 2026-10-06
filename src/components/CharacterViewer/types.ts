@@ -22,6 +22,10 @@ export interface LoadedCharacterInstance {
   vertexCount: number;
   meshCount: number;
 
+  // Concert Stage Slot
+  slotIndex?: number; // 0 to 9
+  stageRow?: 'front' | 'back';
+
   // Animation system per character instance
   animations: THREE.AnimationClip[];
   availableAnimations: CharacterAnimationInfo[];

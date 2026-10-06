@@ -16,7 +16,10 @@ import {
   Info,
   Sliders,
   Play,
+  Pause,
   Film,
+  Music2,
+  CheckCircle2,
 } from 'lucide-react';
 import { AppTheme } from '../../types/theme';
 import { BLUE_ARCHIVE_CHARACTERS, CharacterManifestEntry } from '../../data/blueArchiveCharacters';
@@ -25,6 +28,13 @@ import { useCharacterLoader } from './useCharacterLoader';
 import { CharacterInstanceMesh } from './CharacterInstanceMesh';
 import { CharacterBrowserDrawer } from './CharacterBrowserDrawer';
 import { CharacterViewerToolbar } from './CharacterViewerToolbar';
+import { ConcertStage3D } from './ConcertStage3D';
+import {
+  DEFAULT_CONCERT_PERFORMERS,
+  getConcertSlotTransform,
+  CONCERT_STAGE_CONFIG,
+} from './concertConfig';
+import { useConcertAudio } from './useConcertAudio';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -33,9 +43,13 @@ interface Character3DViewerProps {
 }
 
 /**
- * Dynamic Environment & Lighting System
+ * Dynamic Environment, Concert Stage & Lighting System
  */
-const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ environment }) => {
+const ViewerEnvironment3D: React.FC<{
+  environment: ViewerEnvironment;
+  selectedSlotIndex?: number | null;
+  onSelectSlot?: (slotIndex: number) => void;
+}> = ({ environment, selectedSlotIndex, onSelectSlot }) => {
   const envConfigs = {
     studio: {
       ambientIntensity: 0.85,
@@ -45,8 +59,6 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
       fillIntensity: 0.6,
       rimColor: '#E6E6FA',
       rimIntensity: 1.0,
-      pedestalColor: '#ECE8E1',
-      floorColor: '#F4EFEB',
       shadowOpacity: 0.45,
     },
     dark: {
@@ -57,8 +69,6 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
       fillIntensity: 0.5,
       rimColor: '#BCA8F8',
       rimIntensity: 1.4,
-      pedestalColor: '#1A1828',
-      floorColor: '#120F1D',
       shadowOpacity: 0.75,
     },
     sakura: {
@@ -69,8 +79,6 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
       fillIntensity: 0.7,
       rimColor: '#F472B6',
       rimIntensity: 1.2,
-      pedestalColor: '#FCE8EE',
-      floorColor: '#FAF0F3',
       shadowOpacity: 0.45,
     },
     sunset: {
@@ -81,8 +89,6 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
       fillIntensity: 0.6,
       rimColor: '#FB923C',
       rimIntensity: 1.3,
-      pedestalColor: '#2A1E24',
-      floorColor: '#1F171C',
       shadowOpacity: 0.6,
     },
     clean: {
@@ -93,8 +99,6 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
       fillIntensity: 0.5,
       rimColor: '#FFFFFF',
       rimIntensity: 0.8,
-      pedestalColor: '#FFFFFF',
-      floorColor: '#F9FAFB',
       shadowOpacity: 0.35,
     },
   }[environment];
@@ -103,59 +107,59 @@ const ViewerEnvironment3D: React.FC<{ environment: ViewerEnvironment }> = ({ env
     <>
       <ambientLight intensity={envConfigs.ambientIntensity} />
 
-      {/* Key Directional Light with Soft Shadows */}
+      {/* Key Directional Stage Light with Soft Shadows */}
       <directionalLight
-        position={[3.0, 5.0, 3.5]}
+        position={[3.0, 7.0, 5.0]}
         intensity={envConfigs.keyIntensity}
         color={envConfigs.keyColor}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
         shadow-camera-near={0.5}
-        shadow-camera-far={15}
+        shadow-camera-far={25}
+        shadow-camera-left={-6}
+        shadow-camera-right={6}
+        shadow-camera-top={5}
+        shadow-camera-bottom={-3}
         shadow-bias={-0.0005}
       />
 
       {/* Soft Fill Light */}
       <directionalLight
-        position={[-3.5, 3.0, -2.0]}
+        position={[-5.0, 4.0, -2.0]}
         intensity={envConfigs.fillIntensity}
         color={envConfigs.fillColor}
       />
 
       {/* Rim / Hair Silhouette Backlight */}
       <directionalLight
-        position={[0, 4.0, -4.0]}
+        position={[0, 6.0, -5.0]}
         intensity={envConfigs.rimIntensity}
         color={envConfigs.rimColor}
       />
 
-      {/* Ground Diorama Platform */}
-      <group position={[0, -0.01, 0]}>
-        <mesh position={[0, -0.06, 0]} receiveShadow>
-          <cylinderGeometry args={[2.5, 2.6, 0.12, 64]} />
-          <meshStandardMaterial color={envConfigs.pedestalColor} roughness={0.4} metalness={0.08} />
-        </mesh>
-        <mesh position={[0, -0.01, 0]} receiveShadow>
-          <torusGeometry args={[2.52, 0.02, 16, 64]} />
-          <meshStandardMaterial color="#7567C7" metalness={0.5} roughness={0.3} />
-        </mesh>
-      </group>
+      {/* Physical 3D Concert Stage Platform (Front Row & Elevated Back Row Riser) */}
+      <ConcertStage3D
+        environment={environment}
+        selectedSlotIndex={selectedSlotIndex}
+        onSelectSlot={onSelectSlot}
+      />
 
+      {/* Soft Contact Shadows covering the entire concert stage */}
       <ContactShadows
-        position={[0, 0, 0]}
+        position={[0, -0.01, 0]}
         opacity={envConfigs.shadowOpacity}
-        scale={6.0}
+        scale={14.0}
         blur={1.8}
-        far={2.5}
+        far={3.0}
       />
     </>
   );
 };
 
 /**
- * Camera Auto-Framer for dynamic models of variable heights & counts (Part 1)
- * Calculates accurate bounds to frame character from head to feet with comfortable margins.
+ * Camera Auto-Framer for 10-Character Concert Stage
+ * Frames all 10 performers, both rows, elevated back platform, with comfortable margins.
  */
 const DynamicCameraAutoFramer: React.FC<{
   loadedCharacters: LoadedCharacterInstance[];
@@ -165,52 +169,35 @@ const DynamicCameraAutoFramer: React.FC<{
   const { camera, size } = useThree();
 
   const calculateBounds = useCallback(() => {
-    if (loadedCharacters.length === 0) {
-      return {
-        center: new THREE.Vector3(0, 0.75, 0),
-        minY: 0,
-        maxY: 1.5,
-        height: 1.5,
-        width: 0.8,
-        depth: 0.8,
-        radius: 1.2,
-      };
-    }
-
     const collectiveBox = new THREE.Box3();
     let visibleCount = 0;
 
     loadedCharacters.forEach((char) => {
       if (char.visible && char.scene) {
-        char.scene.updateMatrixWorld(true);
-        const charBox = new THREE.Box3().setFromObject(char.scene);
-        if (!charBox.isEmpty()) {
-          collectiveBox.union(charBox);
-          visibleCount++;
-        }
+        // Evaluate instance bounding box translated to character position
+        const box = char.boundingBox ? char.boundingBox.clone() : new THREE.Box3().setFromObject(char.scene);
+        box.translate(char.position);
+        collectiveBox.union(box);
+        visibleCount++;
       }
     });
 
-    if (collectiveBox.isEmpty() || visibleCount === 0) {
-      return {
-        center: new THREE.Vector3(0, 0.75, 0),
-        minY: 0,
-        maxY: 1.5,
-        height: 1.5,
-        width: 0.8,
-        depth: 0.8,
-        radius: 1.2,
-      };
-    }
+    // Also include stage geometry bounds to ensure complete stage visibility
+    // Stage is 8.8m wide, front at Z=2.2, back riser at Z=-1.8, height 0 to 0.5
+    const stageBounds = new THREE.Box3(
+      new THREE.Vector3(-4.4, 0, -1.8),
+      new THREE.Vector3(4.4, 0.5, 2.2)
+    );
+    collectiveBox.union(stageBounds);
 
     const center = new THREE.Vector3();
     collectiveBox.getCenter(center);
     const sphere = new THREE.Sphere();
     collectiveBox.getBoundingSphere(sphere);
 
-    const height = Math.max(0.4, collectiveBox.max.y - collectiveBox.min.y);
-    const width = Math.max(0.4, collectiveBox.max.x - collectiveBox.min.x);
-    const depth = Math.max(0.4, collectiveBox.max.z - collectiveBox.min.z);
+    const height = Math.max(0.6, collectiveBox.max.y - collectiveBox.min.y);
+    const width = Math.max(1.0, collectiveBox.max.x - collectiveBox.min.x);
+    const depth = Math.max(1.0, collectiveBox.max.z - collectiveBox.min.z);
 
     return {
       center,
@@ -219,7 +206,7 @@ const DynamicCameraAutoFramer: React.FC<{
       height,
       width,
       depth,
-      radius: Math.max(0.6, sphere.radius),
+      radius: Math.max(1.5, sphere.radius),
     };
   }, [loadedCharacters]);
 
@@ -238,51 +225,45 @@ const DynamicCameraAutoFramer: React.FC<{
     const distX = (width * 1.3) / (2 * Math.tan(fovRad / 2) * aspect);
 
     // Diagonal clearance
-    const distSphere = radius * 2.2;
+    const distSphere = radius * 2.1;
 
-    // Use max distance so entire model is completely visible
-    const distance = Math.max(distY, distX, distSphere, 1.8);
+    // Use max distance so entire 10-character ensemble + stage is completely visible
+    const distance = Math.max(distY, distX, distSphere, 5.0);
 
-    // Vertical target: Center of character body
-    const targetY = minY + height * 0.5;
+    // Vertical target: Center of stage performers
+    const targetY = minY + height * 0.45;
     const target = new THREE.Vector3(center.x, targetY, center.z);
 
     const controls = controlsRef.current;
     if (controls) {
       controls.target.copy(target);
-      controls.minDistance = 0.3;
-      controls.maxDistance = 25.0;
+      controls.minDistance = 0.5;
+      controls.maxDistance = 35.0;
     }
 
     if (cameraPreset === 'front') {
-      // Clean frontal view, slight 3-degree elevation so feet and floor circle are visible
-      camera.position.set(center.x, targetY + distance * 0.05, center.z + distance);
+      // Full audience frontal stage view with slight elevation so both rows are visible
+      camera.position.set(center.x, targetY + distance * 0.22, center.z + distance * 0.98);
     } else if (cameraPreset === 'perspective') {
-      // Dynamic 3/4 showcase view (26 deg azimuth, 14 deg elevation)
-      const radAzim = 0.45;
-      const radElev = 0.24;
+      // Concert 3/4 amphitheater view (22 deg azimuth, 18 deg elevation)
+      const radAzim = 0.38;
+      const radElev = 0.28;
       camera.position.set(
         center.x + distance * Math.sin(radAzim) * Math.cos(radElev),
         targetY + distance * Math.sin(radElev),
         center.z + distance * Math.cos(radAzim) * Math.cos(radElev)
       );
     } else if (cameraPreset === 'side') {
-      // 90-degree profile view
-      camera.position.set(center.x + distance, targetY + distance * 0.05, center.z);
+      // Side stage profile view
+      camera.position.set(center.x + distance, targetY + distance * 0.2, center.z);
     } else if (cameraPreset === 'closeUp') {
-      // Portrait / upper body & halo framing
-      const portraitTargetY = minY + height * 0.72;
-      const portraitTarget = new THREE.Vector3(center.x, portraitTargetY, center.z);
-      if (controls) controls.target.copy(portraitTarget);
-
-      const closeDist = Math.max(0.65, (height * 0.5) / (2 * Math.tan(fovRad / 2)));
-      camera.position.set(center.x + closeDist * 0.15, portraitTargetY + 0.05, center.z + closeDist * 0.98);
-      camera.lookAt(portraitTarget);
-      if (controls) controls.update();
-      return;
+      // Front row center focus
+      const closeDist = Math.max(2.2, (width * 0.38) / (2 * Math.tan(fovRad / 2) * aspect));
+      camera.position.set(0, 0.95, 0.75 + closeDist);
+      if (controls) controls.target.set(0, 0.85, 0.75);
     } else if (cameraPreset === 'top') {
-      // Top down view
-      camera.position.set(center.x, targetY + distance * 1.3, center.z + 0.05);
+      // High angle stage lighting view
+      camera.position.set(center.x, targetY + distance * 1.25, center.z + 0.1);
     }
 
     camera.lookAt(target);
@@ -312,16 +293,17 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
   // 3D Viewport Controls & State
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [cameraPreset, setCameraPreset] = useState<ViewerCameraPreset>('perspective');
+  const [cameraPreset, setCameraPreset] = useState<ViewerCameraPreset>('front');
   const [environment, setEnvironment] = useState<ViewerEnvironment>(
     isDark ? 'dark' : isSakura ? 'sakura' : 'studio'
   );
   const [showGrid, setShowGrid] = useState(false);
   const [showWireframe, setShowWireframe] = useState(false);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number>(2); // Default to Slot 3 (Center front)
 
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
-  // Multi-GLB Character Loader with Animation Support (Parts 2-7)
+  // Multi-GLB Character Loader with Concert Animation Support
   const {
     loadedCharacters,
     selectedInstanceId,
@@ -332,41 +314,93 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     error,
     loadCharacter,
     playAnimation,
+    setAllCharactersAnimation,
     togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,
   } = useCharacterLoader();
 
-  // Load initial character on mount if none loaded
+  // Web Audio Minimal Concert Music Engine (music ON = Cafe_Reaction, music OFF = Cafe_Idle)
+  const { isConcertPlaying, toggleMusic } = useConcertAudio();
+
+  // 10-Character Concert Stage Initialization
   const hasInitializedRef = useRef(false);
+  const [concertLoadingProgress, setConcertLoadingProgress] = useState<{ loaded: number; total: number }>({
+    loaded: 0,
+    total: DEFAULT_CONCERT_PERFORMERS.length,
+  });
+  const [isConcertInitializing, setIsConcertInitializing] = useState(true);
+
   useEffect(() => {
-    if (hasInitializedRef.current || BLUE_ARCHIVE_CHARACTERS.length === 0) return;
+    if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
 
-    // Load first character e.g. "Airi"
-    const initial =
-      BLUE_ARCHIVE_CHARACTERS.find((c) => c.name.toLowerCase() === 'airi') ||
-      BLUE_ARCHIVE_CHARACTERS[0];
-    if (initial) {
-      loadCharacter(initial, { replace: true });
+    async function initConcert() {
+      setIsConcertInitializing(true);
+      for (let i = 0; i < DEFAULT_CONCERT_PERFORMERS.length; i++) {
+        const performer = DEFAULT_CONCERT_PERFORMERS[i];
+        const transform = getConcertSlotTransform(i);
+        try {
+          await loadCharacter(performer, {
+            replace: i === 0, // Clears initial placeholder on first model
+            position: transform.position,
+            rotation: transform.rotation,
+            scale: transform.scale,
+            slotIndex: i,
+            stageRow: transform.row,
+            initialAnimation: 'Cafe_Idle', // Default idle state when concert music is off
+          });
+          setConcertLoadingProgress({ loaded: i + 1, total: DEFAULT_CONCERT_PERFORMERS.length });
+        } catch (err) {
+          console.error(`[Concert] Failed to load slot ${i + 1} (${performer.name}):`, err);
+        }
+      }
+      setIsConcertInitializing(false);
     }
+
+    initConcert();
   }, [loadCharacter]);
 
-  // Handle character selection from drawer
+  // Synchronized state machine:
+  // music ON (isConcertPlaying === true)  -> Cafe_Reaction for all 10 characters
+  // music OFF (isConcertPlaying === false) -> Cafe_Idle for all 10 characters
+  useEffect(() => {
+    if (isConcertInitializing || loadedCharacters.length === 0) return;
+
+    if (isConcertPlaying) {
+      console.log('[Concert] Music started -> Switching all 10 characters to Cafe_Reaction');
+      setAllCharactersAnimation('Cafe_Reaction');
+    } else {
+      console.log('[Concert] Music stopped -> Switching all 10 characters to Cafe_Idle');
+      setAllCharactersAnimation('Cafe_Idle');
+    }
+  }, [isConcertPlaying, isConcertInitializing, loadedCharacters.length, setAllCharactersAnimation]);
+
+  // Handle character replacement in selected slot from drawer
   const handleSelectFromDrawer = useCallback(
     (character: CharacterManifestEntry, mode: 'replace' | 'add') => {
-      loadCharacter(character, { replace: mode === 'replace' });
-      if (mode === 'replace') {
-        setCameraPreset('perspective');
-      }
+      // Find target slot from currently selected character or selected slot index
+      const activeChar = loadedCharacters.find((c) => c.id === selectedInstanceId);
+      const targetSlot = activeChar?.slotIndex ?? selectedSlotIndex ?? 0;
+      const transform = getConcertSlotTransform(targetSlot);
+
+      loadCharacter(character, {
+        replace: false,
+        slotIndex: targetSlot,
+        stageRow: transform.row,
+        position: transform.position,
+        rotation: transform.rotation,
+        scale: transform.scale,
+        initialAnimation: isConcertPlaying ? 'Cafe_Reaction' : 'Cafe_Idle',
+      });
     },
-    [loadCharacter]
+    [loadedCharacters, selectedInstanceId, selectedSlotIndex, isConcertPlaying, loadCharacter]
   );
 
   // Reset Camera Framing
   const handleResetCamera = useCallback(() => {
-    setCameraPreset('perspective');
+    setCameraPreset('front');
   }, []);
 
   // Selected character details for top status bar
@@ -379,90 +413,190 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       className={`relative w-full h-full min-h-0 flex-1 rounded-2xl sm:rounded-3xl overflow-hidden border shadow-2xl flex flex-col select-none ${containerBg} ${className}`}
     >
       {/* =========================================================================
-          TOP CONTROL BAR
+          TOP CONTROL BAR & CONCERT STATUS
           ========================================================================= */}
-      <div className="relative shrink-0 z-20 flex items-center justify-between p-3 sm:p-3.5 bg-white/75 dark:bg-[#1A1824]/75 backdrop-blur-md border-b border-black/5 dark:border-white/5">
+      <div className="relative shrink-0 z-20 flex flex-wrap items-center justify-between p-2.5 sm:p-3 bg-white/80 dark:bg-[#1A1824]/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 gap-2">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7]">
-              Blue Archive 3D Character Studio
-            </span>
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                isConcertPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-purple-500'
+              }`}
+            />
+            <div className="flex flex-col">
+              <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7] leading-tight">
+                Blue Archive 10-Character Concert
+              </span>
+              <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA] font-mono leading-tight">
+                5 Front • 5 Back Elevated (+0.50m)
+              </span>
+            </div>
           </div>
 
           {/* Model Status Badge */}
           {selectedCharacter && (
             <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
-              <span className="px-2.5 py-0.5 rounded-lg bg-[#7567C7]/10 text-[#7567C7] dark:text-[#A898F8] border border-[#7567C7]/20 flex items-center gap-1 font-bold">
+              <span className="px-2 py-0.5 rounded-lg bg-[#7567C7]/10 text-[#7567C7] dark:text-[#A898F8] border border-[#7567C7]/20 flex items-center gap-1 font-bold">
                 <User className="h-3 w-3" />
-                <span>{selectedCharacter.manifestEntry.name}</span>
+                <span>
+                  Slot {(selectedCharacter.slotIndex ?? 0) + 1}: {selectedCharacter.manifestEntry.name}
+                </span>
               </span>
 
               {selectedCharacter.currentAnimationName && (
-                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1 font-semibold text-[10.5px]">
+                <span
+                  className={`px-2 py-0.5 rounded-lg border flex items-center gap-1 font-semibold text-[10.5px] ${
+                    isConcertPlaying
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                      : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
+                  }`}
+                >
                   <Film className="h-3 w-3" />
                   <span>{selectedCharacter.currentAnimationName}</span>
-                </span>
-              )}
-
-              {loadedCharacters.length > 1 && (
-                <span className="px-2 py-0.5 rounded-lg bg-black/5 dark:bg-white/5 text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-1 font-medium">
-                  <Users className="h-3 w-3" />
-                  <span>{loadedCharacters.length} Models in Scene</span>
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Right Top Bar Actions */}
+        {/* PRIMARY CONCERT MUSIC CONTROL BANNER */}
         <div className="flex items-center gap-2">
+          {/* Main Concert Play/Stop Toggle */}
+          <button
+            type="button"
+            id="concert-music-toggle-btn"
+            onClick={toggleMusic}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-md ${
+              isConcertPlaying
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50 animate-pulse'
+                : 'bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] hover:from-[#6556B8] hover:to-[#7B4CF0] text-white'
+            }`}
+            title={
+              isConcertPlaying
+                ? 'Stop concert music -> Switches all 10 characters to Cafe_Idle'
+                : 'Play concert music -> Switches all 10 characters to Cafe_Reaction'
+            }
+          >
+            {isConcertPlaying ? (
+              <>
+                <Pause className="h-4 w-4 fill-white shrink-0" />
+                <span>STOP MUSIC</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 fill-white shrink-0" />
+                <span>PLAY MUSIC</span>
+              </>
+            )}
+          </button>
+
+          {/* Concert State Indicator Badge */}
+          <div
+            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${
+              isConcertPlaying
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isConcertPlaying ? 'bg-emerald-500 animate-ping' : 'bg-purple-400'
+              }`}
+            />
+            <span>{isConcertPlaying ? 'PERFORMING (Cafe_Reaction)' : 'IDLE (Cafe_Idle)'}</span>
+          </div>
+
           {/* Character Roster Drawer Button */}
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="p-1.5 px-3 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+            className="p-1.5 px-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-black/5 dark:border-white/5"
+            title="Browse all 295 Blue Archive characters to swap into slots"
           >
-            <FolderOpen className="h-3.5 w-3.5" />
-            <span>Character Roster ({BLUE_ARCHIVE_CHARACTERS.length})</span>
+            <FolderOpen className="h-3.5 w-3.5 text-[#7567C7]" />
+            <span className="hidden sm:inline">Roster</span>
           </button>
-
-          {/* Return to 2D Ensemble Button */}
-          {onReturnToEnsemble && (
-            <button
-              type="button"
-              onClick={onReturnToEnsemble}
-              className="p-1.5 px-2.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-[#25242A] dark:hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-black/5 dark:border-white/5"
-            >
-              <span>2D Stage</span>
-            </button>
-          )}
         </div>
       </div>
 
       {/* =========================================================================
-          3D CANVAS VIEWPORT (Part 1: Viewport / Canvas sizing & framing)
+          PERFORMER SLOT STRIP (Interactive 10 Performer Overview)
+          ========================================================================= */}
+      <div className="shrink-0 z-10 px-3 py-1.5 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between overflow-x-auto text-[11px] font-semibold gap-2 scrollbar-none">
+        <div className="flex items-center gap-1.5 shrink-0 text-[#77747D] dark:text-[#A4A1AA]">
+          <span className="text-[10px] uppercase font-bold tracking-wider">Slots:</span>
+        </div>
+
+        {/* 10 Slot Badges */}
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {Array.from({ length: 10 }).map((_, slotIdx) => {
+            const char = loadedCharacters.find((c) => c.slotIndex === slotIdx);
+            const isSelected = selectedCharacter?.slotIndex === slotIdx;
+            const isElevated = slotIdx >= 5;
+
+            return (
+              <button
+                key={`slot-badge-${slotIdx}`}
+                type="button"
+                onClick={() => {
+                  setSelectedSlotIndex(slotIdx);
+                  if (char) setSelectedInstanceId(char.id);
+                }}
+                className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer border ${
+                  isSelected
+                    ? 'bg-[#7567C7] text-white border-[#7567C7] shadow-xs'
+                    : isElevated
+                    ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:bg-amber-500/20'
+                    : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/5 dark:border-white/5 hover:bg-black/10'
+                }`}
+                title={
+                  char
+                    ? `Slot ${slotIdx + 1}: ${char.manifestEntry.name} (${
+                        isElevated ? 'Back Row Elevated' : 'Front Row'
+                      })`
+                    : `Slot ${slotIdx + 1}: Loading...`
+                }
+              >
+                <span className="font-mono text-[9.5px] opacity-75">[{slotIdx + 1}]</span>
+                <span className="truncate max-w-[65px]">{char?.manifestEntry.name || 'Loading'}</span>
+                {isElevated && <span className="text-[8.5px] opacity-75">▲</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* =========================================================================
+          3D CANVAS VIEWPORT (Concert Stage & 10 Performers)
           ========================================================================= */}
       <div className="relative flex-1 min-h-0 w-full h-full bg-radial from-transparent to-black/15 overflow-hidden">
         <Canvas
           shadows
-          camera={{ position: [0.0, 1.2, 2.5], fov: 40, near: 0.1, far: 50 }}
+          camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 50 }}
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
-            <ViewerEnvironment3D environment={environment} />
+            <ViewerEnvironment3D
+              environment={environment}
+              selectedSlotIndex={selectedCharacter?.slotIndex ?? selectedSlotIndex}
+              onSelectSlot={(slotIdx) => {
+                setSelectedSlotIndex(slotIdx);
+                const char = loadedCharacters.find((c) => c.slotIndex === slotIdx);
+                if (char) setSelectedInstanceId(char.id);
+              }}
+            />
 
             <OrbitControls
               ref={orbitControlsRef}
               enableDamping
               dampingFactor={0.08}
-              minDistance={0.3}
-              maxDistance={25.0}
+              minDistance={1.0}
+              maxDistance={35.0}
               maxPolarAngle={Math.PI / 2 + 0.05}
-              target={[0, 0.75, 0]}
+              target={[0, 0.9, 0]}
             />
 
-            {/* Render all loaded character instances in scene (Multi-GLB Architecture) */}
+            {/* Render all 10 loaded character instances in scene */}
             {loadedCharacters.map((char) => (
               <CharacterInstanceMesh
                 key={char.id}
@@ -476,19 +610,19 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             {showGrid && (
               <DreiGrid
                 position={[0, 0, 0]}
-                args={[10, 10]}
+                args={[16, 16]}
                 cellSize={0.5}
                 cellThickness={1.0}
                 cellColor="#7567C7"
                 sectionSize={2.0}
                 sectionThickness={1.5}
                 sectionColor="#9A8BF0"
-                fadeDistance={12}
+                fadeDistance={18}
                 fadeStrength={1.5}
               />
             )}
 
-            {/* Dynamic Camera Auto-Framer */}
+            {/* Dynamic Camera Auto-Framer for 10-Character Concert Stage */}
             <DynamicCameraAutoFramer
               loadedCharacters={loadedCharacters}
               cameraPreset={cameraPreset}
@@ -497,8 +631,23 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           </Suspense>
         </Canvas>
 
-        {/* Loading Spinner & Progress Overlay */}
-        {loading && loadingCharacter && (
+        {/* Initial Concert Ensemble Loading Overlay */}
+        {isConcertInitializing && (
+          <div className="absolute top-4 left-4 z-30 px-4 py-2.5 rounded-2xl bg-white/95 dark:bg-[#1A1824]/95 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl flex items-center gap-3 text-xs text-[#25242A] dark:text-white animate-in fade-in">
+            <RefreshCw className="h-5 w-5 animate-spin text-[#7567C7] shrink-0" />
+            <div className="flex flex-col">
+              <span className="font-bold">
+                Assembling Concert Ensemble ({concertLoadingProgress.loaded}/{concertLoadingProgress.total})
+              </span>
+              <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                {loadingCharacter ? `Loading ${loadingCharacter.name}...` : 'Initializing 10-character stage...'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Single Replacement Progress */}
+        {!isConcertInitializing && loading && loadingCharacter && (
           <div className="absolute top-4 left-4 z-30 px-3.5 py-2 rounded-2xl bg-white/90 dark:bg-[#1A1824]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-lg flex items-center gap-2.5 text-xs text-[#25242A] dark:text-white animate-in fade-in">
             <RefreshCw className="h-4 w-4 animate-spin text-[#7567C7]" />
             <div className="flex flex-col">
@@ -521,7 +670,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           </div>
         )}
 
-        {/* Bottom Viewport Toolbar with Dynamic Animation Controls */}
+        {/* Bottom Viewport Toolbar with Concert Controls */}
         <CharacterViewerToolbar
           theme={theme}
           loadedCharacters={loadedCharacters}
@@ -538,6 +687,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           onResetCamera={handleResetCamera}
           onSelectAnimation={playAnimation}
           onTogglePlayPause={togglePlayPauseAnimation}
+          isConcertPlaying={isConcertPlaying}
+          onToggleConcertMusic={toggleMusic}
         />
 
         {/* 295 Character Roster Browser Drawer */}
@@ -556,7 +707,13 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             const char = loadedCharacters.find((c) => c.id === id);
             if (char) updateCharacterTransform(id, { visible: !char.visible });
           }}
-          onSelectInstance={(id) => setSelectedInstanceId(id)}
+          onSelectInstance={(id) => {
+            setSelectedInstanceId(id);
+            const char = loadedCharacters.find((c) => c.id === id);
+            if (char && char.slotIndex !== undefined) {
+              setSelectedSlotIndex(char.slotIndex);
+            }
+          }}
           onClearAll={clearCharacters}
         />
       </div>
