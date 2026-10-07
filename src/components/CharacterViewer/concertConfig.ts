@@ -3,18 +3,19 @@ import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
 
 /**
  * 10-Character Concert Stage Configuration
- * Front Row: 5 characters at Y=0, Z=0.75
- * Back Row: 5 characters at Y=0.50 (elevated platform), Z=-0.85
- * Symmetrically aligned across the stage facing the audience
+ * Front Row: 5 characters in a gentle curved arc at Y=0, Z≈0.85
+ * Back Row: 5 characters in a parallel curved arc elevated at Y=0.50, Z≈-0.75
+ * Both rows curve gently backward towards the wings, all facing the audience.
  */
 export const CONCERT_STAGE_CONFIG = {
-  slotCount: 10,
+  defaultPerformerCount: 10,
   rowSize: 5,
-  characterSpacingX: 1.35, // Distance between adjacent characters in meters
+  characterSpacingX: 1.35, // Distance between adjacent characters horizontally (meters)
+  radiusOfCurvature: 13.5, // Radius of the arc; creates a subtle, gentle curve (~0.27m depth)
   frontRowY: 0.0,
   backRowY: 0.50, // Physical elevation of the back riser
-  frontRowZ: 0.75, // Closer to camera
-  backRowZ: -0.85, // Distance behind front row
+  frontRowBaseZ: 0.85, // Front row center Z (closest to audience)
+  backRowBaseZ: -0.75, // Back row center Z (elevated riser)
   stageWidth: 8.8,
   stageDepth: 4.4,
   riserWidth: 7.8,
@@ -91,14 +92,30 @@ export const DEFAULT_CONCERT_PERFORMERS: CharacterManifestEntry[] = [
 ];
 
 /**
- * Calculates transform coordinates for a given concert slot (0..9)
+ * Calculates transform coordinates for a given concert slot (0..performerCount-1).
+ * Features a gentle curved arc formation:
+ * Center characters are closest to audience; wing characters curve slightly backward.
+ * All characters face toward the audience (rotation = [0, 0, 0]).
  */
-export function getConcertSlotTransform(slotIndex: number) {
-  const isBackRow = slotIndex >= 5;
-  const colIndex = slotIndex % 5; // 0, 1, 2, 3, 4
-  const xOffset = (colIndex - 2) * CONCERT_STAGE_CONFIG.characterSpacingX; // -2.7, -1.35, 0, 1.35, 2.7
-  const yOffset = isBackRow ? CONCERT_STAGE_CONFIG.backRowY : CONCERT_STAGE_CONFIG.frontRowY;
-  const zOffset = isBackRow ? CONCERT_STAGE_CONFIG.backRowZ : CONCERT_STAGE_CONFIG.frontRowZ;
+export function getConcertSlotTransform(slotIndex: number, performerCount: number = 10) {
+  const frontCount = Math.ceil(performerCount / 2);
+  const isBackRow = slotIndex >= frontCount;
+
+  const rowCount = isBackRow ? performerCount - frontCount : frontCount;
+  const colIndex = isBackRow ? slotIndex - frontCount : slotIndex;
+
+  // Normalized distance from center of row (for 5 characters: -2, -1, 0, 1, 2)
+  const centerOffset = colIndex - (rowCount - 1) / 2;
+  const xOffset = centerOffset * CONCERT_STAGE_CONFIG.characterSpacingX;
+
+  // Parabolic arc curvature: deltaZ is negative, curving back toward the wings
+  const deltaZ = -(xOffset * xOffset) / (2 * CONCERT_STAGE_CONFIG.radiusOfCurvature);
+
+  const baseY = isBackRow ? CONCERT_STAGE_CONFIG.backRowY : CONCERT_STAGE_CONFIG.frontRowY;
+  const baseZ = isBackRow ? CONCERT_STAGE_CONFIG.backRowBaseZ : CONCERT_STAGE_CONFIG.frontRowBaseZ;
+
+  const yOffset = baseY;
+  const zOffset = baseZ + deltaZ;
 
   return {
     slotIndex,

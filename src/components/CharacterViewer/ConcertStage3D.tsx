@@ -49,9 +49,9 @@ export const ConcertStage3D: React.FC<ConcertStage3DProps> = ({
 
       {/* =========================================================================
           2. ELEVATED BACK ROW RISER (Top surface at exactly Y = 0.50)
-          Center at Y = 0.25, height = 0.50, depth = 1.8, Z = -0.85
+          Center at Y = 0.25, height = 0.50, depth = 1.8, Z = -0.75
           ========================================================================= */}
-      <group position={[0, 0, CONCERT_STAGE_CONFIG.backRowZ]}>
+      <group position={[0, 0, CONCERT_STAGE_CONFIG.backRowBaseZ]}>
         <mesh position={[0, CONCERT_STAGE_CONFIG.riserHeight / 2, 0]} receiveShadow castShadow>
           <boxGeometry
             args={[

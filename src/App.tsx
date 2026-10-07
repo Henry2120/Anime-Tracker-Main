@@ -64,11 +64,11 @@ const ExcelExportModal = lazyWithRetry(() => import('./components/ExcelExportMod
 const EditMalEntryModal = lazyWithRetry(() => import('./components/EditMalEntryModal').then((m) => ({ default: m.EditMalEntryModal })));
 const AnimeDetailModal = lazyWithRetry(() => import('./components/AnimeDetailModal').then((m) => ({ default: m.AnimeDetailModal })));
 
-// Lazily loaded Music Lab world component with resilient dynamic loading (dormant when disabled)
+// Lazily loaded Music Lab / Blue Archive Concert world component
 import { MUSIC_LAB_ENABLED } from './config/features';
-const MusicLabView = MUSIC_LAB_ENABLED
-  ? lazyWithRetry(() => import('./components/MusicLab/MusicLabView').then((m) => ({ default: m.MusicLabView })))
-  : null;
+import { ConcertMusicProvider } from './components/CharacterViewer/ConcertMusicContext';
+import { PersistentConcertHost } from './components/CharacterViewer/PersistentConcertHost';
+import { AnimeHeaderConcertWidget } from './components/CharacterViewer/AnimeHeaderConcertWidget';
 
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
@@ -99,7 +99,7 @@ import {
 // Set to false when the celebration period is over.
 const SHOW_TOP_500_EASTER_EGG = true;
 
-export default function App() {
+function AppContent() {
   // Application mode state: 'anime' (default Anime Tracker) | 'music' (Music Lab)
   const [appMode, setAppMode] = useState<AppMode>('anime');
 
@@ -1720,43 +1720,6 @@ export default function App() {
     }
   }, [isEffectiveDark]);
 
-  // If in Music Lab mode and Music Lab is enabled, render the dedicated atmospheric Music Lab world
-  if (MUSIC_LAB_ENABLED && appMode === 'music' && MusicLabView) {
-    return (
-      <div className={`w-full h-screen min-h-0 flex flex-col overflow-hidden ${isEffectiveDark ? 'dark' : ''}`}>
-        <ViewErrorBoundary
-          viewName="Music Lab"
-          onReset={() => setAppMode('anime')}
-        >
-          <Suspense
-            fallback={
-              <div className={`min-h-screen w-full flex flex-col items-center justify-center p-4 ${
-                theme === 'dark'
-                  ? 'bg-[#141318] text-[#F4F2F7]'
-                  : theme === 'sakura'
-                  ? 'bg-[#FDF5F7] text-[#25242A]'
-                  : 'bg-[#F7F5F2] text-[#25242A]'
-              }`}>
-                <div className="w-10 h-10 rounded-full border-2 border-[#7567C7]/30 border-t-[#7567C7] animate-spin mb-3" />
-                <span className="text-xs font-mono text-[#7567C7] tracking-widest uppercase">
-                  Entering Music Lab...
-                </span>
-              </div>
-            }
-          >
-            <MusicLabView
-              onReturnToAnime={() => setAppMode('anime')}
-              onSelectMode={(mode) => setAppMode(mode)}
-              malUser={malUser}
-              theme={theme}
-              onThemeChange={handleThemeChange}
-            />
-          </Suspense>
-        </ViewErrorBoundary>
-      </div>
-    );
-  }
-
   return (
     <div className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
       {/* SAKURA PETALS CANVAS (SHOWN ONLY IN SAKURA MODE WHEN LOGGED IN) */}
@@ -1775,6 +1738,7 @@ export default function App() {
               currentMode={appMode}
               onSelectMode={(mode) => setAppMode(mode)}
             />
+            <AnimeHeaderConcertWidget onOpenConcert={() => setAppMode('music')} />
           </div>
 
           {/* DESKTOP TOP NAV TABS */}
@@ -2805,6 +2769,26 @@ export default function App() {
       {SHOW_TOP_500_EASTER_EGG && (
         <Top500EasterEgg onOpenAbout={() => setIsAboutModalOpen(true)} />
       )}
+
+      {/* PERSISTENT BLUE ARCHIVE CONCERT HOST (FULL VIEWPORT OVERLAY OR FLOATING MINI PIP) */}
+      {MUSIC_LAB_ENABLED && (
+        <PersistentConcertHost
+          currentMode={appMode}
+          theme={theme}
+          onSelectMode={(mode) => setAppMode(mode)}
+          onReturnToAnime={() => setAppMode('anime')}
+          onThemeChange={handleThemeChange}
+          malUser={malUser}
+        />
+      )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ConcertMusicProvider>
+      <AppContent />
+    </ConcertMusicProvider>
   );
 }

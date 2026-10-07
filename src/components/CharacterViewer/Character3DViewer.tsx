@@ -19,7 +19,10 @@ import {
   Pause,
   Film,
   Music2,
-  CheckCircle2,
+  X,
+  Youtube,
+  Radio,
+  Check,
 } from 'lucide-react';
 import { AppTheme } from '../../types/theme';
 import { BLUE_ARCHIVE_CHARACTERS, CharacterManifestEntry } from '../../data/blueArchiveCharacters';
@@ -34,12 +37,19 @@ import {
   getConcertSlotTransform,
   CONCERT_STAGE_CONFIG,
 } from './concertConfig';
-import { useConcertAudio } from './useConcertAudio';
+import {
+  useConcertMusic,
+  PRESET_CONCERT_TRACKS,
+  extractYouTubeVideoId,
+} from './ConcertMusicContext';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
   className?: string;
+  presentationMode?: 'full' | 'mini';
   onReturnToEnsemble?: () => void;
+  onExpand?: () => void;
+  onCloseMini?: () => void;
 }
 
 /**
@@ -138,7 +148,7 @@ const ViewerEnvironment3D: React.FC<{
         color={envConfigs.rimColor}
       />
 
-      {/* Physical 3D Concert Stage Platform (Front Row & Elevated Back Row Riser) */}
+      {/* Physical 3D Concert Stage Platform (Front Row & Elevated Back Row Riser with Curved Markers) */}
       <ConcertStage3D
         environment={environment}
         selectedSlotIndex={selectedSlotIndex}
@@ -158,14 +168,15 @@ const ViewerEnvironment3D: React.FC<{
 };
 
 /**
- * Camera Auto-Framer for 10-Character Concert Stage
- * Frames all 10 performers, both rows, elevated back platform, with comfortable margins.
+ * Camera Auto-Framer for 10-Character Curved Concert Stage
+ * Frames all 10 performers, both curved rows, elevated back platform, with comfortable margins.
  */
 const DynamicCameraAutoFramer: React.FC<{
   loadedCharacters: LoadedCharacterInstance[];
   cameraPreset: ViewerCameraPreset;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
-}> = ({ loadedCharacters, cameraPreset, controlsRef }) => {
+  isMini?: boolean;
+}> = ({ loadedCharacters, cameraPreset, controlsRef, isMini = false }) => {
   const { camera, size } = useThree();
 
   const calculateBounds = useCallback(() => {
@@ -174,7 +185,6 @@ const DynamicCameraAutoFramer: React.FC<{
 
     loadedCharacters.forEach((char) => {
       if (char.visible && char.scene) {
-        // Evaluate instance bounding box translated to character position
         const box = char.boundingBox ? char.boundingBox.clone() : new THREE.Box3().setFromObject(char.scene);
         box.translate(char.position);
         collectiveBox.union(box);
@@ -228,10 +238,10 @@ const DynamicCameraAutoFramer: React.FC<{
     const distSphere = radius * 2.1;
 
     // Use max distance so entire 10-character ensemble + stage is completely visible
-    const distance = Math.max(distY, distX, distSphere, 5.0);
+    const distance = Math.max(distY, distX, distSphere, isMini ? 4.8 : 5.0);
 
     // Vertical target: Center of stage performers
-    const targetY = minY + height * 0.45;
+    const targetY = minY + height * (isMini ? 0.48 : 0.45);
     const target = new THREE.Vector3(center.x, targetY, center.z);
 
     const controls = controlsRef.current;
@@ -241,7 +251,10 @@ const DynamicCameraAutoFramer: React.FC<{
       controls.maxDistance = 35.0;
     }
 
-    if (cameraPreset === 'front') {
+    if (isMini) {
+      // Frontal concert stage view optimized for small overlay card
+      camera.position.set(center.x, targetY + distance * 0.28, center.z + distance * 1.05);
+    } else if (cameraPreset === 'front') {
       // Full audience frontal stage view with slight elevation so both rows are visible
       camera.position.set(center.x, targetY + distance * 0.22, center.z + distance * 0.98);
     } else if (cameraPreset === 'perspective') {
@@ -272,7 +285,7 @@ const DynamicCameraAutoFramer: React.FC<{
     if (controls) {
       controls.update();
     }
-  }, [loadedCharacters, cameraPreset, camera, size.width, size.height, controlsRef, calculateBounds]);
+  }, [loadedCharacters, cameraPreset, camera, size.width, size.height, controlsRef, calculateBounds, isMini]);
 
   return null;
 };
@@ -280,12 +293,18 @@ const DynamicCameraAutoFramer: React.FC<{
 export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   theme = 'light',
   className = '',
+  presentationMode = 'full',
   onReturnToEnsemble,
+  onExpand,
+  onCloseMini,
 }) => {
-  const isDark = theme === 'dark';
-  const isSakura = theme === 'sakura';
+  const isMini = presentationMode === 'mini';
+  const isDark = theme === 'dark' || isMini;
+  const isSakura = theme === 'sakura' && !isMini;
 
-  const containerBg = isDark
+  const containerBg = isMini
+    ? 'bg-[#12101C]'
+    : isDark
     ? 'bg-[#14121C] border-[#2E2C37]'
     : isSakura
     ? 'bg-[#FDF6F8] border-[#F2D6DC]'
@@ -293,6 +312,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
   // 3D Viewport Controls & State
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [songModalOpen, setSongModalOpen] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
   const [cameraPreset, setCameraPreset] = useState<ViewerCameraPreset>('front');
   const [environment, setEnvironment] = useState<ViewerEnvironment>(
     isDark ? 'dark' : isSakura ? 'sakura' : 'studio'
@@ -321,10 +342,20 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     updateCharacterTransform,
   } = useCharacterLoader();
 
-  // Web Audio Minimal Concert Music Engine (music ON = Cafe_Reaction, music OFF = Cafe_Idle)
-  const { isConcertPlaying, toggleMusic } = useConcertAudio();
+  // Persistent YouTube Music Controller (Single Source of Truth)
+  const {
+    videoId,
+    videoTitle,
+    isPlaying,
+    isPaused,
+    play,
+    pause,
+    stop,
+    togglePlay,
+    setVideo,
+  } = useConcertMusic();
 
-  // 10-Character Concert Stage Initialization
+  // 10-Character Concert Stage Initialization (Curved Formation)
   const hasInitializedRef = useRef(false);
   const [concertLoadingProgress, setConcertLoadingProgress] = useState<{ loaded: number; total: number }>({
     loaded: 0,
@@ -340,7 +371,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       setIsConcertInitializing(true);
       for (let i = 0; i < DEFAULT_CONCERT_PERFORMERS.length; i++) {
         const performer = DEFAULT_CONCERT_PERFORMERS[i];
-        const transform = getConcertSlotTransform(i);
+        const transform = getConcertSlotTransform(i, DEFAULT_CONCERT_PERFORMERS.length);
         try {
           await loadCharacter(performer, {
             replace: i === 0, // Clears initial placeholder on first model
@@ -349,7 +380,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             scale: transform.scale,
             slotIndex: i,
             stageRow: transform.row,
-            initialAnimation: 'Cafe_Idle', // Default idle state when concert music is off
+            initialAnimation: isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle', // Respect current playback state
           });
           setConcertLoadingProgress({ loaded: i + 1, total: DEFAULT_CONCERT_PERFORMERS.length });
         } catch (err) {
@@ -360,30 +391,29 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     }
 
     initConcert();
-  }, [loadCharacter]);
+  }, [loadCharacter, isPlaying]);
 
-  // Synchronized state machine:
-  // music ON (isConcertPlaying === true)  -> Cafe_Reaction for all 10 characters
-  // music OFF (isConcertPlaying === false) -> Cafe_Idle for all 10 characters
+  // Synchronized animation state machine:
+  // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for all 10 characters
+  // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for all 10 characters
   useEffect(() => {
     if (isConcertInitializing || loadedCharacters.length === 0) return;
 
-    if (isConcertPlaying) {
-      console.log('[Concert] Music started -> Switching all 10 characters to Cafe_Reaction');
+    if (isPlaying) {
+      console.log('[Concert] YouTube is PLAYING -> Switching all 10 characters to Cafe_Reaction');
       setAllCharactersAnimation('Cafe_Reaction');
     } else {
-      console.log('[Concert] Music stopped -> Switching all 10 characters to Cafe_Idle');
+      console.log('[Concert] YouTube is PAUSED/STOPPED -> Switching all 10 characters to Cafe_Idle');
       setAllCharactersAnimation('Cafe_Idle');
     }
-  }, [isConcertPlaying, isConcertInitializing, loadedCharacters.length, setAllCharactersAnimation]);
+  }, [isPlaying, isConcertInitializing, loadedCharacters.length, setAllCharactersAnimation]);
 
   // Handle character replacement in selected slot from drawer
   const handleSelectFromDrawer = useCallback(
     (character: CharacterManifestEntry, mode: 'replace' | 'add') => {
-      // Find target slot from currently selected character or selected slot index
       const activeChar = loadedCharacters.find((c) => c.id === selectedInstanceId);
       const targetSlot = activeChar?.slotIndex ?? selectedSlotIndex ?? 0;
-      const transform = getConcertSlotTransform(targetSlot);
+      const transform = getConcertSlotTransform(targetSlot, DEFAULT_CONCERT_PERFORMERS.length);
 
       loadCharacter(character, {
         replace: false,
@@ -392,10 +422,10 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
         position: transform.position,
         rotation: transform.rotation,
         scale: transform.scale,
-        initialAnimation: isConcertPlaying ? 'Cafe_Reaction' : 'Cafe_Idle',
+        initialAnimation: isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle',
       });
     },
-    [loadedCharacters, selectedInstanceId, selectedSlotIndex, isConcertPlaying, loadCharacter]
+    [loadedCharacters, selectedInstanceId, selectedSlotIndex, isPlaying, loadCharacter]
   );
 
   // Reset Camera Framing
@@ -403,171 +433,254 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     setCameraPreset('front');
   }, []);
 
-  // Selected character details for top status bar
+  // Selected character details for status bar
   const selectedCharacter = useMemo(() => {
     return loadedCharacters.find((c) => c.id === selectedInstanceId) || loadedCharacters[0];
   }, [loadedCharacters, selectedInstanceId]);
 
   return (
     <div
-      className={`relative w-full h-full min-h-0 flex-1 rounded-2xl sm:rounded-3xl overflow-hidden border shadow-2xl flex flex-col select-none ${containerBg} ${className}`}
+      className={`relative w-full h-full min-h-0 flex-1 overflow-hidden flex flex-col select-none ${containerBg} ${className}`}
     >
       {/* =========================================================================
-          TOP CONTROL BAR & CONCERT STATUS
+          MINI PRESENTATION MODE: COMPACT OVERLAY HEADER
           ========================================================================= */}
-      <div className="relative shrink-0 z-20 flex flex-wrap items-center justify-between p-2.5 sm:p-3 bg-white/80 dark:bg-[#1A1824]/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 gap-2">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+      {isMini && (
+        <div className="shrink-0 z-30 px-3 py-2 bg-black/75 backdrop-blur-md border-b border-white/10 flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
             <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isConcertPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-purple-500'
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isPlaying ? 'bg-emerald-400 animate-ping' : 'bg-purple-400'
               }`}
             />
-            <div className="flex flex-col">
-              <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7] leading-tight">
-                Blue Archive 10-Character Concert
+            <div className="flex flex-col min-w-0">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-[#A898F8] leading-tight flex items-center gap-1">
+                <Music2 className="h-3 w-3 inline" />
+                <span>{isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle'}</span>
               </span>
-              <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA] font-mono leading-tight">
-                5 Front • 5 Back Elevated (+0.50m)
+              <span className="font-semibold text-white/90 text-xs truncate max-w-[150px] leading-tight">
+                {videoTitle}
               </span>
             </div>
           </div>
 
-          {/* Model Status Badge */}
-          {selectedCharacter && (
-            <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
-              <span className="px-2 py-0.5 rounded-lg bg-[#7567C7]/10 text-[#7567C7] dark:text-[#A898F8] border border-[#7567C7]/20 flex items-center gap-1 font-bold">
-                <User className="h-3 w-3" />
-                <span>
-                  Slot {(selectedCharacter.slotIndex ?? 0) + 1}: {selectedCharacter.manifestEntry.name}
-                </span>
-              </span>
-
-              {selectedCharacter.currentAnimationName && (
-                <span
-                  className={`px-2 py-0.5 rounded-lg border flex items-center gap-1 font-semibold text-[10.5px] ${
-                    isConcertPlaying
-                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                      : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
-                  }`}
-                >
-                  <Film className="h-3 w-3" />
-                  <span>{selectedCharacter.currentAnimationName}</span>
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* PRIMARY CONCERT MUSIC CONTROL BANNER */}
-        <div className="flex items-center gap-2">
-          {/* Main Concert Play/Stop Toggle */}
-          <button
-            type="button"
-            id="concert-music-toggle-btn"
-            onClick={toggleMusic}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-md ${
-              isConcertPlaying
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50 animate-pulse'
-                : 'bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] hover:from-[#6556B8] hover:to-[#7B4CF0] text-white'
-            }`}
-            title={
-              isConcertPlaying
-                ? 'Stop concert music -> Switches all 10 characters to Cafe_Idle'
-                : 'Play concert music -> Switches all 10 characters to Cafe_Reaction'
-            }
-          >
-            {isConcertPlaying ? (
-              <>
-                <Pause className="h-4 w-4 fill-white shrink-0" />
-                <span>STOP MUSIC</span>
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 fill-white shrink-0" />
-                <span>PLAY MUSIC</span>
-              </>
-            )}
-          </button>
-
-          {/* Concert State Indicator Badge */}
-          <div
-            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${
-              isConcertPlaying
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isConcertPlaying ? 'bg-emerald-500 animate-ping' : 'bg-purple-400'
+          {/* Mini Action Controls */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Play / Pause Toggle */}
+            <button
+              type="button"
+              onClick={togglePlay}
+              className={`p-1.5 rounded-lg transition-all active:scale-95 cursor-pointer ${
+                isPlaying
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-[#7567C7] hover:bg-[#6556B8] text-white'
               }`}
-            />
-            <span>{isConcertPlaying ? 'PERFORMING (Cafe_Reaction)' : 'IDLE (Cafe_Idle)'}</span>
-          </div>
+              title={isPlaying ? 'Pause Music (Characters switch to Cafe_Idle)' : 'Resume Music (Characters switch to Cafe_Reaction)'}
+            >
+              {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white" />}
+            </button>
 
-          {/* Character Roster Drawer Button */}
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="p-1.5 px-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-black/5 dark:border-white/5"
-            title="Browse all 295 Blue Archive characters to swap into slots"
-          >
-            <FolderOpen className="h-3.5 w-3.5 text-[#7567C7]" />
-            <span className="hidden sm:inline">Roster</span>
-          </button>
-        </div>
-      </div>
-
-      {/* =========================================================================
-          PERFORMER SLOT STRIP (Interactive 10 Performer Overview)
-          ========================================================================= */}
-      <div className="shrink-0 z-10 px-3 py-1.5 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between overflow-x-auto text-[11px] font-semibold gap-2 scrollbar-none">
-        <div className="flex items-center gap-1.5 shrink-0 text-[#77747D] dark:text-[#A4A1AA]">
-          <span className="text-[10px] uppercase font-bold tracking-wider">Slots:</span>
-        </div>
-
-        {/* 10 Slot Badges */}
-        <div className="flex items-center gap-1.5 overflow-x-auto">
-          {Array.from({ length: 10 }).map((_, slotIdx) => {
-            const char = loadedCharacters.find((c) => c.slotIndex === slotIdx);
-            const isSelected = selectedCharacter?.slotIndex === slotIdx;
-            const isElevated = slotIdx >= 5;
-
-            return (
+            {/* Expand to Full Concert View */}
+            {onExpand && (
               <button
-                key={`slot-badge-${slotIdx}`}
                 type="button"
-                onClick={() => {
-                  setSelectedSlotIndex(slotIdx);
-                  if (char) setSelectedInstanceId(char.id);
-                }}
-                className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer border ${
-                  isSelected
-                    ? 'bg-[#7567C7] text-white border-[#7567C7] shadow-xs'
-                    : isElevated
-                    ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:bg-amber-500/20'
-                    : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/5 dark:border-white/5 hover:bg-black/10'
-                }`}
-                title={
-                  char
-                    ? `Slot ${slotIdx + 1}: ${char.manifestEntry.name} (${
-                        isElevated ? 'Back Row Elevated' : 'Front Row'
-                      })`
-                    : `Slot ${slotIdx + 1}: Loading...`
-                }
+                onClick={onExpand}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+                title="Expand to Full Concert Stage"
               >
-                <span className="font-mono text-[9.5px] opacity-75">[{slotIdx + 1}]</span>
-                <span className="truncate max-w-[65px]">{char?.manifestEntry.name || 'Loading'}</span>
-                {isElevated && <span className="text-[8.5px] opacity-75">▲</span>}
+                <Maximize2 className="h-3.5 w-3.5" />
               </button>
-            );
-          })}
+            )}
+
+            {/* Quit Mini Concert */}
+            {onCloseMini && (
+              <button
+                type="button"
+                onClick={onCloseMini}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-red-500/80 text-white/80 hover:text-white transition-all cursor-pointer"
+                title="Quit Concert (Stops music and closes overlay)"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* =========================================================================
-          3D CANVAS VIEWPORT (Concert Stage & 10 Performers)
+          FULL PRESENTATION MODE: TOP CONTROL BAR & CONCERT STATUS
+          ========================================================================= */}
+      {!isMini && (
+        <div className="relative shrink-0 z-20 flex flex-wrap items-center justify-between p-2.5 sm:p-3 bg-white/80 dark:bg-[#1A1824]/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-purple-500'
+                }`}
+              />
+              <div className="flex flex-col">
+                <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7] leading-tight flex items-center gap-1.5">
+                  <span>Blue Archive 10-Character Live Concert</span>
+                  <span className="px-1.5 py-0.2 rounded bg-[#7567C7]/15 text-[#7567C7] dark:text-[#A898F8] text-[9.5px] font-mono">
+                    Curved Arc
+                  </span>
+                </span>
+                <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA] font-mono leading-tight">
+                  5 Front • 5 Back Elevated (+0.50m)
+                </span>
+              </div>
+            </div>
+
+            {/* Selected Performer Badge */}
+            {selectedCharacter && (
+              <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
+                <span className="px-2.5 py-0.5 rounded-lg bg-[#7567C7]/10 text-[#7567C7] dark:text-[#A898F8] border border-[#7567C7]/20 flex items-center gap-1 font-bold">
+                  <User className="h-3 w-3" />
+                  <span>
+                    Slot {(selectedCharacter.slotIndex ?? 0) + 1}: {selectedCharacter.manifestEntry.name}
+                  </span>
+                </span>
+
+                {selectedCharacter.currentAnimationName && (
+                  <span
+                    className={`px-2 py-0.5 rounded-lg border flex items-center gap-1 font-semibold text-[10.5px] ${
+                      isPlaying
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                        : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
+                    }`}
+                  >
+                    <Film className="h-3 w-3" />
+                    <span>{selectedCharacter.currentAnimationName}</span>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* PRIMARY CONCERT CONTROLS: YOUTUBE MUSIC & ROSTER */}
+          <div className="flex items-center gap-2">
+            {/* Song Selection Trigger */}
+            <button
+              type="button"
+              onClick={() => setSongModalOpen(true)}
+              className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer border border-black/5 dark:border-white/5 transition-colors"
+              title="Change YouTube Concert Track"
+            >
+              <Youtube className="h-3.5 w-3.5 text-red-500" />
+              <span className="max-w-[120px] sm:max-w-[160px] truncate">{videoTitle}</span>
+            </button>
+
+            {/* Main Concert Play/Pause Toggle */}
+            <button
+              type="button"
+              id="concert-music-toggle-btn"
+              onClick={togglePlay}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-md ${
+                isPlaying
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50 animate-pulse'
+                  : 'bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] hover:from-[#6556B8] hover:to-[#7B4CF0] text-white'
+              }`}
+              title={
+                isPlaying
+                  ? 'Pause YouTube music -> Switches all 10 characters to Cafe_Idle'
+                  : 'Play YouTube music -> Switches all 10 characters to Cafe_Reaction'
+              }
+            >
+              {isPlaying ? (
+                <>
+                  <Pause className="h-4 w-4 fill-white shrink-0" />
+                  <span>PAUSE MUSIC</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 fill-white shrink-0" />
+                  <span>PLAY MUSIC</span>
+                </>
+              )}
+            </button>
+
+            {/* Concert State Indicator Badge */}
+            <div
+              className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${
+                isPlaying
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                  : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isPlaying ? 'bg-emerald-500 animate-ping' : 'bg-purple-400'
+                }`}
+              />
+              <span>{isPlaying ? 'PERFORMING (Cafe_Reaction)' : 'IDLE (Cafe_Idle)'}</span>
+            </div>
+
+            {/* Character Roster Drawer Button */}
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="p-1.5 px-3 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border border-black/5 dark:border-white/5"
+              title="Browse all 295 Blue Archive characters to swap into slots"
+            >
+              <FolderOpen className="h-3.5 w-3.5 text-[#7567C7]" />
+              <span className="hidden sm:inline">Roster</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          FULL PRESENTATION MODE: PERFORMER SLOT STRIP (Curved Slots Overview)
+          ========================================================================= */}
+      {!isMini && (
+        <div className="shrink-0 z-10 px-3 py-1.5 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between overflow-x-auto text-[11px] font-semibold gap-2 scrollbar-none">
+          <div className="flex items-center gap-1.5 shrink-0 text-[#77747D] dark:text-[#A4A1AA]">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Performer Slots:</span>
+          </div>
+
+          {/* 10 Slot Badges */}
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {Array.from({ length: DEFAULT_CONCERT_PERFORMERS.length }).map((_, slotIdx) => {
+              const char = loadedCharacters.find((c) => c.slotIndex === slotIdx);
+              const isSelected = selectedCharacter?.slotIndex === slotIdx;
+              const isElevated = slotIdx >= Math.ceil(DEFAULT_CONCERT_PERFORMERS.length / 2);
+
+              return (
+                <button
+                  key={`slot-badge-${slotIdx}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSlotIndex(slotIdx);
+                    if (char) setSelectedInstanceId(char.id);
+                  }}
+                  className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer border ${
+                    isSelected
+                      ? 'bg-[#7567C7] text-white border-[#7567C7] shadow-xs'
+                      : isElevated
+                      ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:bg-amber-500/20'
+                      : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/5 dark:border-white/5 hover:bg-black/10'
+                  }`}
+                  title={
+                    char
+                      ? `Slot ${slotIdx + 1}: ${char.manifestEntry.name} (${
+                          isElevated ? 'Back Row Elevated Arc' : 'Front Row Arc'
+                        })`
+                      : `Slot ${slotIdx + 1}: Loading...`
+                  }
+                >
+                  <span className="font-mono text-[9.5px] opacity-75">[{slotIdx + 1}]</span>
+                  <span className="truncate max-w-[65px]">{char?.manifestEntry.name || 'Loading'}</span>
+                  {isElevated && <span className="text-[8.5px] opacity-75">▲</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          3D CANVAS VIEWPORT (Concert Stage & 10 Performers in Curved Formation)
           ========================================================================= */}
       <div className="relative flex-1 min-h-0 w-full h-full bg-radial from-transparent to-black/15 overflow-hidden">
         <Canvas
@@ -594,20 +707,21 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               maxDistance={35.0}
               maxPolarAngle={Math.PI / 2 + 0.05}
               target={[0, 0.9, 0]}
+              enabled={!isMini}
             />
 
-            {/* Render all 10 loaded character instances in scene */}
+            {/* Render all loaded character instances in scene */}
             {loadedCharacters.map((char) => (
               <CharacterInstanceMesh
                 key={char.id}
                 instance={char}
-                isSelected={selectedInstanceId === char.id && loadedCharacters.length > 1}
+                isSelected={selectedInstanceId === char.id && loadedCharacters.length > 1 && !isMini}
                 wireframe={showWireframe}
               />
             ))}
 
-            {/* Optional Ground Grid */}
-            {showGrid && (
+            {/* Optional Ground Grid (in Full mode only) */}
+            {showGrid && !isMini && (
               <DreiGrid
                 position={[0, 0, 0]}
                 args={[16, 16]}
@@ -622,17 +736,18 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               />
             )}
 
-            {/* Dynamic Camera Auto-Framer for 10-Character Concert Stage */}
+            {/* Dynamic Camera Auto-Framer for Curved 10-Character Formation */}
             <DynamicCameraAutoFramer
               loadedCharacters={loadedCharacters}
               cameraPreset={cameraPreset}
               controlsRef={orbitControlsRef}
+              isMini={isMini}
             />
           </Suspense>
         </Canvas>
 
         {/* Initial Concert Ensemble Loading Overlay */}
-        {isConcertInitializing && (
+        {isConcertInitializing && !isMini && (
           <div className="absolute top-4 left-4 z-30 px-4 py-2.5 rounded-2xl bg-white/95 dark:bg-[#1A1824]/95 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl flex items-center gap-3 text-xs text-[#25242A] dark:text-white animate-in fade-in">
             <RefreshCw className="h-5 w-5 animate-spin text-[#7567C7] shrink-0" />
             <div className="flex flex-col">
@@ -640,14 +755,14 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 Assembling Concert Ensemble ({concertLoadingProgress.loaded}/{concertLoadingProgress.total})
               </span>
               <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
-                {loadingCharacter ? `Loading ${loadingCharacter.name}...` : 'Initializing 10-character stage...'}
+                {loadingCharacter ? `Loading ${loadingCharacter.name}...` : 'Initializing curved stage formation...'}
               </span>
             </div>
           </div>
         )}
 
         {/* Loading Single Replacement Progress */}
-        {!isConcertInitializing && loading && loadingCharacter && (
+        {!isConcertInitializing && loading && loadingCharacter && !isMini && (
           <div className="absolute top-4 left-4 z-30 px-3.5 py-2 rounded-2xl bg-white/90 dark:bg-[#1A1824]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-lg flex items-center gap-2.5 text-xs text-[#25242A] dark:text-white animate-in fade-in">
             <RefreshCw className="h-4 w-4 animate-spin text-[#7567C7]" />
             <div className="flex flex-col">
@@ -660,7 +775,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
         )}
 
         {/* Loading Error Notice */}
-        {error && (
+        {error && !isMini && (
           <div className="absolute top-4 left-4 z-30 px-3.5 py-2.5 rounded-2xl bg-red-500/10 dark:bg-red-500/20 backdrop-blur-md border border-red-500/30 shadow-lg flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400 max-w-sm">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -670,31 +785,33 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           </div>
         )}
 
-        {/* Bottom Viewport Toolbar with Concert Controls */}
-        <CharacterViewerToolbar
-          theme={theme}
-          loadedCharacters={loadedCharacters}
-          selectedInstanceId={selectedInstanceId}
-          cameraPreset={cameraPreset}
-          onSelectCameraPreset={setCameraPreset}
-          environment={environment}
-          onSelectEnvironment={setEnvironment}
-          showGrid={showGrid}
-          onToggleGrid={() => setShowGrid(!showGrid)}
-          showWireframe={showWireframe}
-          onToggleWireframe={() => setShowWireframe(!showWireframe)}
-          onOpenBrowser={() => setDrawerOpen(true)}
-          onResetCamera={handleResetCamera}
-          onSelectAnimation={playAnimation}
-          onTogglePlayPause={togglePlayPauseAnimation}
-          isConcertPlaying={isConcertPlaying}
-          onToggleConcertMusic={toggleMusic}
-        />
+        {/* Bottom Viewport Toolbar with Concert Controls (in Full mode only) */}
+        {!isMini && (
+          <CharacterViewerToolbar
+            theme={theme}
+            loadedCharacters={loadedCharacters}
+            selectedInstanceId={selectedInstanceId}
+            cameraPreset={cameraPreset}
+            onSelectCameraPreset={setCameraPreset}
+            environment={environment}
+            onSelectEnvironment={setEnvironment}
+            showGrid={showGrid}
+            onToggleGrid={() => setShowGrid(!showGrid)}
+            showWireframe={showWireframe}
+            onToggleWireframe={() => setShowWireframe(!showWireframe)}
+            onOpenBrowser={() => setDrawerOpen(true)}
+            onResetCamera={handleResetCamera}
+            onSelectAnimation={playAnimation}
+            onTogglePlayPause={togglePlayPauseAnimation}
+            isConcertPlaying={isPlaying}
+            onToggleConcertMusic={togglePlay}
+          />
+        )}
 
         {/* 295 Character Roster Browser Drawer */}
         <CharacterBrowserDrawer
           theme={theme}
-          isOpen={drawerOpen}
+          isOpen={drawerOpen && !isMini}
           onClose={() => setDrawerOpen(false)}
           loadedCharacters={loadedCharacters}
           selectedInstanceId={selectedInstanceId}
@@ -717,6 +834,97 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           onClearAll={clearCharacters}
         />
       </div>
+
+      {/* =========================================================================
+          YOUTUBE TRACK SELECTOR MODAL (Full Mode Only)
+          ========================================================================= */}
+      {songModalOpen && !isMini && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-lg bg-white dark:bg-[#1E1C2B] rounded-3xl shadow-2xl border border-black/10 dark:border-white/10 p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-black/5 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <Youtube className="h-5 w-5 text-red-500" />
+                <h3 className="font-bold text-sm text-[#25242A] dark:text-white">
+                  Select Concert Soundtrack
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSongModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[#77747D] hover:text-[#25242A] dark:hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Presets List */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#77747D]">
+                Curated Concert Tracks
+              </span>
+              <div className="space-y-1 max-h-56 overflow-y-auto">
+                {PRESET_CONCERT_TRACKS.map((t) => {
+                  const isCurrent = t.id === videoId;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        setVideo(t.id, t.title);
+                        setSongModalOpen(false);
+                      }}
+                      className={`w-full text-left p-2.5 rounded-xl flex items-center justify-between transition-colors cursor-pointer border ${
+                        isCurrent
+                          ? 'bg-[#7567C7]/15 border-[#7567C7]/30 text-[#7567C7] dark:text-[#A898F8] font-bold'
+                          : 'bg-black/5 dark:bg-white/5 border-transparent hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white'
+                      }`}
+                    >
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs truncate">{t.title}</span>
+                        <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">{t.artist}</span>
+                      </div>
+                      {isCurrent && <Check className="h-4 w-4 text-[#7567C7] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom URL Input */}
+            <div className="pt-2 border-t border-black/5 dark:border-white/5 space-y-2">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-[#77747D] block">
+                Paste YouTube Music Video URL / ID
+              </label>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (customUrlInput.trim()) {
+                    setVideo(customUrlInput.trim());
+                    setCustomUrlInput('');
+                    setSongModalOpen(false);
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={customUrlInput}
+                  onChange={(e) => setCustomUrlInput(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="flex-1 px-3 py-2 text-xs rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-[#25242A] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#7567C7]/50"
+                />
+                <button
+                  type="submit"
+                  disabled={!customUrlInput.trim()}
+                  className="px-4 py-2 bg-[#7567C7] hover:bg-[#6556B8] disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  Load Track
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
