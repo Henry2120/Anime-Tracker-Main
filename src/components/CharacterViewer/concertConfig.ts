@@ -93,18 +93,24 @@ export const DEFAULT_CONCERT_PERFORMERS: CharacterManifestEntry[] = [
 
 /**
  * Calculates transform coordinates for a given concert slot (0..performerCount-1).
- * Features a gentle curved arc formation:
- * Center characters are closest to audience; wing characters curve slightly backward.
- * All characters face toward the audience (rotation = [0, 0, 0]).
+ * Features a dynamic gentle curved arc formation based on actual loaded character count:
+ * - 1 to 5 characters: 1 front row, symmetrically distributed along the curved arc
+ * - > 5 characters: front row (Math.ceil(count / 2)) at Y=0, and elevated back row at Y=0.50
+ * - Center characters are closest to audience; wing characters curve slightly backward.
+ * - All characters face toward the audience (rotation = [0, 0, 0]).
  */
-export function getConcertSlotTransform(slotIndex: number, performerCount: number = 10) {
-  const frontCount = Math.ceil(performerCount / 2);
-  const isBackRow = slotIndex >= frontCount;
+export function getConcertSlotTransform(slotIndex: number, performerCount: number = 1) {
+  const safeCount = Math.max(1, performerCount);
+  const safeSlot = Math.max(0, Math.min(slotIndex, safeCount - 1));
 
-  const rowCount = isBackRow ? performerCount - frontCount : frontCount;
-  const colIndex = isBackRow ? slotIndex - frontCount : slotIndex;
+  const hasBackRow = safeCount > 5;
+  const frontCount = hasBackRow ? Math.ceil(safeCount / 2) : safeCount;
+  const isBackRow = hasBackRow && safeSlot >= frontCount;
 
-  // Normalized distance from center of row (for 5 characters: -2, -1, 0, 1, 2)
+  const rowCount = isBackRow ? safeCount - frontCount : frontCount;
+  const colIndex = isBackRow ? safeSlot - frontCount : safeSlot;
+
+  // Normalized distance from center of row (symmetrical placement)
   const centerOffset = colIndex - (rowCount - 1) / 2;
   const xOffset = centerOffset * CONCERT_STAGE_CONFIG.characterSpacingX;
 
@@ -118,8 +124,8 @@ export function getConcertSlotTransform(slotIndex: number, performerCount: numbe
   const zOffset = baseZ + deltaZ;
 
   return {
-    slotIndex,
-    slotNumber: slotIndex + 1,
+    slotIndex: safeSlot,
+    slotNumber: safeSlot + 1,
     row: isBackRow ? ('back' as const) : ('front' as const),
     position: new THREE.Vector3(xOffset, yOffset, zOffset),
     rotation: new THREE.Euler(0, 0, 0), // Facing audience/camera

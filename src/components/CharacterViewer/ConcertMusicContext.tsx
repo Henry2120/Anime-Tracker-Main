@@ -57,7 +57,7 @@ export function extractYouTubeVideoId(input: string): string | null {
   return match ? match[1] : null;
 }
 
-export type ConcertPresentationMode = 'full' | 'mini' | 'hidden';
+export type ConcertPresentationMode = 'full' | 'mini' | 'collapsed' | 'hidden';
 
 export interface ConcertMusicContextValue {
   // YouTube State
@@ -77,7 +77,7 @@ export interface ConcertMusicContextValue {
   pause: () => void;
   stop: () => void;
   togglePlay: () => void;
-  setVideo: (videoIdOrUrl: string, title?: string) => void;
+  setVideo: (videoIdOrUrl: string, title?: string, autoPlay?: boolean) => void;
   setPresentationMode: (mode: ConcertPresentationMode) => void;
   closeMiniConcert: () => void;
 }
@@ -85,8 +85,8 @@ export interface ConcertMusicContextValue {
 const ConcertMusicContext = createContext<ConcertMusicContextValue | null>(null);
 
 export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [videoId, setVideoId] = useState<string>(PRESET_CONCERT_TRACKS[0].id);
-  const [videoTitle, setVideoTitle] = useState<string>(PRESET_CONCERT_TRACKS[0].title);
+  const [videoId, setVideoId] = useState<string>('dUXIymB78YQ');
+  const [videoTitle, setVideoTitle] = useState<string>('Constant Moderato (Blue Archive OST)');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isStopped, setIsStopped] = useState<boolean>(true);
@@ -233,21 +233,28 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, [isPlaying, pause, play]);
 
   const setVideo = useCallback(
-    (urlOrId: string, customTitle?: string) => {
-      const extracted = extractYouTubeVideoId(urlOrId) || urlOrId;
+    (urlOrId: string, customTitle?: string, autoPlay: boolean = false) => {
+      const extracted = extractYouTubeVideoId(urlOrId) || urlOrId.trim();
+      if (!extracted) return;
       setVideoId(extracted);
       videoIdRef.current = extracted;
 
-      const preset = PRESET_CONCERT_TRACKS.find((p) => p.id === extracted);
-      const title = customTitle || preset?.title || 'YouTube Concert Track';
+      const title = customTitle || `YouTube Track (${extracted})`;
       setVideoTitle(title);
-
       setIsConcertActive(true);
-      if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+
+      if (playerRef.current) {
         try {
-          playerRef.current.loadVideoById(extracted);
+          if (autoPlay && typeof playerRef.current.loadVideoById === 'function') {
+            playerRef.current.loadVideoById(extracted);
+          } else if (typeof playerRef.current.cueVideoById === 'function') {
+            playerRef.current.cueVideoById(extracted);
+            setIsPlaying(false);
+            setIsPaused(false);
+            setIsStopped(true);
+          }
         } catch (e) {
-          console.warn('[YouTube Player] loadVideoById error:', e);
+          console.warn('[YouTube Player] load/cue error:', e);
         }
       }
     },
