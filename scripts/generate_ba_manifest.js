@@ -2,9 +2,13 @@
  * Script to generate/update the Blue Archive character manifest
  * Run with: node scripts/generate_ba_manifest.js
  */
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
+import https from 'node:https';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function fetchTree() {
   return new Promise((resolve, reject) => {
@@ -46,25 +50,58 @@ async function run() {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  const manifest = glbFiles.map((filename, idx) => {
+  // Preserve existing character entries & IDs if file exists
+  const existingPath = path.join(targetDir, 'blueArchiveCharacters.ts');
+  const existingMap = new Map();
+  const existingList = [];
+  if (fs.existsSync(existingPath)) {
+    try {
+      const content = fs.readFileSync(existingPath, 'utf8');
+      const match = content.match(/export const BLUE_ARCHIVE_CHARACTERS:\s*CharacterManifestEntry\[\]\s*=\s*(\[[\s\S]*?\]);/);
+      if (match) {
+        const parsed = JSON.parse(match[1]);
+        parsed.forEach((item) => {
+          existingMap.set(item.filename, item);
+          existingList.push(item);
+        });
+        console.log(`Loaded ${existingList.length} existing entries from ${existingPath}`);
+      }
+    } catch (e) {
+      console.warn('Could not parse existing manifest, generating fresh:', e.message);
+    }
+  }
+
+  const manifest = [...existingList];
+  let newAdditions = 0;
+
+  glbFiles.forEach((filename) => {
+    if (existingMap.has(filename)) {
+      return; // Already registered with stable ID
+    }
+
     const baseName = filename.replace(/\.glb$/, '');
+    const cleanName = baseName.replace(/_/g, ' ');
+    const nextIdx = manifest.length;
     const id =
       (baseName
         .toLowerCase()
         .replace(/[\s\(\)\+]+/g, '-')
         .replace(/[^a-z0-9\-_]/g, '')
-        .replace(/^-+|-+$/g, '') || `char-${idx}`) + `-${idx + 1}`;
+        .replace(/^-+|-+$/g, '') || `char-${nextIdx}`) + `-${nextIdx + 1}`;
 
     const encodedFilename = encodeURIComponent(filename);
     const remoteUrl = `https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/${encodedFilename}`;
 
-    return {
+    manifest.push({
       id,
-      name: baseName,
+      name: cleanName,
       filename,
       url: remoteUrl,
-    };
+    });
+    newAdditions++;
   });
+
+  console.log(`Added ${newAdditions} new characters. Total manifest entries: ${manifest.length}`);
 
   const tsContent = `/**
  * Blue Archive 3D Character Models Manifest
@@ -86,6 +123,17 @@ export const BLUE_ARCHIVE_CHARACTER_COUNT = ${manifest.length};
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);
+}
+
+/**
+ * Dynamically register a newly discovered or uploaded Blue Archive character model
+ */
+export function registerAdditionalCharacter(entry: CharacterManifestEntry): boolean {
+  if (BLUE_ARCHIVE_CHARACTERS.some((c) => c.filename === entry.filename || c.id === entry.id)) {
+    return false;
+  }
+  BLUE_ARCHIVE_CHARACTERS.push(entry);
+  return true;
 }
 `;
 

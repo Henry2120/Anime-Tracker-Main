@@ -36,7 +36,7 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
           <WorldSwitcher currentMode="music" onSelectMode={onSelectMode} variant="header" />
           <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-black/10 dark:border-white/10 text-xs font-semibold text-[#77747D]">
             <Sparkles className="h-3.5 w-3.5 text-[#7567C7]" />
-            <span>295 Blue Archive 3D GLB Character Engine</span>
+            <span>Blue Archive 3D GLB Character Engine</span>
           </div>
         </div>
 

@@ -40,27 +40,33 @@ export function disposeHierarchy(root: THREE.Object3D, mixer?: THREE.AnimationMi
   });
 }
 
+// Module-level persistent store so loaded 3D performers remain loaded across all view transitions
+let globalLoadedCharactersCache: LoadedCharacterInstance[] = [];
+let globalSelectedInstanceIdCache: string | null = null;
+
 export function useCharacterLoader() {
-  const [loadedCharacters, setLoadedCharacters] = useState<LoadedCharacterInstance[]>([]);
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
+  const [loadedCharacters, setLoadedCharacters] = useState<LoadedCharacterInstance[]>(
+    () => globalLoadedCharactersCache
+  );
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
+    () => globalSelectedInstanceIdCache
+  );
   const [loading, setLoading] = useState(false);
   const [loadingCharacter, setLoadingCharacter] = useState<CharacterManifestEntry | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<number>(0);
   const [error, setError] = useState<{ character: CharacterManifestEntry; message: string } | null>(null);
 
-  // Keep ref to all loaded instances for clean cleanup on unmount
-  const loadedCharactersRef = useRef<LoadedCharacterInstance[]>([]);
+  // Keep ref and module-level cache in sync
+  const loadedCharactersRef = useRef<LoadedCharacterInstance[]>(loadedCharacters);
   loadedCharactersRef.current = loadedCharacters;
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      loadedCharactersRef.current.forEach((char) => {
-        disposeHierarchy(char.scene, char.mixer);
-      });
-      loadedCharactersRef.current = [];
-    };
-  }, []);
+    globalLoadedCharactersCache = loadedCharacters;
+  }, [loadedCharacters]);
+
+  useEffect(() => {
+    globalSelectedInstanceIdCache = selectedInstanceId;
+  }, [selectedInstanceId]);
 
   /**
    * Load a character GLB from its remote public URL

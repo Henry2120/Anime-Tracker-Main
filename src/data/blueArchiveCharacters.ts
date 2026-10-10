@@ -1,7 +1,7 @@
 /**
  * Blue Archive 3D Character Models Manifest
  * Auto-generated from https://github.com/Henry2120/AniVerse-BlueArchive-Assets
- * Total Characters: 295
+ * Total Characters: 296
  */
 
 export interface CharacterManifestEntry {
@@ -1782,11 +1782,28 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "name": "st0005",
     "filename": "st0005.glb",
     "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/st0005.glb"
+  },
+  {
+    "id": "hina-dress-with-piano-296",
+    "name": "Hina (Dress with Piano)",
+    "filename": "Hina_Dress_with_Piano.glb",
+    "url": "https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/Hina_Dress_with_Piano.glb"
   }
 ];
 
-export const BLUE_ARCHIVE_CHARACTER_COUNT = 295;
+export const BLUE_ARCHIVE_CHARACTER_COUNT = 296;
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);
+}
+
+/**
+ * Dynamically register a newly discovered or uploaded Blue Archive character model
+ */
+export function registerAdditionalCharacter(entry: CharacterManifestEntry): boolean {
+  if (BLUE_ARCHIVE_CHARACTERS.some((c) => c.filename === entry.filename || c.id === entry.id)) {
+    return false;
+  }
+  BLUE_ARCHIVE_CHARACTERS.push(entry);
+  return true;
 }

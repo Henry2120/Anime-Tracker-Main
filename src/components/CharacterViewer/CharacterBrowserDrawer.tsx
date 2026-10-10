@@ -159,7 +159,7 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search 295 characters (e.g. Hina, Shiroko, Aris)..."
+                placeholder={`Search ${BLUE_ARCHIVE_CHARACTERS.length} characters (e.g. Hina, Shiroko, Aris)...`}
                 className="w-full pl-9 pr-8 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-xs text-[#25242A] dark:text-white placeholder-[#77747D] focus:outline-none focus:ring-2 focus:ring-[#7567C7]/50"
               />
               {searchQuery && (
