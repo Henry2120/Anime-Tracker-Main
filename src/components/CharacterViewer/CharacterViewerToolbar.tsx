@@ -11,7 +11,7 @@ import {
   Pause,
   Film,
   ChevronDown,
-  Flame,
+  Moon,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
@@ -83,9 +83,9 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 p-1.5 rounded-2xl bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl max-w-[95vw] select-none text-xs">
       {/* Special Scene Indicator in Toolbar */}
       {isSpecialSceneActive && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-950/80 via-purple-950/80 to-indigo-950/80 border border-purple-500/50 text-xs font-bold text-purple-200 shadow-md">
-          <Flame className="h-3.5 w-3.5 text-cyan-400 fill-cyan-400 animate-pulse" />
-          <span>Night Beach Burning Piano (00:04 - 00:07)</span>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-950/80 via-indigo-950/80 to-slate-900/80 border border-blue-500/50 text-xs font-bold text-blue-200 shadow-md">
+          <Moon className="h-3.5 w-3.5 text-cyan-300 fill-cyan-300" />
+          <span>Night Beach Piano Performance (00:04 - 00:07)</span>
         </div>
       )}
 

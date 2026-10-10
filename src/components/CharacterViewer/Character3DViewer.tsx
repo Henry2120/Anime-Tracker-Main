@@ -19,7 +19,8 @@ import {
   Disc3,
   Plus,
   Trash2,
-  Flame,
+  Moon,
+  Waves,
   Sparkles,
 } from 'lucide-react';
 import { AppTheme } from '../../types/theme';
@@ -552,9 +553,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             {/* Special Scene Active Indicator Badge */}
             {isSpecialSceneActive && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-purple-900/60 to-indigo-900/60 border border-purple-400/40 text-xs font-bold text-purple-200 shadow-md animate-pulse">
-                <Flame className="h-4 w-4 text-cyan-400 fill-cyan-400" />
-                <span className="hidden sm:inline">Night Beach Burning Piano</span>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-slate-900/60 border border-blue-400/40 text-xs font-bold text-blue-100 shadow-md">
+                <Moon className="h-4 w-4 text-cyan-300 fill-cyan-300" />
+                <span className="hidden sm:inline">Night Beach Piano Performance</span>
                 <span className="text-[10px] opacity-80 font-mono">(Exs_Cutin 00:04 - 00:07)</span>
               </div>
             )}
@@ -565,7 +566,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 type="button"
                 onClick={handleEquipHinaWithPiano}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer ring-2 ring-purple-400/30"
-                title="Stage Hina (Dress with Piano) to activate the Night Beach Burning Piano Cut-in"
+                title="Stage Hina (Dress with Piano) to activate the Night Beach Piano Cut-in"
               >
                 <Sparkles className="h-3.5 w-3.5 text-yellow-300" />
                 <span>Stage Hina (Dress with Piano)</span>
@@ -714,7 +715,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden">
         <Canvas
           shadows
-          camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 50 }}
+          camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 150 }}
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
