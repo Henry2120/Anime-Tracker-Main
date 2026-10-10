@@ -11,6 +11,7 @@ import {
   Pause,
   Film,
   ChevronDown,
+  Flame,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
@@ -33,6 +34,7 @@ interface CharacterViewerToolbarProps {
   onTogglePlayPause?: (instanceId: string) => void;
   isConcertPlaying?: boolean;
   onToggleConcertMusic?: () => void;
+  isSpecialSceneActive?: boolean;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
@@ -53,6 +55,7 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   onTogglePlayPause,
   isConcertPlaying,
   onToggleConcertMusic,
+  isSpecialSceneActive = false,
 }) => {
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
   const animDropdownRef = useRef<HTMLDivElement>(null);
@@ -78,6 +81,14 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 p-1.5 rounded-2xl bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl max-w-[95vw] select-none text-xs">
+      {/* Special Scene Indicator in Toolbar */}
+      {isSpecialSceneActive && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-950/80 via-purple-950/80 to-indigo-950/80 border border-purple-500/50 text-xs font-bold text-purple-200 shadow-md">
+          <Flame className="h-3.5 w-3.5 text-cyan-400 fill-cyan-400 animate-pulse" />
+          <span>Night Beach Burning Piano (00:04 - 00:07)</span>
+        </div>
+      )}
+
       {/* Browse Roster Button */}
       <button
         type="button"
@@ -85,7 +96,7 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         className="px-3 py-1.5 rounded-xl bg-[#7567C7] hover:bg-[#6455B8] text-white font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
       >
         <UserPlus className="h-3.5 w-3.5" />
-        <span>Roster (295)</span>
+        <span>Roster</span>
       </button>
 
       {/* Concert Music Master Toggle */}

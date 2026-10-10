@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Info,
   Film,
+  Flame,
 } from 'lucide-react';
 import {
   BLUE_ARCHIVE_CHARACTERS,
@@ -245,10 +246,16 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
                       className="flex-1 min-w-0 cursor-pointer"
                       onClick={() => onSelectCharacter(char, 'replace')}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7] truncate">
                           {char.name}
                         </span>
+                        {char.filename === 'Hina_Dress_with_Piano.glb' && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-400/40 text-[9px] font-bold shrink-0 flex items-center gap-1">
+                            <Flame className="h-2.5 w-2.5 text-cyan-400 fill-cyan-400" />
+                            <span>Cut-in Scene</span>
+                          </span>
+                        )}
                         {loaded && (
                           <span className="px-1.5 py-0.2 rounded-md bg-[#7567C7] text-white text-[9px] font-bold shrink-0">
                             Loaded

@@ -19,9 +19,15 @@ import {
   Disc3,
   Plus,
   Trash2,
+  Flame,
+  Sparkles,
 } from 'lucide-react';
 import { AppTheme } from '../../types/theme';
-import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
+import {
+  CharacterManifestEntry,
+  BLUE_ARCHIVE_CHARACTERS,
+  getCharacterById,
+} from '../../data/blueArchiveCharacters';
 import { LoadedCharacterInstance, ViewerCameraPreset, ViewerEnvironment } from './types';
 import { useCharacterLoader } from './useCharacterLoader';
 import { CharacterInstanceMesh } from './CharacterInstanceMesh';
@@ -29,6 +35,7 @@ import { CharacterBrowserDrawer } from './CharacterBrowserDrawer';
 import { CharacterViewerToolbar } from './CharacterViewerToolbar';
 import { getConcertSlotTransform } from './concertConfig';
 import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
+import { NightBeachScene } from './NightBeachScene';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -155,7 +162,14 @@ const DynamicCameraAutoFramer: React.FC<{
   cameraPreset: ViewerCameraPreset;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   isMini?: boolean;
-}> = ({ loadedCharacters, cameraPreset, controlsRef, isMini = false }) => {
+  isSpecialSceneActive?: boolean;
+}> = ({
+  loadedCharacters,
+  cameraPreset,
+  controlsRef,
+  isMini = false,
+  isSpecialSceneActive = false,
+}) => {
   const { camera, size } = useThree();
   const lastFramedKeyRef = useRef<string>('');
 
@@ -204,9 +218,11 @@ const DynamicCameraAutoFramer: React.FC<{
     };
   }, [loadedCharacters]);
 
-  // Adjust camera only when preset changes, character count changes, or presentation mode changes
+  // Adjust camera only when preset changes, character count changes, or presentation/scene mode changes
   useEffect(() => {
-    const frameKey = `${cameraPreset}-${loadedCharacters.length}-${isMini ? 'mini' : 'full'}`;
+    const frameKey = `${cameraPreset}-${loadedCharacters.length}-${isMini ? 'mini' : 'full'}-${
+      isSpecialSceneActive ? 'beach' : 'stage'
+    }`;
     if (lastFramedKeyRef.current === frameKey) {
       return;
     }
@@ -217,6 +233,23 @@ const DynamicCameraAutoFramer: React.FC<{
     const persCamera = camera as THREE.PerspectiveCamera;
     const fovRad = (persCamera.fov * Math.PI) / 180;
     const aspect = Math.max(0.2, size.width / Math.max(1, size.height));
+
+    // Special cinematic framing for the Night Beach Piano Cut-in performance
+    if (isSpecialSceneActive) {
+      const beachTarget = new THREE.Vector3(center.x, 0.82, center.z);
+      const beachDist = isMini ? 4.2 : 4.4;
+      const controls = controlsRef.current;
+      if (controls) {
+        controls.target.copy(beachTarget);
+        controls.minDistance = 1.2;
+        controls.maxDistance = 25.0;
+      }
+      persCamera.position.set(center.x, 1.25, center.z + beachDist);
+      persCamera.lookAt(beachTarget);
+      persCamera.updateProjectionMatrix();
+      controls?.update();
+      return;
+    }
 
     const distY = (height * 1.35) / (2 * Math.tan(fovRad / 2));
     const distX = (width * 1.3) / (2 * Math.tan(fovRad / 2) * aspect);
@@ -261,7 +294,17 @@ const DynamicCameraAutoFramer: React.FC<{
     if (controls) {
       controls.update();
     }
-  }, [loadedCharacters.length, cameraPreset, camera, size.width, size.height, controlsRef, calculateBounds, isMini]);
+  }, [
+    loadedCharacters.length,
+    cameraPreset,
+    camera,
+    size.width,
+    size.height,
+    controlsRef,
+    calculateBounds,
+    isMini,
+    isSpecialSceneActive,
+  ]);
 
   return null;
 };
@@ -277,13 +320,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const isMini = presentationMode === 'mini';
   const isDark = theme === 'dark';
   const isSakura = theme === 'sakura';
-
-  // Matching container background to current Anime Tracker theme family
-  const containerBg = isDark
-    ? 'bg-[#14121C] text-[#F4F2F7]'
-    : isSakura
-    ? 'bg-[#FDF6F8] text-[#25242A]'
-    : 'bg-[#F7F5F2] text-[#25242A]';
 
   // 3D Viewport Controls & State
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -320,23 +356,70 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     videoId,
     videoTitle,
     isPlaying,
+    isPaused,
+    isStopped,
+    isConcertActive,
     stop,
     togglePlay,
     setVideo,
   } = useConcertMusic();
 
+  // Check if loaded character is Hina (Dress) with her piano available & displayed
+  const isHinaDressWithPiano = useMemo(() => {
+    if (loadedCharacters.length !== 1) return false;
+    const char = loadedCharacters[0];
+    if (!char || !char.scene) return false;
+
+    const isHinaDress =
+      char.manifestEntry.filename === 'Hina_Dress_with_Piano.glb' ||
+      char.manifestEntry.filename === 'Hina (Dress).glb' ||
+      char.manifestEntry.id === 'hina-dress-with-piano-296' ||
+      char.manifestEntry.id === 'hina-dress-8' ||
+      char.manifestEntry.id === 'hina-dress-16' ||
+      /hina.*dress/i.test(char.manifestEntry.name);
+
+    if (!isHinaDress) return false;
+
+    // Check if piano model is attached / available in the character scene
+    const hasPiano =
+      Boolean(char.scene.getObjectByName('my_gehennaparty_01_piano_01')) ||
+      Boolean(char.scene.getObjectByName('Piano_Switch')) ||
+      char.manifestEntry.filename === 'Hina_Dress_with_Piano.glb';
+
+    return hasPiano;
+  }, [loadedCharacters]);
+
+  // Exact trigger condition state:
+  // 1. YouTube video ID is exact match J3cg4tFLm7A
+  // 2. Only 1 character on stage
+  // 3. That character is Hina (Dress) with piano available and displayed
+  // 4. Activates when playing; remains active during pause; cleanly exits on stop / video change / character change
+  const isExactTriggerMatch = videoId === 'J3cg4tFLm7A' && isHinaDressWithPiano;
+  const [hasTriggeredScene, setHasTriggeredScene] = useState(false);
+
+  useEffect(() => {
+    if (isExactTriggerMatch && isPlaying) {
+      setHasTriggeredScene(true);
+    } else if (!isExactTriggerMatch || isStopped || !isConcertActive) {
+      setHasTriggeredScene(false);
+    }
+  }, [isExactTriggerMatch, isPlaying, isStopped, isConcertActive]);
+
+  const isSpecialSceneActive = isExactTriggerMatch && hasTriggeredScene;
+
   // Synchronized animation state machine:
   // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for all loaded characters
   // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for all loaded characters
+  // (Disabled when isSpecialSceneActive so NightBeachScene has exclusive control over Exs_Cutin loop)
   useEffect(() => {
-    if (loadedCharacters.length === 0) return;
+    if (loadedCharacters.length === 0 || isSpecialSceneActive) return;
 
     if (isPlaying) {
       setAllCharactersAnimation('Cafe_Reaction');
     } else {
       setAllCharactersAnimation('Cafe_Idle');
     }
-  }, [isPlaying, loadedCharacters.length, setAllCharactersAnimation]);
+  }, [isPlaying, loadedCharacters.length, setAllCharactersAnimation, isSpecialSceneActive]);
 
   // Dynamically recalculate formation positions for all loaded characters whenever count changes
   useEffect(() => {
@@ -412,6 +495,25 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     return loadedCharacters.find((c) => c.id === selectedInstanceId) || loadedCharacters[0];
   }, [loadedCharacters, selectedInstanceId]);
 
+  // Quick trigger to load/stage Hina (Dress with Piano)
+  const handleEquipHinaWithPiano = useCallback(async () => {
+    const hinaWithPiano =
+      getCharacterById('hina-dress-with-piano-296') ||
+      BLUE_ARCHIVE_CHARACTERS.find((c) => c.filename === 'Hina_Dress_with_Piano.glb');
+    if (hinaWithPiano) {
+      await handleSelectFromDrawer(hinaWithPiano, 'replace');
+    }
+  }, [handleSelectFromDrawer]);
+
+  // Matching container background to current Anime Tracker theme family (or night ocean if special scene active)
+  const containerBg = isSpecialSceneActive
+    ? 'bg-[#050814] text-[#F4F2F7]'
+    : isDark
+    ? 'bg-[#14121C] text-[#F4F2F7]'
+    : isSakura
+    ? 'bg-[#FDF6F8] text-[#25242A]'
+    : 'bg-[#F7F5F2] text-[#25242A]';
+
   return (
     <div
       className={`relative w-full h-full min-h-0 flex-1 overflow-hidden flex flex-col select-none ${containerBg} ${className}`}
@@ -448,6 +550,28 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
           {/* Transport Controls & Status */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Special Scene Active Indicator Badge */}
+            {isSpecialSceneActive && (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-purple-900/60 to-indigo-900/60 border border-purple-400/40 text-xs font-bold text-purple-200 shadow-md animate-pulse">
+                <Flame className="h-4 w-4 text-cyan-400 fill-cyan-400" />
+                <span className="hidden sm:inline">Night Beach Burning Piano</span>
+                <span className="text-[10px] opacity-80 font-mono">(Exs_Cutin 00:04 - 00:07)</span>
+              </div>
+            )}
+
+            {/* Quick Trigger Button when J3cg4tFLm7A is loaded but Hina with Piano is not on stage */}
+            {videoId === 'J3cg4tFLm7A' && !isSpecialSceneActive && (
+              <button
+                type="button"
+                onClick={handleEquipHinaWithPiano}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer ring-2 ring-purple-400/30"
+                title="Stage Hina (Dress with Piano) to activate the Night Beach Burning Piano Cut-in"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-yellow-300" />
+                <span>Stage Hina (Dress with Piano)</span>
+              </button>
+            )}
+
             {/* Current Track Badge */}
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-xs">
               <Disc3 className={`h-3.5 w-3.5 ${isPlaying ? 'text-emerald-500 animate-spin' : 'text-[#7567C7]'}`} />
@@ -594,15 +718,22 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
-            <ViewerEnvironment3D environment={environment} />
+            {isSpecialSceneActive && loadedCharacters[0] ? (
+              <NightBeachScene
+                character={loadedCharacters[0]}
+                isMini={isMini}
+              />
+            ) : (
+              <ViewerEnvironment3D environment={environment} />
+            )}
 
             {/* Interactive OrbitControls: Fully active and zoomable in both Full and Mini mode */}
             <OrbitControls
               ref={orbitControlsRef}
               enableDamping
               dampingFactor={0.08}
-              minDistance={1.5}
-              maxDistance={20.0}
+              minDistance={1.2}
+              maxDistance={25.0}
               maxPolarAngle={Math.PI / 2 + 0.05}
               target={[0, 0.9, 0]}
               enabled={true}
@@ -613,13 +744,18 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               <CharacterInstanceMesh
                 key={char.id}
                 instance={char}
-                isSelected={selectedInstanceId === char.id && loadedCharacters.length > 1 && !isMini}
+                isSelected={
+                  selectedInstanceId === char.id &&
+                  loadedCharacters.length > 1 &&
+                  !isMini &&
+                  !isSpecialSceneActive
+                }
                 wireframe={showWireframe}
               />
             ))}
 
-            {/* Ground Grid (Full mode only) */}
-            {showGrid && !isMini && (
+            {/* Ground Grid (Full mode and regular stage only) */}
+            {showGrid && !isMini && !isSpecialSceneActive && (
               <DreiGrid
                 position={[0, 0, 0]}
                 args={[16, 16]}
@@ -640,6 +776,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               cameraPreset={cameraPreset}
               controlsRef={orbitControlsRef}
               isMini={isMini}
+              isSpecialSceneActive={isSpecialSceneActive}
             />
           </Suspense>
         </Canvas>
@@ -717,6 +854,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             onTogglePlayPause={togglePlayPauseAnimation}
             isConcertPlaying={isPlaying}
             onToggleConcertMusic={togglePlay}
+            isSpecialSceneActive={isSpecialSceneActive}
           />
         )}
 

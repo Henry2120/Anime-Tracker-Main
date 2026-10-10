@@ -42,6 +42,11 @@ export const PRESET_CONCERT_TRACKS: ConcertTrack[] = [
     title: 'Carol of the Bells (Violin EDM)',
     artist: 'Lindsey Stirling',
   },
+  {
+    id: 'J3cg4tFLm7A',
+    title: 'Burning Piano (Max Richter cover)',
+    artist: 'Danila Bolshakov',
+  },
 ];
 
 export function extractYouTubeVideoId(input: string): string | null {
@@ -80,6 +85,7 @@ export interface ConcertMusicContextValue {
   setVideo: (videoIdOrUrl: string, title?: string, autoPlay?: boolean) => void;
   setPresentationMode: (mode: ConcertPresentationMode) => void;
   closeMiniConcert: () => void;
+  getCurrentTime: () => number;
 }
 
 const ConcertMusicContext = createContext<ConcertMusicContextValue | null>(null);
@@ -267,6 +273,20 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     setPresentationMode('hidden');
   }, [stop]);
 
+  const getCurrentTime = useCallback((): number => {
+    if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+      try {
+        const t = playerRef.current.getCurrentTime();
+        if (typeof t === 'number' && !isNaN(t)) {
+          return t;
+        }
+      } catch {
+        // Ignore iframe access error if player not initialized
+      }
+    }
+    return 0;
+  }, []);
+
   const value = {
     videoId,
     videoTitle,
@@ -283,6 +303,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     setVideo,
     setPresentationMode,
     closeMiniConcert,
+    getCurrentTime,
   };
 
   return (
