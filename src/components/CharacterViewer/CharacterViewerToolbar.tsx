@@ -12,6 +12,8 @@ import {
   Film,
   ChevronDown,
   Moon,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
@@ -58,6 +60,7 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   isSpecialSceneActive = false,
 }) => {
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
+  const [showCameraPresets, setShowCameraPresets] = useState(true);
   const animDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -216,30 +219,49 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         </div>
       )}
 
-      {/* Camera Presets */}
+      {/* Camera Presets with Hide/Show Toggle */}
       <div className="flex items-center gap-0.5">
-        <Camera className="h-3.5 w-3.5 ml-1 mr-0.5 text-[#7567C7] hidden sm:block" />
-        {(
-          [
-            { id: 'perspective', label: 'Perspective' },
-            { id: 'front', label: 'Front' },
-            { id: 'side', label: 'Side' },
-            { id: 'closeUp', label: 'Portrait' },
-          ] as const
-        ).map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            onClick={() => onSelectCameraPreset(preset.id)}
-            className={`px-2 py-1 rounded-lg font-medium text-[11px] transition-colors cursor-pointer ${
-              cameraPreset === preset.id
-                ? 'bg-black/10 dark:bg-white/15 text-[#25242A] dark:text-white font-bold'
-                : 'text-[#77747D] hover:bg-black/5 dark:hover:bg-white/5'
-            }`}
-          >
-            {preset.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setShowCameraPresets((prev) => !prev)}
+          title={showCameraPresets ? 'Hide Camera Perspective Buttons' : 'Show Camera Perspective Buttons'}
+          className={`p-1 rounded-lg text-[#7567C7] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-1 ${
+            !showCameraPresets ? 'bg-[#7567C7]/15 font-bold' : ''
+          }`}
+        >
+          <Camera className="h-3.5 w-3.5" />
+          {!showCameraPresets && (
+            <span className="text-[10px] font-bold text-[#7567C7] dark:text-[#A898F8] pr-0.5">Presets</span>
+          )}
+        </button>
+
+        {showCameraPresets && (
+          <div className="flex items-center gap-0.5 animate-in fade-in duration-150">
+            {(
+              [
+                { id: 'perspective', label: 'Perspective' },
+                { id: 'front', label: 'Front' },
+                { id: 'back', label: 'Back' },
+                { id: 'side', label: 'Side' },
+                { id: 'top', label: 'Top' },
+                { id: 'closeUp', label: 'Portrait' },
+              ] as const
+            ).map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => onSelectCameraPreset(preset.id)}
+                className={`px-2 py-1 rounded-lg font-medium text-[11px] transition-colors cursor-pointer ${
+                  cameraPreset === preset.id
+                    ? 'bg-black/10 dark:bg-white/15 text-[#25242A] dark:text-white font-bold'
+                    : 'text-[#77747D] hover:bg-black/5 dark:hover:bg-white/5'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />

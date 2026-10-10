@@ -235,42 +235,26 @@ const DynamicCameraAutoFramer: React.FC<{
     const fovRad = (persCamera.fov * Math.PI) / 180;
     const aspect = Math.max(0.2, size.width / Math.max(1, size.height));
 
-    // Special cinematic framing for the Night Beach Piano Cut-in performance
-    if (isSpecialSceneActive) {
-      const beachTarget = new THREE.Vector3(center.x, 0.82, center.z);
-      const beachDist = isMini ? 4.2 : 4.4;
-      const controls = controlsRef.current;
-      if (controls) {
-        controls.target.copy(beachTarget);
-        controls.minDistance = 1.2;
-        controls.maxDistance = 25.0;
-      }
-      persCamera.position.set(center.x, 1.25, center.z + beachDist);
-      persCamera.lookAt(beachTarget);
-      persCamera.updateProjectionMatrix();
-      controls?.update();
-      return;
-    }
-
     const distY = (height * 1.35) / (2 * Math.tan(fovRad / 2));
     const distX = (width * 1.3) / (2 * Math.tan(fovRad / 2) * aspect);
     const distSphere = radius * 2.0;
 
-    const distance = Math.max(distY, distX, distSphere, isMini ? 4.2 : 4.8);
-    const targetY = minY + height * (isMini ? 0.5 : 0.45);
+    const baseDistance = Math.max(distY, distX, distSphere, isMini ? 4.2 : 4.6);
+    const distance = isSpecialSceneActive ? (isMini ? 4.2 : 4.6) : baseDistance;
+    const targetY = isSpecialSceneActive ? 0.85 : minY + height * (isMini ? 0.5 : 0.45);
     const target = new THREE.Vector3(center.x, targetY, center.z);
 
     const controls = controlsRef.current;
     if (controls) {
       controls.target.copy(target);
-      controls.minDistance = 1.5;
-      controls.maxDistance = 20.0;
+      controls.minDistance = 0.8;
+      controls.maxDistance = 35.0;
     }
 
-    if (isMini) {
-      camera.position.set(center.x, targetY + distance * 0.28, center.z + distance * 1.05);
-    } else if (cameraPreset === 'front') {
-      camera.position.set(center.x, targetY + distance * 0.22, center.z + distance * 0.98);
+    if (cameraPreset === 'front') {
+      camera.position.set(center.x, targetY + distance * 0.15, center.z + distance * 0.98);
+    } else if (cameraPreset === 'back') {
+      camera.position.set(center.x, targetY + distance * 0.18, center.z - distance * 0.98);
     } else if (cameraPreset === 'perspective') {
       const radAzim = 0.38;
       const radElev = 0.28;
@@ -280,13 +264,13 @@ const DynamicCameraAutoFramer: React.FC<{
         center.z + distance * Math.cos(radAzim) * Math.cos(radElev)
       );
     } else if (cameraPreset === 'side') {
-      camera.position.set(center.x + distance, targetY + distance * 0.2, center.z);
+      camera.position.set(center.x + distance * 0.95, targetY + distance * 0.18, center.z);
     } else if (cameraPreset === 'closeUp') {
-      const closeDist = Math.max(2.0, (width * 0.38) / (2 * Math.tan(fovRad / 2) * aspect));
-      camera.position.set(center.x, 0.95, center.z + closeDist);
+      const closeDist = Math.max(1.8, (width * 0.38) / (2 * Math.tan(fovRad / 2) * aspect));
+      camera.position.set(center.x, Math.max(0.85, targetY), center.z + closeDist);
       if (controls) controls.target.set(center.x, 0.85, center.z);
     } else if (cameraPreset === 'top') {
-      camera.position.set(center.x, targetY + distance * 1.25, center.z + 0.1);
+      camera.position.set(center.x, targetY + distance * 1.15, center.z + 0.1);
     }
 
     camera.lookAt(target);
@@ -406,21 +390,33 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     }
   }, [isExactTriggerMatch, isPlaying, isStopped, isConcertActive]);
 
-  const isSpecialSceneActive = isExactTriggerMatch && hasTriggeredScene;
+  const isSpecialSceneActive = isExactTriggerMatch && (hasTriggeredScene || isPlaying);
+
+  const loadedCharactersRef = useRef(loadedCharacters);
+  useEffect(() => {
+    loadedCharactersRef.current = loadedCharacters;
+  }, [loadedCharacters]);
 
   // Synchronized animation state machine:
-  // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for all loaded characters
-  // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for all loaded characters
-  // (Disabled when isSpecialSceneActive so NightBeachScene has exclusive control over Exs_Cutin loop)
+  // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for background performers
+  // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for background performers
+  // (Preserves any character performing Exs_Cutin or special piano scenes without clobbering)
   useEffect(() => {
-    if (loadedCharacters.length === 0 || isSpecialSceneActive) return;
+    if (isSpecialSceneActive) return;
 
-    if (isPlaying) {
-      setAllCharactersAnimation('Cafe_Reaction');
-    } else {
-      setAllCharactersAnimation('Cafe_Idle');
-    }
-  }, [isPlaying, loadedCharacters.length, setAllCharactersAnimation, isSpecialSceneActive]);
+    const chars = loadedCharactersRef.current;
+    if (chars.length === 0) return;
+
+    const targetAnim = isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle';
+    chars.forEach((char) => {
+      const isExs =
+        char.currentAnimationName === 'Exs_Cutin' ||
+        char.currentAnimationName === 'exs_cutin';
+      if (isExs || char.currentAnimationName === targetAnim) return;
+
+      playAnimation(char.id, targetAnim);
+    });
+  }, [isPlaying, isSpecialSceneActive, playAnimation]);
 
   // Dynamically recalculate formation positions for all loaded characters whenever count changes
   useEffect(() => {
@@ -728,15 +724,17 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               <ViewerEnvironment3D environment={environment} />
             )}
 
-            {/* Interactive OrbitControls: Fully active and zoomable in both Full and Mini mode */}
+            {/* Interactive OrbitControls: Full 360° horizontal and vertical inspection, zoom & pan */}
             <OrbitControls
               ref={orbitControlsRef}
               enableDamping
               dampingFactor={0.08}
-              minDistance={1.2}
-              maxDistance={25.0}
-              maxPolarAngle={Math.PI / 2 + 0.05}
-              target={[0, 0.9, 0]}
+              minDistance={0.8}
+              maxDistance={35.0}
+              minPolarAngle={0.05}
+              maxPolarAngle={Math.PI - 0.05}
+              enablePan={true}
+              target={[0, 0.85, 0]}
               enabled={true}
             />
 

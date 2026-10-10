@@ -35,7 +35,7 @@ export interface LoadedCharacterInstance {
   isPlayingAnimation: boolean;
 }
 
-export type ViewerCameraPreset = 'front' | 'perspective' | 'side' | 'closeUp' | 'top';
+export type ViewerCameraPreset = 'front' | 'perspective' | 'side' | 'closeUp' | 'top' | 'back';
 
 export type ViewerEnvironment = 'studio' | 'dark' | 'sakura' | 'sunset' | 'clean';
 

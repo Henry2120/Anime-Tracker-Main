@@ -116,6 +116,14 @@ export function useCharacterLoader() {
                     vertexCount += mesh.geometry.attributes.position?.count || 0;
                   }
 
+                  // Detect piano mesh
+                  const isPianoMesh =
+                    mesh.name === 'SubMesh_0' ||
+                    mesh.name === 'Mesh_0' ||
+                    mesh.name.toLowerCase().includes('piano') ||
+                    Boolean(mesh.parent?.name?.toLowerCase().includes('piano')) ||
+                    Boolean(mesh.parent?.parent?.name?.toLowerCase().includes('piano'));
+
                   if (mesh.material) {
                     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                     mats.forEach((m) => {
@@ -123,7 +131,19 @@ export function useCharacterLoader() {
                       if ('map' in m && m.map) {
                         (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
                       }
-                      if ('roughness' in m && m.roughness === undefined) {
+                      if (isPianoMesh) {
+                        // Piano lacquer finish: smooth glossy clearcoat, elegant specular shine
+                        if ('roughness' in m) (m as THREE.MeshStandardMaterial).roughness = 0.22;
+                        if ('metalness' in m) (m as THREE.MeshStandardMaterial).metalness = 0.15;
+                        // Restore original rich royal purple tint by balancing vertex colors
+                        if ('color' in m) {
+                          (m as THREE.MeshStandardMaterial).color.setRGB(3.2, 3.2, 3.6);
+                        }
+                        if ('emissive' in m) {
+                          (m as THREE.MeshStandardMaterial).emissive.set('#160c24');
+                          (m as THREE.MeshStandardMaterial).emissiveIntensity = 0.22;
+                        }
+                      } else if ('roughness' in m && m.roughness === undefined) {
                         m.roughness = 0.5;
                       }
                     });
@@ -300,14 +320,25 @@ export function useCharacterLoader() {
    * Smoothly crossfades and resets actions so performers visually begin together.
    */
   const setAllCharactersAnimation = useCallback((animationName: string) => {
-    setLoadedCharacters((prev) =>
-      prev.map((char) => {
+    setLoadedCharacters((prev) => {
+      let anyChanged = false;
+      const updated = prev.map((char) => {
+        // If character is currently performing Exs_Cutin, preserve their piano performance!
+        const isExs = char.currentAnimationName === 'Exs_Cutin' || char.currentAnimationName === 'exs_cutin';
+        if (isExs) return char;
+
+        // If already playing this animation, skip without modifying state
+        if (char.currentAnimationName === animationName && char.isPlayingAnimation) {
+          return char;
+        }
+
         const clip = THREE.AnimationClip.findByName(char.animations, animationName);
         if (!clip) {
           console.warn(`[Concert] Character ${char.manifestEntry.name}: ${animationName} not found`);
           return char;
         }
 
+        anyChanged = true;
         const prevAction = char.currentAction;
         const nextAction = char.mixer.clipAction(clip);
         nextAction.reset();
@@ -325,43 +356,65 @@ export function useCharacterLoader() {
           currentAnimationName: animationName,
           isPlayingAnimation: true,
         };
-      })
-    );
+      });
+
+      return anyChanged ? updated : prev;
+    });
   }, []);
 
   /**
    * Reusable animation playback function (Part 6 & 7)
    */
   const playAnimation = useCallback((instanceId: string, animationName: string) => {
-    setLoadedCharacters((prev) =>
-      prev.map((char) => {
-        if (char.id !== instanceId) return char;
+    setLoadedCharacters((prev) => {
+      const target = prev.find((c) => c.id === instanceId);
+      if (!target) return prev;
 
-        const clip = THREE.AnimationClip.findByName(char.animations, animationName);
-        if (!clip) {
-          console.warn(`[Blue Archive Viewer] Animation "${animationName}" not found in model ${char.manifestEntry.name}`);
-          return char;
+      // If already playing this exact animation, avoid redundant state updates
+      if (target.currentAnimationName === animationName && target.isPlayingAnimation) {
+        return prev;
+      }
+
+      const clip = THREE.AnimationClip.findByName(target.animations, animationName);
+      if (!clip) {
+        console.warn(`[Blue Archive Viewer] Animation "${animationName}" not found in model ${target.manifestEntry.name}`);
+        return prev;
+      }
+
+      const prevAction = target.currentAction;
+      const nextAction = target.mixer.clipAction(clip);
+      nextAction.reset();
+      nextAction.setLoop(THREE.LoopRepeat, Infinity);
+
+      // Ensure Piano_Switch is visible and scaled when Exs_Cutin is active
+      const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
+      const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
+      if (pianoSwitch) {
+        if (isExs) {
+          pianoSwitch.scale.set(1, 1, 1);
+          pianoSwitch.visible = true;
+        } else {
+          pianoSwitch.scale.set(0.0001, 0.0001, 0.0001);
         }
+      }
 
-        const prevAction = char.currentAction;
-        const nextAction = char.mixer.clipAction(clip);
-        nextAction.reset();
-        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+      if (prevAction && prevAction !== nextAction) {
+        prevAction.fadeOut(0.25);
+        nextAction.fadeIn(0.25);
+      }
+      nextAction.play();
 
-        if (prevAction && prevAction !== nextAction) {
-          prevAction.fadeOut(0.25);
-          nextAction.fadeIn(0.25);
-        }
-        nextAction.play();
-
-        return {
-          ...char,
-          currentAction: nextAction,
-          currentAnimationName: animationName,
-          isPlayingAnimation: true,
-        };
-      })
-    );
+      return prev.map((char) =>
+        char.id === instanceId
+          ? {
+              ...char,
+              currentAction: nextAction,
+              currentAnimationName: animationName,
+              isPlayingAnimation: true,
+            }
+          : char
+      );
+    });
   }, []);
 
   /**
