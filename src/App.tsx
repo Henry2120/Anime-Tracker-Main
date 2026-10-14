@@ -213,8 +213,8 @@ function AppContent() {
   const [seasonalLoading, setSeasonalLoading] = useState<boolean>(false);
   const [seasonalError, setSeasonalError] = useState<string | null>(null);
 
-  // Selected Season state for MY SEASON view ('spring' | 'summer' | 'fall', default 'summer')
-  const [selectedSeason, setSelectedSeason] = useState<'spring' | 'summer' | 'fall'>('summer');
+  // Selected Season state for MY SEASON view ('spring' | 'summer' | 'fall', default 'fall')
+  const [selectedSeason, setSelectedSeason] = useState<'spring' | 'summer' | 'fall'>('fall');
 
   // Jikan Summer 2026 Seasonal State (Authoritative source of truth for MY SEASON)
   const [jikanSummer2026List, setJikanSummer2026List] = useState<JikanSeasonalAnime[]>([]);
@@ -1324,8 +1324,12 @@ function AppContent() {
   useEffect(() => {
     if (activeTab === 'season' || activeTab === 'status' || activeTab === 'review' || activeTab === 'gemini') {
       const cancel = scheduleDeferredTask(() => {
-        if (jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
+        if (selectedSeason === 'fall' && jikanFall2026List.length === 0 && !jikanFallLoading) {
+          loadJikanFallCatalogue();
+        } else if (selectedSeason === 'summer' && jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
           loadJikanSeasonalCatalogue();
+        } else if (selectedSeason === 'spring' && jikanSpring2026List.length === 0 && !jikanSpringLoading) {
+          loadJikanSpringCatalogue();
         }
         if (seasonalCalendarItems.length === 0) {
           const cached = getCachedCalendarItems();
@@ -1342,8 +1346,13 @@ function AppContent() {
     }
   }, [
     activeTab,
+    selectedSeason,
+    jikanFall2026List.length,
+    jikanFallLoading,
     jikanSummer2026List.length,
     jikanSeasonLoading,
+    jikanSpring2026List.length,
+    jikanSpringLoading,
     seasonalCalendarItems.length,
   ]);
 
@@ -1356,6 +1365,16 @@ function AppContent() {
       return cancel;
     }
   }, [selectedSeason, jikanSpring2026List.length, jikanSpringLoading]);
+
+  // Summer secondary catalogue loaded deferred when summer season is selected
+  useEffect(() => {
+    if (selectedSeason === 'summer' && jikanSummer2026List.length === 0 && !jikanSeasonLoading) {
+      const cancel = scheduleDeferredTask(() => {
+        loadJikanSeasonalCatalogue();
+      });
+      return cancel;
+    }
+  }, [selectedSeason, jikanSummer2026List.length, jikanSeasonLoading]);
 
   // Fall secondary catalogue loaded deferred when fall season is selected
   useEffect(() => {
@@ -1548,8 +1567,8 @@ function AppContent() {
     }
   };
 
-  // Fetch Seasonal Anime List from MAL (Summer 2026)
-  const fetchSeasonalList = async (year = 2026, season = 'summer') => {
+  // Fetch Seasonal Anime List from MAL (Default: Fall 2026)
+  const fetchSeasonalList = async (year = 2026, season = 'fall') => {
     setSeasonalLoading(true);
     setSeasonalError(null);
     try {
@@ -1762,7 +1781,7 @@ function AppContent() {
                 onClick={() => {
                   setActiveTab('season');
                   if (seasonalList.length === 0 && !seasonalLoading) {
-                    fetchSeasonalList(2026, 'summer');
+                    fetchSeasonalList(2026, selectedSeason);
                   }
                 }}
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-2 ${

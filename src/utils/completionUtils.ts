@@ -115,6 +115,28 @@ function formatTimeInTz(epochSec: number, tz: string): string {
 }
 
 /**
+ * Formats a unix timestamp in seconds to a full date and 12-hour time string (e.g. 'Oct 16, 2026, 11:30 PM')
+ * in the specified timezone.
+ */
+export function formatFullDateTimeInTz(epochSec: number, tz: string): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return formatter.format(new Date(epochSec * 1000));
+  } catch {
+    const d = new Date(epochSec * 1000);
+    return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  }
+}
+
+/**
  * Calculates the number of calendar days between two YYYY-MM-DD date keys in the same timezone.
  * Uses UTC date values to prevent any daylight-saving-time fractional shifts.
  */
@@ -673,6 +695,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
+      formattedNextAirDateTime: null,
       reason: 'No anime item provided',
     };
   }
@@ -698,6 +721,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
+      formattedNextAirDateTime: null,
       reason: 'Missing anime node metadata',
     };
   }
@@ -768,6 +792,7 @@ export function getAnimeAiringState(
     nextEpDateKey && todayDateKey ? getCalendarDaysDifference(todayDateKey, nextEpDateKey) : null;
   const formattedNextAirDate = nextEp ? formatShortDateInTz(nextEp.airingAt, userTz) : null;
   const formattedNextAirTime = nextEp ? formatTimeInTz(nextEp.airingAt, userTz) : null;
+  const formattedNextAirDateTime = nextEp ? formatFullDateTimeInTz(nextEp.airingAt, userTz) : null;
 
   // Final Episode Check - STRICTLY EVIDENCE-BASED (NO GUESSING)
   // Only true if totalEpisodes is confirmed (>0) AND next episode equals totalEpisodes
@@ -846,6 +871,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
+      formattedNextAirDateTime,
       reason: 'Scheduled to return in a future broadcast cour',
     });
   }
@@ -905,6 +931,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
+      formattedNextAirDateTime: null,
       reason: isMalFinished
         ? 'MAL officially indicates finished airing'
         : isFinalEpisodeAired || isTotalEpisodesAired
@@ -940,6 +967,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
+      formattedNextAirDateTime,
       reason: 'Finished initial cour; returning in an upcoming cour',
     });
   }
@@ -965,14 +993,16 @@ export function getAnimeAiringState(
         daysUntilFinalEpisode: 0,
         formattedNextAirDate,
         formattedNextAirTime,
+        formattedNextAirDateTime,
         reason: 'Final episode is currently broadcasting live',
       });
     }
 
     const styles = getBadgeStyles('final_episode_today');
+    const epText = typeof nextEpisodeNumber === 'number' ? `Ep ${nextEpisodeNumber}` : 'Final Ep';
     const stateLabel = formattedNextAirTime
-      ? `Final Episode — Today at ${formattedNextAirTime}`
-      : 'Final Episode Today';
+      ? `Final Episode (${epText}) — Today at ${formattedNextAirTime}`
+      : `Final Episode (${epText}) — Today`;
 
     return finish({
       state: 'final_episode_today',
@@ -991,6 +1021,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: 0,
       formattedNextAirDate,
       formattedNextAirTime,
+      formattedNextAirDateTime,
       reason: 'Final episode scheduled for broadcast today',
     });
   }
@@ -1007,12 +1038,13 @@ export function getAnimeAiringState(
       daysText = ` · ${daysUntilFinalEpisode} ${daysUntilFinalEpisode === 1 ? 'day' : 'days'} left`;
     }
 
+    const epText = typeof nextEpisodeNumber === 'number' ? `Ep ${nextEpisodeNumber}` : 'Final Ep';
     const styles = getBadgeStyles('final_episode');
     const stateLabel = formattedNextAirDate
-      ? `Final Episode — ${formattedNextAirDate}${daysText}`
+      ? `Final Episode (${epText}) — ${formattedNextAirDate}${daysText}`
       : daysText
-      ? `Final Episode${daysText}`
-      : 'Final Episode';
+      ? `Final Episode (${epText})${daysText}`
+      : `Final Episode (${epText})`;
 
     return finish({
       state: 'final_episode',
@@ -1031,7 +1063,8 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode,
       formattedNextAirDate,
       formattedNextAirTime,
-      reason: `Final episode scheduled for ${formattedNextAirDate || 'upcoming date'}${
+      formattedNextAirDateTime,
+      reason: `Final episode ${nextEpisodeNumber ? `(Ep ${nextEpisodeNumber}) ` : ''}scheduled for ${formattedNextAirDateTime || formattedNextAirDate || 'upcoming date'}${
         daysUntilFinalEpisode !== null
           ? ` (${daysUntilFinalEpisode} ${daysUntilFinalEpisode === 1 ? 'day' : 'days'} left)`
           : ''
@@ -1042,10 +1075,12 @@ export function getAnimeAiringState(
   // 6. Actively Airing (Episode is currently broadcasting live within its scheduled window)
   if (isBroadcastingNow) {
     const styles = getBadgeStyles('airing');
+    const epText = typeof nextEpisodeNumber === 'number' ? `Ep ${nextEpisodeNumber}` : '';
+    const stateLabel = epText ? `Airing Ep ${nextEpisodeNumber} Now` : 'Airing Now';
     return finish({
       state: 'airing',
       ...styles,
-      stateLabel: 'Airing Now',
+      stateLabel,
       isCompleted: false,
       isReadyToSummarize: false,
       userProgressComplete: false,
@@ -1059,19 +1094,23 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
-      reason: 'Episode is currently within its scheduled broadcast window',
+      formattedNextAirDateTime,
+      reason: `Episode ${nextEpisodeNumber ?? '?'} is currently within its scheduled broadcast window`,
     });
   }
 
   // 7. Scheduled (Normal continuing anime with upcoming episode)
   if (nextEp !== null) {
     const styles = getBadgeStyles('scheduled');
+    const epPrefix = typeof nextEpisodeNumber === 'number' ? `Ep ${nextEpisodeNumber}: ` : '';
     const stateLabel = isNextEpToday
       ? formattedNextAirTime
-        ? `Next episode: Today at ${formattedNextAirTime}`
-        : 'Next episode: Today'
+        ? `Next: ${epPrefix}Today at ${formattedNextAirTime}`
+        : `Next: ${epPrefix}Today`
       : formattedNextAirDate
-      ? `Next episode: ${formattedNextAirDate}`
+      ? `Next: ${epPrefix}${formattedNextAirDate}`
+      : typeof nextEpisodeNumber === 'number'
+      ? `Next: Ep ${nextEpisodeNumber}`
       : 'Scheduled';
 
     return finish({
@@ -1091,7 +1130,8 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate,
       formattedNextAirTime,
-      reason: `Upcoming episode scheduled on ${formattedNextAirDate || 'release calendar'}`,
+      formattedNextAirDateTime,
+      reason: `Upcoming Episode ${nextEpisodeNumber ?? '?'} scheduled on ${formattedNextAirDateTime || formattedNextAirDate || 'release calendar'}`,
     });
   }
 
@@ -1115,6 +1155,7 @@ export function getAnimeAiringState(
       daysUntilFinalEpisode: null,
       formattedNextAirDate: null,
       formattedNextAirTime: null,
+      formattedNextAirDateTime: null,
       reason: 'MAL confirms anime is currently airing, but no confirmed upcoming calendar episode',
     });
   }
@@ -1143,6 +1184,7 @@ export function getAnimeAiringState(
     daysUntilFinalEpisode: null,
     formattedNextAirDate: null,
     formattedNextAirTime: null,
+    formattedNextAirDateTime: null,
     reason: 'Airing status cannot be determined reliably from available data',
   });
 }

@@ -9,6 +9,7 @@ import {
   X,
   Plus,
   Sparkles,
+  Clock,
 } from 'lucide-react';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
 import { getAnimeAiringState } from '../utils/completionUtils';
@@ -173,7 +174,11 @@ const SeasonTableRow = React.memo(function SeasonTableRow({
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${airingInfo.badgeBg} ${airingInfo.badgeText} ${airingInfo.badgeBorder}`}
-            title={airingInfo.reason || `Broadcast status: ${airingInfo.stateLabel}`}
+            title={
+              airingInfo.formattedNextAirDateTime && airingInfo.nextEpisodeNumber
+                ? `Next Episode: Episode ${airingInfo.nextEpisodeNumber} — Next Release: ${airingInfo.formattedNextAirDateTime}\n${airingInfo.reason || ''}`
+                : airingInfo.reason || `Broadcast status: ${airingInfo.stateLabel}`
+            }
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${airingInfo.dotColor} ${
@@ -182,6 +187,17 @@ const SeasonTableRow = React.memo(function SeasonTableRow({
             />
             <span>{airingInfo.stateLabel}</span>
           </span>
+
+          {/* Next Scheduled Release Date & Time Tag if confirmed */}
+          {airingInfo.formattedNextAirDateTime && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#F7F5F2] dark:bg-[#25232F] text-[#7567C7] dark:text-[#C5BEF7] border border-[#E7E3DF] dark:border-[#2E2C37]"
+              title={`Next Episode: Episode ${airingInfo.nextEpisodeNumber || '?'} — Scheduled Release: ${airingInfo.formattedNextAirDateTime}`}
+            >
+              <Clock className="h-2.5 w-2.5 text-[#7567C7]" />
+              <span>Next Release: {airingInfo.formattedNextAirDateTime}</span>
+            </span>
+          )}
 
           {/* Ready to Summarize badge or remaining episodes indicator */}
           {airingInfo.isReadyToSummarize ? (

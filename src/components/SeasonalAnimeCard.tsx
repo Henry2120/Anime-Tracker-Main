@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Star, Tv, ImageOff, Plus, Edit2, BookmarkPlus, CheckCircle2 } from 'lucide-react';
 import { SeasonalAnimeItem, MalListItem } from '../types';
+import { getAnimeAiringState } from '../utils/completionUtils';
 
 interface SeasonalAnimeCardProps {
   item: SeasonalAnimeItem;
@@ -42,6 +43,7 @@ export const SeasonalAnimeCard = React.memo(function SeasonalAnimeCard({
   const totalEps = item.node.num_episodes && item.node.num_episodes > 0 ? item.node.num_episodes : null;
   const watchedEps = userListItem?.list_status?.num_episodes_watched || 0;
   const canIncrement = userListItem && (totalEps === null || watchedEps < totalEps);
+  const airingInfo = getAnimeAiringState(userListItem || item);
 
   return (
     <motion.div
@@ -168,6 +170,21 @@ export const SeasonalAnimeCard = React.memo(function SeasonalAnimeCard({
               )}
             </div>
           </div>
+
+          {/* Next Released Episode & Schedule Info */}
+          {airingInfo && !airingInfo.isCompleted && (airingInfo.nextEpisodeNumber || airingInfo.state === 'scheduled' || airingInfo.state === 'airing') && (
+            <div className="flex items-center justify-between text-[10.5px] text-[#77747D] dark:text-[#A4A1AA] pt-1 border-t border-[#E7E3DF]/60 dark:border-[#2E2C37]/60">
+              <span className="font-semibold text-[#7567C7]">
+                Next Ep: {airingInfo.nextEpisodeNumber ? `Ep ${airingInfo.nextEpisodeNumber}` : 'Upcoming'}
+              </span>
+              <span
+                className="truncate max-w-[140px] font-medium"
+                title={airingInfo.formattedNextAirDateTime ? `Next Release: ${airingInfo.formattedNextAirDateTime}` : 'Release schedule unconfirmed'}
+              >
+                {airingInfo.formattedNextAirDateTime ? `Release: ${airingInfo.formattedNextAirDate}` : 'Schedule unconfirmed'}
+              </span>
+            </div>
+          )}
 
           {/* Quick Action Button: Edit on MAL or Add to MAL */}
           {userListItem ? (

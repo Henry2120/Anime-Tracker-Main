@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { MalListItem } from '../types';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
+import { getAnimeAiringState } from '../utils/completionUtils';
 
 export interface AnimeDetailData {
   id?: number;
@@ -112,6 +113,25 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
   const genreList: string[] = Array.isArray(anime.genres)
     ? anime.genres.map((g) => (typeof g === 'string' ? g : g.name)).filter(Boolean)
     : [];
+
+  const airingInfo = useMemo(() => {
+    if (!anime) return null;
+    const resolvedId = anime.malId || anime.id;
+    if (!resolvedId) return null;
+    return getAnimeAiringState({
+      node: {
+        id: resolvedId,
+        title: anime.title,
+        num_episodes: anime.episodes ?? undefined,
+        status: anime.status ?? undefined,
+      },
+      list_status: {
+        status: anime.status ?? undefined,
+        num_episodes_watched: typeof anime.episodesWatched === 'number' ? anime.episodesWatched : 0,
+        score: typeof anime.userScore === 'number' ? anime.userScore : 0,
+      },
+    });
+  }, [anime]);
 
   const handleSaveNote = () => {
     if (animeId && onSaveNote) {
@@ -238,6 +258,29 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Next Released Episode & Schedule Box */}
+                {airingInfo && !airingInfo.isCompleted && (airingInfo.nextEpisodeNumber || airingInfo.state === 'scheduled' || airingInfo.state === 'airing' || airingInfo.state === 'ongoing') && (
+                  <div className="p-3 rounded-xl bg-[#F0EDFA] dark:bg-[#25232F] border border-[#7567C7]/20 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 font-bold text-[#7567C7]">
+                      <Tv className="h-3.5 w-3.5 text-[#7567C7]" />
+                      <span>
+                        Next Episode:{' '}
+                        {airingInfo.nextEpisodeNumber
+                          ? `Episode ${airingInfo.nextEpisodeNumber}`
+                          : 'Upcoming Episode'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-[#25242A] dark:text-[#EAE8F0]">
+                      <Clock className="h-3 w-3 text-[#7567C7]" />
+                      {airingInfo.formattedNextAirDateTime ? (
+                        <span>Next Release: {airingInfo.formattedNextAirDateTime}</span>
+                      ) : (
+                        <span className="text-[#77747D]">Next Release: Schedule unconfirmed</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Quick Info Attributes */}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-[#77747D] pt-1">

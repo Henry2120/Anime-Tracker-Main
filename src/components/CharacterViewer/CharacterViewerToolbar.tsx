@@ -37,6 +37,8 @@ interface CharacterViewerToolbarProps {
   isConcertPlaying?: boolean;
   onToggleConcertMusic?: () => void;
   isSpecialSceneActive?: boolean;
+  isToolbarVisible?: boolean;
+  onToggleToolbarVisible?: () => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
@@ -58,7 +60,21 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   isConcertPlaying,
   onToggleConcertMusic,
   isSpecialSceneActive = false,
+  isToolbarVisible: externalToolbarVisible,
+  onToggleToolbarVisible,
 }) => {
+  const [internalToolbarVisible, setInternalToolbarVisible] = useState(true);
+  const isToolbarVisible =
+    externalToolbarVisible !== undefined ? externalToolbarVisible : internalToolbarVisible;
+
+  const handleToggleToolbar = () => {
+    if (onToggleToolbarVisible) {
+      onToggleToolbarVisible();
+    } else {
+      setInternalToolbarVisible((prev) => !prev);
+    }
+  };
+
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
   const [showCameraPresets, setShowCameraPresets] = useState(true);
   const animDropdownRef = useRef<HTMLDivElement>(null);
@@ -75,6 +91,29 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
     }
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [animDropdownOpen]);
+
+  // If toolbar is hidden by the master toggle, show the clean floating Show Toolbar button
+  if (!isToolbarVisible) {
+    return (
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <button
+          type="button"
+          onClick={handleToggleToolbar}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white/95 dark:bg-[#161422]/95 hover:bg-white dark:hover:bg-[#201d31] backdrop-blur-md border border-black/10 dark:border-white/15 text-[#25242A] dark:text-white font-bold text-xs shadow-2xl transition-all hover:scale-105 active:scale-95 cursor-pointer ring-2 ring-[#7567C7]/40 group"
+          title="Show Viewport Toolbar Controls"
+        >
+          <Eye className="h-4 w-4 text-[#7567C7] group-hover:scale-110 transition-transform" />
+          <span>Show Toolbar</span>
+          {isSpecialSceneActive && (
+            <span className="flex h-2 w-2 relative ml-0.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
 
   // Current active character
   const activeChar =
@@ -330,6 +369,19 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
+
+      {/* Master Hide Toolbar Button */}
+      <button
+        type="button"
+        onClick={handleToggleToolbar}
+        title="Hide Entire Toolbar (Press Show Toolbar to restore)"
+        className="px-2 py-1.5 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-[#7567C7] hover:text-white text-[#77747D] dark:text-[#A4A1AA] transition-colors cursor-pointer flex items-center gap-1.5 font-medium text-[11px]"
+      >
+        <EyeOff className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Hide Toolbar</span>
+      </button>
     </div>
   );
 };
