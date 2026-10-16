@@ -1,11 +1,9 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { LoadedCharacterInstance } from './types';
-import { useConcertMusic } from './ConcertMusicContext';
 
-interface NightBeachSceneProps {
-  character: LoadedCharacterInstance;
+export interface NightBeachSceneProps {
+  characterPosition?: THREE.Vector3;
   isMini?: boolean;
 }
 
@@ -19,7 +17,17 @@ function loadTexture(
   wrap: THREE.Wrapping = THREE.RepeatWrapping
 ): THREE.Texture {
   const loader = new THREE.TextureLoader();
-  const texture = loader.load(url);
+  const texture = loader.load(
+    url,
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+    },
+    undefined,
+    (err) => {
+      console.warn(`[NightBeach] Texture load fallback for ${url}:`, err);
+    }
+  );
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = wrap;
   texture.wrapT = wrap;
@@ -85,6 +93,7 @@ const PhotographicNightSky: React.FC = () => {
 /**
  * 2. SHOOTING METEORS
  * Occasional crisp meteors gracefully crossing the celestial sphere.
+ * Strictly environmental: updates only its own geometry line attributes.
  */
 const ShootingMeteors: React.FC = () => {
   const meteorRef = useRef<THREE.LineSegments>(null);
@@ -199,6 +208,7 @@ const PhotographicHorizonBackdrop: React.FC = () => {
  * 4. PHOTOGRAPHIC 3D ANIMATED OCEAN WATER & SHORELINE FOAM
  * Combines high-resolution photographic water surface texture with dynamic vertex waves
  * moving toward shore, UV wave drift, and glowing moonlit reflections.
+ * Strictly environmental: animates only its own geometry vertices and UV offset.
  */
 const PhotographicOcean: React.FC = () => {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -372,12 +382,13 @@ const PhotographicOcean: React.FC = () => {
 
 /**
  * 5. PHOTOGRAPHIC SANDY BEACH GROUND (360° Inspection Expanse)
- * Broad expanse of high-resolution photographic sand wrapping 360° around Hina and the grand piano.
- * Natural warm moonlit tan palette (#cbbcaa), tactile sand grain detail, gentle dune undulations,
+ * Broad expanse of high-resolution photographic sand wrapping 360° around the center stage.
+ * Natural warm moonlit tan palette (#c8bba3), tactile sand grain detail, gentle dune undulations,
  * damp shoreline sand zone, and grounding contact shadows.
+ * Strictly environmental: independent geometry; places contact shadow at character's X and Z.
  */
-const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> = ({
-  character,
+const PhotographicSandyBeach: React.FC<{ characterPosition?: THREE.Vector3 }> = ({
+  characterPosition = new THREE.Vector3(0, 0, 0),
 }) => {
   const sandTexture = useMemo(() => {
     return loadTexture('/textures/beach_sand_texture.jpg', 14, 8);
@@ -393,7 +404,7 @@ const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> =
       const x = pos[i];
       const z = pos[i + 2];
 
-      // Flat, stable standing area under Hina and grand piano ([0, 0, 0])
+      // Flat, stable standing area under stage center ([0, 0, 0])
       const distFromCenter = Math.sqrt(x * x + z * z);
       if (distFromCenter > 2.8) {
         // Natural gentle rolling dunes
@@ -410,7 +421,8 @@ const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> =
     return { geometry: geom };
   }, []);
 
-  const charPos = character.position;
+  const posX = characterPosition.x;
+  const posZ = characterPosition.z;
 
   return (
     <group name="Photographic_Sand">
@@ -441,9 +453,9 @@ const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> =
         />
       </mesh>
 
-      {/* Grounding Soft Contact Shadow beneath Hina & Grand Piano */}
+      {/* Grounding Soft Contact Shadow beneath Character & Props */}
       <mesh
-        position={[charPos.x, 0.005, charPos.z - 0.15]}
+        position={[posX, 0.005, posZ - 0.15]}
         rotation={[-Math.PI / 2, 0, 0]}
       >
         <ringGeometry args={[0, 2.1, 36]} />
@@ -454,9 +466,9 @@ const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> =
           depthWrite={false}
         />
       </mesh>
-      {/* Secondary tight contact shadow under piano body */}
+      {/* Secondary tight contact shadow under central footprint */}
       <mesh
-        position={[charPos.x, 0.007, charPos.z - 0.2]}
+        position={[posX, 0.007, posZ - 0.2]}
         rotation={[-Math.PI / 2, 0, 0]}
       >
         <ringGeometry args={[0, 1.35, 36]} />
@@ -472,110 +484,23 @@ const PhotographicSandyBeach: React.FC<{ character: LoadedCharacterInstance }> =
 };
 
 /**
- * 6. ANIMATION SYNCHRONIZER HOOK
- * Keeps Exs_Cutin animation tightly looped in [4.0s, 7.0s] based on YouTube player time.
- * Handles continuous playback, seeking, pause/resume without drift.
- * Preserves character position, scale, and correct relationship to the piano.
- */
-function useHinaCutinSynchronizer(
-  character: LoadedCharacterInstance,
-  isPlaying: boolean
-) {
-  const { getCurrentTime } = useConcertMusic();
-  const actionRef = useRef<THREE.AnimationAction | null>(null);
-  const lastSyncTimeRef = useRef<number>(0);
-  const localElapsedRef = useRef<number>(0);
-
-  // Prepare and activate Exs_Cutin animation action
-  useEffect(() => {
-    if (!character || !character.mixer) return;
-
-    // Cleanly stop any other conflicting actions on mixer
-    character.mixer.stopAllAction();
-
-    // Find Exs_Cutin clip from character animations
-    const clip =
-      THREE.AnimationClip.findByName(character.animations, 'Exs_Cutin') ||
-      THREE.AnimationClip.findByName(character.animations, 'exs_cutin');
-
-    if (!clip) {
-      console.warn('[NightBeach] Exs_Cutin clip not found in character animations!');
-      return;
-    }
-
-    const action = character.mixer.clipAction(clip);
-    action.reset();
-    action.setLoop(THREE.LoopRepeat, Infinity);
-    action.play();
-    actionRef.current = action;
-
-    // Ensure Piano_Switch is visible and scaled to [1, 1, 1]
-    const pianoSwitch = character.scene.getObjectByName('Piano_Switch');
-    if (pianoSwitch) {
-      pianoSwitch.scale.set(1, 1, 1);
-      pianoSwitch.visible = true;
-    }
-
-    return () => {
-      if (action) {
-        action.stop();
-      }
-      actionRef.current = null;
-    };
-  }, [character.id]);
-
-  // Synchronize action.time with YouTube timeline in [4.0s, 7.0s] segment
-  useFrame((_, delta) => {
-    const action = actionRef.current;
-    if (!action || !character.mixer) return;
-
-    // Ensure Piano_Switch remains visible during loop
-    const pianoSwitch = character.scene.getObjectByName('Piano_Switch');
-    if (pianoSwitch && (pianoSwitch.scale.x < 0.5 || !pianoSwitch.visible)) {
-      pianoSwitch.scale.set(1, 1, 1);
-      pianoSwitch.visible = true;
-    }
-
-    // When YouTube is playing, synchronize smoothly with video time
-    if (isPlaying) {
-      const ytTime = getCurrentTime();
-
-      // Detect YouTube seek or tick update
-      if (Math.abs(ytTime - lastSyncTimeRef.current) > 0.05) {
-        lastSyncTimeRef.current = ytTime;
-        localElapsedRef.current = ytTime;
-      } else {
-        // High-precision interpolation between YouTube polling ticks
-        localElapsedRef.current += Math.min(delta, 0.1);
-      }
-
-      // Map timeline to looped [4.0s, 7.0s] segment (loop interval = 3.0s)
-      const currentTimeline = localElapsedRef.current;
-      const loopOffset = ((currentTimeline - 4.0) % 3.0 + 3.0) % 3.0;
-      const targetAnimTime = 4.0 + loopOffset;
-
-      action.paused = false;
-      action.time = targetAnimTime;
-    } else {
-      // When video is paused, hold animation cleanly at current frame
-      action.paused = true;
-    }
-  });
-}
-
-/**
  * MAIN NIGHT BEACH CINEMATIC SCENE
- * Photorealistic 3D nighttime beach environment using photographic imagery:
+ * Isolated, zero-character-coupling photorealistic nighttime beach environment:
  * - Seamless 360° photographic starry night sky dome with glowing moon
  * - Curved photographic horizon backdrop for natural water-sky separation
  * - 3D animated ocean waves textured with photographic water surface
  * - 3D natural beige sand foreground with photographic sand texture
  * - Coherent nighttime lighting matching the moon angle, preserving character and piano colors
+ *
+ * CRITICAL REGRESSION SAFEGUARDS:
+ * - Does NOT access, manage, or update Hina's AnimationMixer or AnimationAction.
+ * - Does NOT modify Hina's skeleton, materials, transforms, or mesh visibility.
+ * - Does NOT touch or force Piano_Switch visibility or scale (preserves existing Exs_Cutin logic).
+ * - Operates strictly as an isolated environment layer inside the 3D scene.
  */
 export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
-  character,
+  characterPosition = new THREE.Vector3(0, 0, 0),
 }) => {
-  const { isPlaying } = useConcertMusic();
   const { camera } = useThree();
 
   // Ensure camera frustum far plane easily accommodates the distant ocean horizon and sky
@@ -585,9 +510,6 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
       camera.updateProjectionMatrix();
     }
   }, [camera]);
-
-  // Run precise Exs_Cutin 4-7s animation loop synchronized with YouTube
-  useHinaCutinSynchronizer(character, isPlaying);
 
   return (
     <group name="NightBeachScene_Root">
@@ -604,7 +526,7 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
       <PhotographicOcean />
 
       {/* 5. Photographic Sandy Beach Ground (360° inspection expanse) */}
-      <PhotographicSandyBeach character={character} />
+      <PhotographicSandyBeach characterPosition={characterPosition} />
 
       {/* 6. Coherent Moonlit Lighting System */}
       {/* Directional moonlight aligned with Moon at [14, 18, -32] */}
@@ -628,14 +550,14 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
         color="#7E6F5B"
       />
 
-      {/* Cool Rim Light (silhouette separation for Hina and piano) */}
+      {/* Cool Rim Light (silhouette separation for character and props) */}
       <directionalLight
         position={[-12, 10, -18]}
         intensity={0.95}
         color="#93C5FD"
       />
 
-      {/* Soft Front Fill (illuminates Hina's dress, expression, and piano keys) */}
+      {/* Soft Front Fill (illuminates character outfit, expression, and props) */}
       <directionalLight
         position={[0, 3.5, 6.0]}
         intensity={0.75}

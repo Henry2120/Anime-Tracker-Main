@@ -349,60 +349,41 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     setVideo,
   } = useConcertMusic();
 
-  // Check if loaded character is Hina (Dress) with her piano available & displayed
-  const isHinaDressWithPiano = useMemo(() => {
+  // Check if loaded character is Dress Hina and she is the only character placed in the 3D viewer
+  const isDressHinaAlone = useMemo(() => {
     if (loadedCharacters.length !== 1) return false;
     const char = loadedCharacters[0];
-    if (!char || !char.scene) return false;
+    if (!char || !char.manifestEntry) return false;
 
-    const isHinaDress =
-      char.manifestEntry.filename === 'Hina_Dress_with_Piano.glb' ||
-      char.manifestEntry.filename === 'Hina (Dress).glb' ||
-      char.manifestEntry.id === 'hina-dress-with-piano-296' ||
-      char.manifestEntry.id === 'hina-dress-8' ||
-      char.manifestEntry.id === 'hina-dress-16' ||
-      /hina.*dress/i.test(char.manifestEntry.name);
+    const id = (char.manifestEntry.id || '').toLowerCase();
+    const filename = (char.manifestEntry.filename || '').toLowerCase();
+    const name = (char.manifestEntry.name || '').toLowerCase();
 
-    if (!isHinaDress) return false;
+    const isHina = id.includes('hina') || filename.includes('hina') || name.includes('hina');
+    const isDress = id.includes('dress') || filename.includes('dress') || name.includes('dress');
 
-    // Check if piano model is attached / available in the character scene
-    const hasPiano =
-      Boolean(char.scene.getObjectByName('my_gehennaparty_01_piano_01')) ||
-      Boolean(char.scene.getObjectByName('Piano_Switch')) ||
-      char.manifestEntry.filename === 'Hina_Dress_with_Piano.glb';
-
-    return hasPiano;
+    return isHina && isDress;
   }, [loadedCharacters]);
 
-  // Exact trigger condition state:
-  // 1. YouTube video ID is exact match J3cg4tFLm7A
-  // 2. Only 1 character on stage
-  // 3. That character is Hina (Dress) with piano available and displayed
-  // 4. Activates when playing; remains active during pause; cleanly exits on stop / video change / character change
-  const isExactTriggerMatch = videoId === 'J3cg4tFLm7A' && isHinaDressWithPiano;
-  const [hasTriggeredScene, setHasTriggeredScene] = useState(false);
-
-  useEffect(() => {
-    if (isExactTriggerMatch && isPlaying) {
-      setHasTriggeredScene(true);
-    } else if (!isExactTriggerMatch || isStopped || !isConcertActive) {
-      setHasTriggeredScene(false);
-    }
-  }, [isExactTriggerMatch, isPlaying, isStopped, isConcertActive]);
-
-  const isSpecialSceneActive = isExactTriggerMatch && (hasTriggeredScene || isPlaying);
+  // Activate the beach only when both conditions are satisfied:
+  // 1. Dress Hina is the only character placed in the 3D viewer.
+  // 2. The existing music player reports that music is actively playing.
+  // When either condition becomes false (e.g. music paused/stopped, or performer changed),
+  // disable the beach environment and restore the existing stage appearance immediately.
+  const isSpecialSceneActive = isDressHinaAlone && isPlaying;
 
   const loadedCharactersRef = useRef(loadedCharacters);
   useEffect(() => {
     loadedCharactersRef.current = loadedCharacters;
   }, [loadedCharacters]);
 
-  // Synchronized animation state machine:
+  // Synchronized animation state machine for ensemble concert:
   // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for background performers
   // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for background performers
-  // (Preserves any character performing Exs_Cutin or special piano scenes without clobbering)
+  // Note: Dress Hina's animation state is NEVER altered by music playback or environment activation,
+  // preventing any model corruption, and preserving user-selected animations (e.g. Cafe_Idle or Exs_Cutin).
   useEffect(() => {
-    if (isSpecialSceneActive) return;
+    if (isDressHinaAlone) return;
 
     const chars = loadedCharactersRef.current;
     if (chars.length === 0) return;
@@ -416,7 +397,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
       playAnimation(char.id, targetAnim);
     });
-  }, [isPlaying, isSpecialSceneActive, playAnimation]);
+  }, [isPlaying, isDressHinaAlone, playAnimation]);
 
   // Dynamically recalculate formation positions for all loaded characters whenever count changes
   useEffect(() => {
@@ -551,8 +532,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             {isSpecialSceneActive && (
               <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-slate-900/60 border border-blue-400/40 text-xs font-bold text-blue-100 shadow-md">
                 <Moon className="h-4 w-4 text-cyan-300 fill-cyan-300" />
-                <span className="hidden sm:inline">Night Beach Piano Performance</span>
-                <span className="text-[10px] opacity-80 font-mono">(Exs_Cutin 00:04 - 00:07)</span>
+                <span className="hidden sm:inline">Moonlit Beach Environment</span>
               </div>
             )}
 
@@ -715,9 +695,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
-            {isSpecialSceneActive && loadedCharacters[0] ? (
+            {isSpecialSceneActive ? (
               <NightBeachScene
-                character={loadedCharacters[0]}
+                characterPosition={loadedCharacters[0]?.position}
                 isMini={isMini}
               />
             ) : (

@@ -386,11 +386,14 @@ export function useCharacterLoader() {
       nextAction.reset();
       nextAction.setLoop(THREE.LoopRepeat, Infinity);
 
-      // Ensure Piano_Switch is visible and scaled when Exs_Cutin is active
+      // Ensure Piano_Switch is visible and scaled when Exs_Cutin or Hina with Piano is active
       const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
+      const isPianoModel =
+        target.manifestEntry.filename === 'Hina_Dress_with_Piano.glb' ||
+        target.manifestEntry.id.includes('piano');
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
       if (pianoSwitch) {
-        if (isExs) {
+        if (isExs || isPianoModel) {
           pianoSwitch.scale.set(1, 1, 1);
           pianoSwitch.visible = true;
         } else {
