@@ -531,8 +531,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             {/* Special Scene Active Indicator Badge */}
             {isSpecialSceneActive && (
               <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-slate-900/60 border border-blue-400/40 text-xs font-bold text-blue-100 shadow-md">
-                <Moon className="h-4 w-4 text-cyan-300 fill-cyan-300" />
-                <span className="hidden sm:inline">Moonlit Beach Environment</span>
+                <Waves className="h-4 w-4 text-cyan-300" />
+                <span className="hidden sm:inline">Night Beach Environment</span>
               </div>
             )}
 

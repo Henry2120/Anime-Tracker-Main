@@ -12,6 +12,7 @@ import {
   Film,
   ChevronDown,
   Moon,
+  Waves,
   Eye,
   EyeOff,
 } from 'lucide-react';
@@ -126,8 +127,8 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
       {/* Special Scene Indicator in Toolbar */}
       {isSpecialSceneActive && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-950/80 via-indigo-950/80 to-slate-900/80 border border-blue-500/50 text-xs font-bold text-blue-200 shadow-md">
-          <Moon className="h-3.5 w-3.5 text-cyan-300 fill-cyan-300" />
-          <span>Moonlit Beach Environment</span>
+          <Waves className="h-3.5 w-3.5 text-cyan-300" />
+          <span>Night Beach Environment</span>
         </div>
       )}
 

@@ -36,11 +36,157 @@ function loadTexture(
 }
 
 /**
- * 1. PHOTOGRAPHIC PANORAMIC STARRY NIGHT SKY & MOON
- * Uses high-resolution photographic starry night panorama mapped onto a full 360° celestial sphere.
- * Provides seamless deep navy and dark sapphire sky in every direction when orbiting around Hina & piano.
+ * Procedural seamless water ripple normal map generator.
+ * Produces fine wave details, surface facets, and natural starlight shimmer across the water.
  */
-const PhotographicNightSky: React.FC = () => {
+function createWaterNormalTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const imgData = ctx.createImageData(size, size);
+  const data = imgData.data;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x / size) * Math.PI * 4;
+      const v = (y / size) * Math.PI * 4;
+
+      // Multi-frequency wave slopes
+      const dx =
+        Math.cos(u * 1.4 + v * 0.7) * 0.35 +
+        Math.cos(u * 2.8 - v * 1.8) * 0.22 +
+        Math.cos(u * 5.5 + v * 3.5) * 0.1;
+      const dy =
+        Math.sin(v * 1.4 + u * 0.7) * 0.35 +
+        Math.sin(v * 2.8 - u * 1.8) * 0.22 +
+        Math.sin(v * 5.5 + u * 3.5) * 0.1;
+
+      let nx = -dx * 0.7;
+      let ny = -dy * 0.7;
+      let nz = 1.0;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      nx /= len;
+      ny /= len;
+      nz /= len;
+
+      const idx = (y * size + x) * 4;
+      data[idx] = Math.floor((nx * 0.5 + 0.5) * 255);
+      data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+      data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+      data[idx + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 6);
+  return tex;
+}
+
+/**
+ * Procedural organic shoreline foam texture generator.
+ * Creates an irregular, soft-feathered scalloped froth band with micro-bubbles,
+ * replacing the previous harsh rectangular artificial band.
+ */
+function createShorelineFoamTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const width = 512;
+  const height = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, width, height);
+
+  // Soft gradient band with organic scalloped clusters
+  for (let x = 0; x < width; x += 4) {
+    const nx = (x / width) * Math.PI * 10;
+    const waveOffset = Math.sin(nx) * 10 + Math.cos(nx * 2.2) * 6 + Math.sin(nx * 4.3) * 3;
+    const centerY = 64 + waveOffset;
+
+    const grad = ctx.createLinearGradient(x, centerY - 24, x, centerY + 24);
+    grad.addColorStop(0, 'rgba(210, 238, 255, 0)');
+    grad.addColorStop(0.3, 'rgba(215, 240, 255, 0.38)');
+    grad.addColorStop(0.5, 'rgba(235, 248, 255, 0.65)');
+    grad.addColorStop(0.7, 'rgba(205, 235, 255, 0.3)');
+    grad.addColorStop(1, 'rgba(195, 230, 255, 0)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, centerY - 24, 4, 48);
+  }
+
+  // Micro foam bubbles
+  ctx.fillStyle = 'rgba(240, 250, 255, 0.55)';
+  for (let i = 0; i < 200; i++) {
+    const rx = (i * 39) % width;
+    const nx = (rx / width) * Math.PI * 10;
+    const ry = 64 + Math.sin(nx) * 10 + ((i * 17) % 28 - 14);
+    const r = 1.0 + (i % 3) * 0.7;
+    ctx.beginPath();
+    ctx.arc(rx, ry, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(4, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Procedural soft feathered contact shadow texture generator.
+ * Eliminates artificial circular black rings and replaces them with an organic,
+ * feathered grounding occlusion shadow that naturally anchors Hina and the piano.
+ */
+function createSoftContactShadowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, size, size);
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size * 0.44;
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  grad.addColorStop(0, 'rgba(12, 18, 30, 0.42)');
+  grad.addColorStop(0.25, 'rgba(12, 18, 30, 0.3)');
+  grad.addColorStop(0.55, 'rgba(12, 18, 30, 0.12)');
+  grad.addColorStop(0.8, 'rgba(12, 18, 30, 0.03)');
+  grad.addColorStop(1, 'rgba(12, 18, 30, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, radius, radius * 0.76, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * 1. 360° PHOTOGRAPHIC PANORAMIC STARRY NIGHT SKY (MOONLESS)
+ * Keeps the high-resolution starry night celestial panorama mapped onto the sky dome.
+ * Completely removes the separate 3D moon mesh, inner halo, and outer corona billboard.
+ */
+const PhotographicStarrySky: React.FC = () => {
   const skyTexture = useMemo(() => {
     return loadTexture(
       '/textures/night_sky_pano.jpg',
@@ -51,8 +197,7 @@ const PhotographicNightSky: React.FC = () => {
   }, []);
 
   return (
-    <group name="Photographic_Sky">
-      {/* 360° Photographic Sky Dome Sphere */}
+    <group name="Starry_Sky_Dome">
       <mesh position={[0, 0, 0]} rotation={[0, -Math.PI * 0.45, 0]}>
         <sphereGeometry args={[120, 64, 32]} />
         <meshBasicMaterial
@@ -61,31 +206,6 @@ const PhotographicNightSky: React.FC = () => {
           depthWrite={false}
         />
       </mesh>
-
-      {/* Luminous 3D Moon with Radiant Moonlit Glow Corona at [14, 18, -32] */}
-      <group position={[14, 18, -32]}>
-        {/* Crisp Moon Disk */}
-        <mesh>
-          <sphereGeometry args={[1.5, 32, 32]} />
-          <meshBasicMaterial color="#FFFBEB" />
-        </mesh>
-        {/* Inner Soft Moon Glow Halo */}
-        <mesh scale={[1.25, 1.25, 1.25]}>
-          <sphereGeometry args={[1.5, 24, 24]} />
-          <meshBasicMaterial color="#E0F2FE" transparent opacity={0.35} />
-        </mesh>
-        {/* Outer Radiant Moonlit Corona Billboard */}
-        <mesh scale={[3.2, 3.2, 1]}>
-          <planeGeometry args={[2.5, 2.5]} />
-          <meshBasicMaterial
-            color="#93C5FD"
-            transparent
-            opacity={0.16}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </mesh>
-      </group>
     </group>
   );
 };
@@ -93,7 +213,7 @@ const PhotographicNightSky: React.FC = () => {
 /**
  * 2. SHOOTING METEORS
  * Occasional crisp meteors gracefully crossing the celestial sphere.
- * Strictly environmental: updates only its own geometry line attributes.
+ * Environmental only: updates its own buffer geometry.
  */
 const ShootingMeteors: React.FC = () => {
   const meteorRef = useRef<THREE.LineSegments>(null);
@@ -171,8 +291,8 @@ const ShootingMeteors: React.FC = () => {
 };
 
 /**
- * 3. DISTANT PHOTOGRAPHIC OCEAN HORIZON & SHORELINE BACKDROP
- * Curved panoramic cylinder in the background displaying high-res moonlit ocean waves & horizon.
+ * 3. DISTANT OCEAN HORIZON & BACKDROP
+ * Curved panoramic cylinder in the background displaying high-res ocean horizon.
  * Creates seamless transition between the distant ocean line and the starry night sky.
  */
 const PhotographicHorizonBackdrop: React.FC = () => {
@@ -187,7 +307,6 @@ const PhotographicHorizonBackdrop: React.FC = () => {
 
   return (
     <group position={[0, 9.5, -52]} name="Photographic_Horizon">
-      {/* Curved cylinder arc framing the ocean horizon in the camera view */}
       <mesh rotation={[0, -Math.PI * 0.5, 0]}>
         <cylinderGeometry
           args={[72, 72, 32, 48, 1, true, -Math.PI * 0.45, Math.PI * 0.9]}
@@ -196,7 +315,7 @@ const PhotographicHorizonBackdrop: React.FC = () => {
           map={horizonTexture}
           side={THREE.BackSide}
           transparent
-          opacity={0.92}
+          opacity={0.88}
           depthWrite={false}
         />
       </mesh>
@@ -205,22 +324,32 @@ const PhotographicHorizonBackdrop: React.FC = () => {
 };
 
 /**
- * 4. PHOTOGRAPHIC 3D ANIMATED OCEAN WATER & SHORELINE FOAM
- * Combines high-resolution photographic water surface texture with dynamic vertex waves
- * moving toward shore, UV wave drift, and glowing moonlit reflections.
- * Strictly environmental: animates only its own geometry vertices and UV offset.
+ * 4. REALISTIC DEEP-BLUE OCEAN WATER & GENTLE WAVES
+ * Features:
+ * - Natural deep-blue to blue-green color gradient (#104e78), visibly distinct from sand.
+ * - Low realistic dielectric metalness (0.08) avoiding black oil or reflective black mirror.
+ * - Procedural ripple normal map providing fine specular wave detail.
+ * - Multi-harmonic gentle wave displacement moving towards shore.
+ * - Completely removed narrow moonlight reflection column.
+ * - Organic, thin, irregular shoreline foam surging gently.
  */
-const PhotographicOcean: React.FC = () => {
+const RealisticOcean: React.FC = () => {
   const meshRef = useRef<THREE.Mesh>(null);
   const foamRef = useRef<THREE.Mesh>(null);
-  const glintsRef = useRef<THREE.Points>(null);
 
-  // Photographic ocean wave surface texture
   const oceanTexture = useMemo(() => {
-    return loadTexture('/textures/ocean_water_waves.jpg', 10, 5);
+    return loadTexture('/textures/ocean_water_waves.jpg', 8, 5);
   }, []);
 
-  // Ocean Plane: 80 x 50 subdivisions spanning from Z = -2.8 to Z = -66, width = 140
+  const waterNormalMap = useMemo(() => {
+    return createWaterNormalTexture();
+  }, []);
+
+  const foamTexture = useMemo(() => {
+    return createShorelineFoamTexture();
+  }, []);
+
+  // Ocean Plane: 80 x 50 subdivisions spanning from Z = -2.6 to Z = -66, width = 140
   const { geometry, initialPositions } = useMemo(() => {
     const geom = new THREE.PlaneGeometry(140, 64, 80, 50);
     geom.rotateX(-Math.PI / 2);
@@ -230,40 +359,19 @@ const PhotographicOcean: React.FC = () => {
     return { geometry: geom, initialPositions: initial };
   }, []);
 
-  // Shimmering moonlight reflection column along moon path (moon at X ~ 14)
-  const [glintPositions, glintSizes, glintPhases] = useMemo(() => {
-    const count = 140;
-    const positions = new Float32Array(count * 3);
-    const sizes = new Float32Array(count);
-    const phases = new Float32Array(count);
-
-    for (let i = 0; i < count; i++) {
-      const zProgress = Math.random();
-      const z = -3.5 - zProgress * 45.0;
-      const spread = 2.5 + (1.0 - zProgress) * 5.0;
-      const centerX = 4.0 + zProgress * 10.0;
-      const x = centerX + (Math.random() - 0.5) * spread;
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = 0.05;
-      positions[i * 3 + 2] = z;
-
-      sizes[i] = 1.0 + Math.random() * 1.6;
-      phases[i] = Math.random() * Math.PI * 2;
-    }
-
-    return [positions, sizes, phases];
-  }, []);
-
   useFrame(({ clock }, delta) => {
-    const t = clock.getElapsedTime() * 1.05;
+    const t = clock.getElapsedTime() * 1.0;
 
-    // 1. Photographic ocean texture UV animation: waves drift naturally toward shore
+    // UV drift: gentle drift towards shore
     if (oceanTexture) {
-      oceanTexture.offset.y = (oceanTexture.offset.y - delta * 0.02) % 1.0;
+      oceanTexture.offset.y = (oceanTexture.offset.y - delta * 0.015) % 1.0;
+    }
+    if (waterNormalMap) {
+      waterNormalMap.offset.y = (waterNormalMap.offset.y - delta * 0.02) % 1.0;
+      waterNormalMap.offset.x = (waterNormalMap.offset.x + delta * 0.005) % 1.0;
     }
 
-    // 2. 3D Wave vertex displacement moving toward shore (+Z direction)
+    // 3D Wave vertex displacement
     if (meshRef.current) {
       const geom = meshRef.current.geometry;
       const pos = geom.attributes.position.array as Float32Array;
@@ -272,131 +380,93 @@ const PhotographicOcean: React.FC = () => {
         const origX = initialPositions[i];
         const origZ = initialPositions[i + 2];
 
-        const wave1 = Math.sin(origZ * 0.36 + t * 1.6) * 0.15;
-        const wave2 = Math.cos(origX * 0.2 - origZ * 0.15 + t * 1.1) * 0.07;
-        const wave3 = Math.sin((origX * 0.4 + origZ * 0.3) + t * 2.0) * 0.035;
+        // Harmonic rolling swells
+        const wave1 = Math.sin(origZ * 0.3 + t * 1.4) * 0.11;
+        const wave2 = Math.cos(origX * 0.18 - origZ * 0.12 + t * 1.0) * 0.05;
+        const wave3 = Math.sin((origX * 0.45 + origZ * 0.35) + t * 2.1) * 0.025;
 
-        // Dampen near the sand shore boundary
-        const distFromShore = Math.max(0, -origZ - 2.8);
-        const shoreDamp = Math.min(1.0, distFromShore * 0.28);
+        // Dampen smoothly near shoreline so water surface touches beach cleanly
+        const distFromShore = Math.max(0, -origZ - 2.6);
+        const shoreDamp = Math.min(1.0, distFromShore * 0.25);
 
-        pos[i + 1] = (wave1 + wave2 + wave3) * shoreDamp - 0.04;
+        pos[i + 1] = (wave1 + wave2 + wave3) * shoreDamp - 0.035;
       }
 
       geom.attributes.position.needsUpdate = true;
       geom.computeVertexNormals();
     }
 
-    // 3. Shoreline foam gently surging with the incoming swell
+    // Organic shoreline foam surging smoothly with the incoming tide
     if (foamRef.current) {
-      const surge = Math.sin(t * 1.6) * 0.28;
-      foamRef.current.position.z = 31.8 + surge;
-    }
-
-    // 4. Broken moonlight reflections glistening on the wave crests
-    if (glintsRef.current) {
-      const geom = glintsRef.current.geometry;
-      const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
-      const sizeAttr = geom.getAttribute('size') as THREE.BufferAttribute;
-      if (posAttr && sizeAttr) {
-        for (let i = 0; i < glintPhases.length; i++) {
-          const ph = glintPhases[i];
-          const z = glintPositions[i * 3 + 2];
-          const shimmer = Math.sin(t * 3.5 + ph + z * 0.5);
-          const currentSize = glintSizes[i] * Math.max(0, shimmer * 0.7 + 0.5);
-          sizeAttr.setX(i, currentSize);
-
-          const waveHeight = Math.sin(z * 0.36 + t * 1.6) * 0.14;
-          posAttr.setY(i, waveHeight + 0.04);
-        }
-        posAttr.needsUpdate = true;
-        sizeAttr.needsUpdate = true;
-      }
+      const surge = Math.sin(t * 1.4) * 0.32;
+      foamRef.current.position.z = 31.85 + surge;
     }
   });
 
   return (
-    <group position={[0, -0.04, -34.8]} name="Photographic_Ocean">
-      {/* 3D Ocean Surface with Photographic Wave Texture & Blue-Teal Ocean Tone */}
+    <group position={[0, -0.04, -34.8]} name="Realistic_Ocean">
+      {/* 3D Ocean Surface: Deep blue ocean with cyan-teal depths, gentle roughness, low metalness */}
       <mesh ref={meshRef} geometry={geometry}>
         <meshStandardMaterial
           map={oceanTexture}
-          color="#164e78"
-          roughness={0.2}
-          metalness={0.65}
-          emissive="#092845"
-          emissiveIntensity={0.28}
+          normalMap={waterNormalMap || undefined}
+          normalScale={new THREE.Vector2(0.35, 0.35)}
+          color="#104e78" // Vibrant deep oceanic blue
+          roughness={0.18}
+          metalness={0.08} // Non-metallic fluid water (avoids black mirror / oil appearance)
+          emissive="#062844"
+          emissiveIntensity={0.22}
           transparent
           opacity={0.96}
         />
       </mesh>
 
-      {/* Shoreline Foam Layer surging at the sand boundary */}
-      <mesh
-        ref={foamRef}
-        position={[0, 0.02, 31.8]}
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <planeGeometry args={[135, 1.5]} />
-        <meshBasicMaterial
-          color="#BAE6FD"
-          transparent
-          opacity={0.55}
-          depthWrite={false}
-        />
-      </mesh>
-
-      {/* Soft secondary froth wash */}
-      <mesh position={[0, 0.015, 32.4]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[135, 0.8]} />
-        <meshBasicMaterial
-          color="#E0F2FE"
-          transparent
-          opacity={0.35}
-          depthWrite={false}
-        />
-      </mesh>
-
-      {/* Broken Shimmering Moonlight Column */}
-      <points ref={glintsRef}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[glintPositions, 3]}
+      {/* Thin, organic scalloped shoreline foam surging at the sand edge */}
+      {foamTexture && (
+        <mesh
+          ref={foamRef}
+          position={[0, 0.018, 31.85]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <planeGeometry args={[135, 1.4]} />
+          <meshBasicMaterial
+            map={foamTexture}
+            color="#D8F0FF"
+            transparent
+            opacity={0.52}
+            depthWrite={false}
           />
-          <bufferAttribute attach="attributes-size" args={[glintSizes, 1]} />
-        </bufferGeometry>
-        <pointsMaterial
-          color="#E0E7FF"
-          size={1.4}
-          transparent
-          opacity={0.9}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          sizeAttenuation
-        />
-      </points>
+        </mesh>
+      )}
     </group>
   );
 };
 
 /**
- * 5. PHOTOGRAPHIC SANDY BEACH GROUND (360° Inspection Expanse)
- * Broad expanse of high-resolution photographic sand wrapping 360° around the center stage.
- * Natural warm moonlit tan palette (#c8bba3), tactile sand grain detail, gentle dune undulations,
- * damp shoreline sand zone, and grounding contact shadows.
- * Strictly environmental: independent geometry; places contact shadow at character's X and Z.
+ * 5. REALISTIC NATURAL BEACH SAND & SOFT FEATHERED GROUNDING
+ * Refinements:
+ * - Natural warm beige sand palette (#c8baa5) under night sky lighting.
+ * - Removed all black sludge, dark brown muddy textures, and oily sheens.
+ * - Stable, flat standing area around center stage ([0, 0, 0]).
+ * - Gentle natural dunes farther out with smooth slope dipping into the water.
+ * - Natural damp sand transition zone with soft sheen (roughness 0.58, non-metallic).
+ * - Removed the two artificial circular black contact-shadow rings!
+ * - Replaced with an ultra-smooth feathered radial contact shadow grounding Hina and the piano.
  */
-const PhotographicSandyBeach: React.FC<{ characterPosition?: THREE.Vector3 }> = ({
+const RealisticSandyBeach: React.FC<{ characterPosition?: THREE.Vector3 }> = ({
   characterPosition = new THREE.Vector3(0, 0, 0),
 }) => {
   const sandTexture = useMemo(() => {
-    return loadTexture('/textures/beach_sand_texture.jpg', 14, 8);
+    return loadTexture('/textures/beach_sand_texture.jpg', 16, 10);
   }, []);
 
-  // Sandy beach geometry covering foreground and wrap-around terrain (width 130, depth 52)
+  const contactShadowTexture = useMemo(() => {
+    return createSoftContactShadowTexture();
+  }, []);
+
+  // Sandy beach terrain (width 135, depth 54)
   const { geometry } = useMemo(() => {
-    const geom = new THREE.PlaneGeometry(130, 52, 60, 40);
+    const geom = new THREE.PlaneGeometry(135, 54, 64, 44);
     geom.rotateX(-Math.PI / 2);
 
     const pos = geom.attributes.position.array as Float32Array;
@@ -404,16 +474,16 @@ const PhotographicSandyBeach: React.FC<{ characterPosition?: THREE.Vector3 }> = 
       const x = pos[i];
       const z = pos[i + 2];
 
-      // Flat, stable standing area under stage center ([0, 0, 0])
+      // Flat, stable standing platform under Hina & piano within radius 3.5m
       const distFromCenter = Math.sqrt(x * x + z * z);
-      if (distFromCenter > 2.8) {
-        // Natural gentle rolling dunes
+      if (distFromCenter > 3.5) {
+        // Subtle natural rolling dunes (gentle undulations)
         const dune =
-          Math.sin(x * 0.1) * 0.06 +
-          Math.cos(z * 0.16) * 0.05 +
-          Math.sin(x * 0.05 + z * 0.08) * 0.04;
-        // Slope gently down into water near shoreline (Z < -1.5)
-        const slope = z < -1.5 ? (z - -1.5) * 0.04 : 0;
+          Math.sin(x * 0.08) * 0.05 +
+          Math.cos(z * 0.14) * 0.04 +
+          Math.sin(x * 0.04 + z * 0.07) * 0.03;
+        // Slope gently down into water near shoreline (Z < -1.0)
+        const slope = z < -1.0 ? (z - -1.0) * 0.038 : 0;
         pos[i + 1] = dune + slope;
       }
     }
@@ -425,85 +495,70 @@ const PhotographicSandyBeach: React.FC<{ characterPosition?: THREE.Vector3 }> = 
   const posZ = characterPosition.z;
 
   return (
-    <group name="Photographic_Sand">
-      {/* Main Photographic Sand Expanse */}
-      <mesh position={[0, 0, 17.5]} geometry={geometry} receiveShadow>
+    <group name="Realistic_Sand">
+      {/* Main Natural Beige Sand Expanse */}
+      <mesh position={[0, 0, 18.0]} geometry={geometry} receiveShadow>
         <meshStandardMaterial
           map={sandTexture}
-          color="#c8bba3" // Warm moonlit tan with natural beige tones
-          roughness={0.9}
-          metalness={0.03}
+          color="#c8baa5" // Natural warm beige beach sand
+          roughness={0.94} // Powdery, matte beach sand
+          metalness={0.0} // Zero metalness (no black sludge or oily reflections)
         />
       </mesh>
 
-      {/* Shoreline Wet Sand Zone (Damp water sheen where waves break) */}
+      {/* Shoreline Moist Sand Zone: natural gradient transition into water */}
       <mesh
-        position={[0, -0.01, -2.2]}
+        position={[0, -0.015, -2.4]}
         rotation={[-Math.PI / 2, 0, 0]}
         receiveShadow
       >
-        <planeGeometry args={[130, 2.4]} />
+        <planeGeometry args={[135, 2.6]} />
         <meshStandardMaterial
           map={sandTexture}
-          color="#72624c" // Damp sand
-          roughness={0.36}
-          metalness={0.24}
+          color="#9c8f7e" // Natural moist sand, organic muted beige-gray (NOT black or muddy brown)
+          roughness={0.58} // Gentle damp sheen, NOT mirror-like
+          metalness={0.02}
           transparent
-          opacity={0.88}
+          opacity={0.65}
         />
       </mesh>
 
-      {/* Grounding Soft Contact Shadow beneath Character & Props */}
-      <mesh
-        position={[posX, 0.005, posZ - 0.15]}
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <ringGeometry args={[0, 2.1, 36]} />
-        <meshBasicMaterial
-          color="#060912"
-          transparent
-          opacity={0.52}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* Secondary tight contact shadow under central footprint */}
-      <mesh
-        position={[posX, 0.007, posZ - 0.2]}
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <ringGeometry args={[0, 1.35, 36]} />
-        <meshBasicMaterial
-          color="#04060b"
-          transparent
-          opacity={0.58}
-          depthWrite={false}
-        />
-      </mesh>
+      {/* Soft, Naturally Feathered Contact Shadow (Zero artificial rings or black disks) */}
+      {contactShadowTexture && (
+        <mesh
+          position={[posX, 0.004, posZ - 0.12]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <planeGeometry args={[4.4, 3.6]} />
+          <meshBasicMaterial
+            map={contactShadowTexture}
+            transparent
+            opacity={0.8}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
     </group>
   );
 };
 
 /**
- * MAIN NIGHT BEACH CINEMATIC SCENE
- * Isolated, zero-character-coupling photorealistic nighttime beach environment:
- * - Seamless 360° photographic starry night sky dome with glowing moon
- * - Curved photographic horizon backdrop for natural water-sky separation
- * - 3D animated ocean waves textured with photographic water surface
- * - 3D natural beige sand foreground with photographic sand texture
- * - Coherent nighttime lighting matching the moon angle, preserving character and piano colors
- *
- * CRITICAL REGRESSION SAFEGUARDS:
- * - Does NOT access, manage, or update Hina's AnimationMixer or AnimationAction.
- * - Does NOT modify Hina's skeleton, materials, transforms, or mesh visibility.
- * - Does NOT touch or force Piano_Switch visibility or scale (preserves existing Exs_Cutin logic).
- * - Operates strictly as an isolated environment layer inside the 3D scene.
+ * MAIN NIGHT BEACH CINEMATIC SCENE (REFINED MOONLESS REALISTIC BEACH)
+ * Key Architectural & Visual Specifications:
+ * - Moon completely removed (no moon disk, no glow halo, no corona billboard, no narrow moon reflection column).
+ * - High-resolution 360° panoramic starry sky and shooting meteors preserved.
+ * - Convincing, natural warm beige sand (#c8baa5) with powdery matte finish (zero oily sludge / black patches).
+ * - Visibly distinct deep-blue to cyan-teal ocean water (#104e78) with procedural ripple normal map & low dielectric metalness (0.08).
+ * - Thin, organic scalloped shoreline foam surging gently.
+ * - Soft, feathered contact shadow beneath Hina & piano (zero artificial circular ring meshes).
+ * - Coherent nighttime lighting in restrained blue and indigo palette with soft starlight illumination.
+ * - 100% ISOLATED from character mixer, animation actions, model transforms, and piano visibility.
  */
 export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
   characterPosition = new THREE.Vector3(0, 0, 0),
 }) => {
   const { camera } = useThree();
 
-  // Ensure camera frustum far plane easily accommodates the distant ocean horizon and sky
   useEffect(() => {
     if (camera && camera.far < 150) {
       camera.far = 150;
@@ -513,55 +568,55 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
 
   return (
     <group name="NightBeachScene_Root">
-      {/* 1. 360° Photographic Panoramic Starry Night Sky & Moon */}
-      <PhotographicNightSky />
+      {/* 1. 360° Photographic Panoramic Starry Night Sky (Moonless) */}
+      <PhotographicStarrySky />
 
       {/* 2. Occasional Shooting Stars */}
       <ShootingMeteors />
 
-      {/* 3. Distant Photographic Ocean Horizon Layer */}
+      {/* 3. Distant Ocean Horizon Layer */}
       <PhotographicHorizonBackdrop />
 
-      {/* 4. Photographic 3D Animated Ocean Waves & Shoreline Foam */}
-      <PhotographicOcean />
+      {/* 4. Realistic Deep-Blue Ocean Waves & Organic Shoreline Foam */}
+      <RealisticOcean />
 
-      {/* 5. Photographic Sandy Beach Ground (360° inspection expanse) */}
-      <PhotographicSandyBeach characterPosition={characterPosition} />
+      {/* 5. Realistic Natural Beige Sand & Feathered Grounding Shadow */}
+      <RealisticSandyBeach characterPosition={characterPosition} />
 
-      {/* 6. Coherent Moonlit Lighting System */}
-      {/* Directional moonlight aligned with Moon at [14, 18, -32] */}
+      {/* 6. Restrained Nighttime Environmental Lighting (Blue & Indigo Palette) */}
+      {/* Cool Diffuse Starlight Key Light */}
       <directionalLight
-        position={[14, 18, -32]}
-        intensity={1.75}
-        color="#DBEAFE" // Cool silvery moonlit cyan-white
+        position={[4, 15, -8]}
+        intensity={1.1}
+        color="#9EC2E6" // Soft cool starlight
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-bias={-0.0004}
       />
 
-      {/* Deep Ocean Midnight Ambient (ensures dark areas are rich navy instead of crushed black) */}
-      <ambientLight intensity={0.88} color="#0E2442" />
+      {/* Deep Midnight Navy Ambient Light */}
+      <ambientLight intensity={0.68} color="#0F223A" />
 
-      {/* Warm Sand Upward Bounce Light */}
+      {/* Warm Sand Diffuse Upward Bounce Light */}
       <directionalLight
-        position={[0, -5, 2]}
-        intensity={0.35}
-        color="#7E6F5B"
+        position={[0, -4, 2]}
+        intensity={0.25}
+        color="#8A7F72"
       />
 
-      {/* Cool Rim Light (silhouette separation for character and props) */}
+      {/* Cool Starlight Rim Backlight (silhouette separation) */}
       <directionalLight
-        position={[-12, 10, -18]}
-        intensity={0.95}
-        color="#93C5FD"
+        position={[-8, 7, -10]}
+        intensity={0.65}
+        color="#7EA5D6"
       />
 
-      {/* Soft Front Fill (illuminates character outfit, expression, and props) */}
+      {/* Soft Front Key (natural illumination for character expression, dress, and piano keys) */}
       <directionalLight
-        position={[0, 3.5, 6.0]}
-        intensity={0.75}
-        color="#F8FAFC"
+        position={[0, 3.2, 5.5]}
+        intensity={0.6}
+        color="#EEF4FF"
       />
     </group>
   );
