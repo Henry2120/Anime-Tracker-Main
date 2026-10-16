@@ -23,7 +23,7 @@ import {
   Waves,
   Sparkles,
 } from 'lucide-react';
-import { AppTheme } from '../../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import {
   CharacterManifestEntry,
   BLUE_ARCHIVE_CHARACTERS,
@@ -303,7 +303,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   onCloseMini: _onCloseMini,
 }) => {
   const isMini = presentationMode === 'mini';
-  const isDark = theme === 'dark';
+  const isDark = isDarkThemeFamily(theme || 'light');
   const isSakura = theme === 'sakura';
 
   // 3D Viewport Controls & State

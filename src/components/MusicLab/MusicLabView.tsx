@@ -1,6 +1,6 @@
 import React from 'react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
-import { AppTheme } from '../../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { MalUser } from '../../types';
 import { Character3DViewer } from '../CharacterViewer/Character3DViewer';
 import { Sparkles, Tv, Moon, Sun } from 'lucide-react';
@@ -23,8 +23,8 @@ export const MusicLabView: React.FC<MusicLabViewProps> = ({
   return (
     <div
       className={`w-full h-full min-h-0 flex-1 flex flex-col overflow-hidden transition-colors duration-200 font-sans ${
-        theme === 'dark'
-          ? 'bg-[#111017] text-[#F4F2F7]'
+        isDarkThemeFamily(theme)
+          ? 'dark bg-[#111017] text-[#F4F2F7]'
           : theme === 'sakura'
           ? 'bg-[#FDF5F7] text-[#25242A]'
           : 'bg-[#F5F3EF] text-[#25242A]'

@@ -16,7 +16,7 @@ function loadTexture(
   url: string,
   repeatX = 1,
   repeatY = 1,
-  wrap = THREE.RepeatWrapping
+  wrap: THREE.Wrapping = THREE.RepeatWrapping
 ): THREE.Texture {
   const loader = new THREE.TextureLoader();
   const texture = loader.load(url);

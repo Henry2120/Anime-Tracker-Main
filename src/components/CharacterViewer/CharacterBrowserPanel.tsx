@@ -18,6 +18,7 @@ import {
   Info,
 } from 'lucide-react';
 import { CharacterManifestEntry, LoadedCharacter } from '../../types/characterViewer';
+import { AppTheme } from '../../types/theme';
 import manifestData from '../../data/blueArchiveManifest.json';
 
 const allManifest: CharacterManifestEntry[] = manifestData as CharacterManifestEntry[];
@@ -36,7 +37,7 @@ interface CharacterBrowserPanelProps {
     instanceId: string,
     transform: { position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number] }
   ) => void;
-  theme: 'light' | 'dark' | 'sakura';
+  theme: AppTheme;
 }
 
 export const CharacterBrowserPanel: React.FC<CharacterBrowserPanelProps> = ({

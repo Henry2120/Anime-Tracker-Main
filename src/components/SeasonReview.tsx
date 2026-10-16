@@ -23,7 +23,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { MalListItem, MalUser, ReleaseCalendarItem } from '../types';
-import { AppTheme } from '../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../types/theme';
 import { decodeHtmlEntities } from '../utils/htmlUtils';
 import { getAnimeAiringState, getSeasonCompletionStats } from '../utils/completionUtils';
 import { AnimeDetailModal, AnimeDetailData } from './AnimeDetailModal';
@@ -66,7 +66,7 @@ export const SeasonReview = React.memo(function SeasonReview({
   theme = 'light',
   calendarItems,
 }: SeasonReviewProps) {
-  const isDark = theme === 'dark';
+  const isDark = isDarkThemeFamily(theme);
   const isSakura = theme === 'sakura';
   const isLight = !isDark && !isSakura;
 

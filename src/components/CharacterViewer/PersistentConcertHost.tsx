@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
-import { AppTheme } from '../../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { Character3DViewer } from './Character3DViewer';
 import { useConcertMusic } from './ConcertMusicContext';
 import {
@@ -73,18 +73,18 @@ export const PersistentConcertHost: React.FC<PersistentConcertHostProps> = ({
     return null;
   }
 
-  // Matching background classes for Anime Tracker theme family (Light, Dark, Sakura)
-  const themeCardBg = {
-    light: 'bg-[#F7F5F2]/95 border-[#E7E3DF] text-[#25242A] shadow-xl',
-    dark: 'bg-[#141318]/95 border-[#2E2C37] text-[#F4F2F7] shadow-2xl',
-    sakura: 'bg-[#FDF5F7]/95 border-[#F8D7E0] text-[#25242A] shadow-xl',
-  }[theme] || 'bg-[#F7F5F2]/95 border-[#E7E3DF] text-[#25242A] shadow-xl';
+  const isDark = isDarkThemeFamily(theme);
+  const themeCardBg = isDark
+    ? 'bg-[#141318]/95 border-[#2E2C37] text-[#F4F2F7] shadow-2xl'
+    : theme === 'sakura'
+    ? 'bg-[#FDF5F7]/95 border-[#F8D7E0] text-[#25242A] shadow-xl'
+    : 'bg-[#F7F5F2]/95 border-[#E7E3DF] text-[#25242A] shadow-xl';
 
-  const themeFullBg = {
-    dark: 'bg-[#111017] text-[#F4F2F7]',
-    sakura: 'bg-[#FDF5F7] text-[#25242A]',
-    light: 'bg-[#F5F3EF] text-[#25242A]',
-  }[theme] || 'bg-[#F5F3EF] text-[#25242A]';
+  const themeFullBg = isDark
+    ? 'bg-[#111017] text-[#F4F2F7]'
+    : theme === 'sakura'
+    ? 'bg-[#FDF5F7] text-[#25242A]'
+    : 'bg-[#F5F3EF] text-[#25242A]';
 
   return (
     <>

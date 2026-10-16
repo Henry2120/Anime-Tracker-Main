@@ -14,7 +14,7 @@ function fetchTree() {
   return new Promise((resolve, reject) => {
     https
       .get(
-        'https://api.github.com/repos/Henry2120/AniVerse-BlueArchive-Assets/git/trees/main?recursive=1',
+        'https://api.github.com/repos/Henry2120/BlueArchiveModels/git/trees/main?recursive=1',
         {
           headers: { 'User-Agent': 'AniVerse-App' },
         },
@@ -90,7 +90,7 @@ async function run() {
         .replace(/^-+|-+$/g, '') || `char-${nextIdx}`) + `-${nextIdx + 1}`;
 
     const encodedFilename = encodeURIComponent(filename);
-    const remoteUrl = `https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/${encodedFilename}`;
+    const remoteUrl = `https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/${encodedFilename}`;
 
     manifest.push({
       id,
@@ -105,7 +105,7 @@ async function run() {
 
   const tsContent = `/**
  * Blue Archive 3D Character Models Manifest
- * Auto-generated from https://github.com/Henry2120/AniVerse-BlueArchive-Assets
+ * Auto-generated from https://github.com/Henry2120/BlueArchiveModels
  * Total Characters: ${manifest.length}
  */
 

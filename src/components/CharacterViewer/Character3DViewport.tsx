@@ -4,6 +4,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Html } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { LoadedCharacter, ViewerSettings } from '../../types/characterViewer';
+import { AppTheme } from '../../types/theme';
 import { Box3, Vector3 } from 'three';
 
 interface Character3DViewportProps {
@@ -11,7 +12,7 @@ interface Character3DViewportProps {
   selectedInstanceId: string | null;
   onSelectInstance?: (instanceId: string) => void;
   settings: ViewerSettings;
-  theme: 'light' | 'dark' | 'sakura';
+  theme: AppTheme;
 }
 
 /**
@@ -135,7 +136,13 @@ export const Character3DViewport: React.FC<Character3DViewportProps> = ({
       return settings.backgroundColor;
     }
     if (theme === 'dark') return '#111017';
+    if (theme === 'rain') return '#0B1320';
+    if (theme === 'starlight') return '#090A1A';
+    if (theme === 'snow') return '#0A111E';
     if (theme === 'sakura') return '#FDF5F7';
+    if (theme === 'sunny') return '#F0F7FF';
+    if (theme === 'cloudy') return '#ECEFF3';
+    if (theme === 'autumn') return '#FBF6EE';
     return '#F5F3EF';
   };
 

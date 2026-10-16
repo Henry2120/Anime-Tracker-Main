@@ -16,7 +16,7 @@ import {
   Settings,
   Share2,
 } from 'lucide-react';
-import { AppTheme } from '../../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { WorldSwitcher, AppMode } from '../WorldSwitcher';
 import { Character3DViewport } from './Character3DViewport';
 import { CharacterBrowserPanel } from './CharacterBrowserPanel';
@@ -73,8 +73,8 @@ export const BlueArchiveViewer: React.FC<BlueArchiveViewerProps> = ({
   return (
     <div
       className={`w-full min-h-screen flex flex-col transition-colors duration-300 font-sans ${
-        theme === 'dark'
-          ? 'bg-[#111017] text-[#F4F2F7]'
+        isDarkThemeFamily(theme)
+          ? 'dark bg-[#111017] text-[#F4F2F7]'
           : theme === 'sakura'
           ? 'bg-[#FDF5F7] text-[#25242A]'
           : 'bg-[#F5F3EF] text-[#25242A]'

@@ -256,6 +256,340 @@ body.dark,
 }
 
 /* =========================================================================
+   ATMOSPHERIC THEMES DESIGN TOKEN SYSTEM
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   1. RAIN (雨 - Ame Mode) — Rainy Night
+   Deep navy, blue-gray, cool cyan accents, and gentle rain atmosphere
+   ------------------------------------------------------------------------- */
+[data-theme="rain"],
+html[data-theme="rain"],
+body[data-theme="rain"],
+[data-theme="rain"] #root,
+[data-theme="rain"] .bg-\[\#F7F5F2\],
+[data-theme="rain"] .bg-slate-50,
+[data-theme="rain"] .bg-gray-50 {
+  background-color: #0B1320 !important;
+}
+
+[data-theme="rain"] .bg-white {
+  background-color: #111D30 !important;
+}
+
+[data-theme="rain"] header .bg-\[\#F7F5F2\],
+[data-theme="rain"] nav.bg-\[\#F7F5F2\],
+[data-theme="rain"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="rain"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="rain"] .grid.bg-\[\#F7F5F2\],
+[data-theme="rain"] .bg-slate-100 {
+  background-color: #17263F !important;
+}
+
+[data-theme="rain"] .bg-\[\#F0EDFA\] {
+  background-color: #152A47 !important;
+  color: #38BDF8 !important;
+}
+
+[data-theme="rain"] .text-\[\#25242A\],
+[data-theme="rain"] h1, [data-theme="rain"] h2, [data-theme="rain"] h3, [data-theme="rain"] h4,
+[data-theme="rain"] .text-slate-900 {
+  color: #F1F5F9 !important;
+}
+
+[data-theme="rain"] .text-\[\#77747D\],
+[data-theme="rain"] .text-slate-500 {
+  color: #94A3B8 !important;
+}
+
+[data-theme="rain"] .border-\[\#E7E3DF\],
+[data-theme="rain"] .border-b-\[\#E7E3DF\],
+[data-theme="rain"] .border-t-\[\#E7E3DF\],
+[data-theme="rain"] .divide-\[\#E7E3DF\] > *,
+[data-theme="rain"] .border-slate-200,
+[data-theme="rain"] .border-gray-200 {
+  border-color: #1E3352 !important;
+}
+
+[data-theme="rain"] ::-webkit-scrollbar-track {
+  background: #0B1320;
+}
+[data-theme="rain"] ::-webkit-scrollbar-thumb {
+  background: #1E3352;
+}
+
+/* -------------------------------------------------------------------------
+   2. STARLIGHT (星 - Hoshi Mode) — Cosmic Night
+   Deep indigo, midnight blue, violet accents, and subtle stars
+   ------------------------------------------------------------------------- */
+[data-theme="starlight"],
+html[data-theme="starlight"],
+body[data-theme="starlight"],
+[data-theme="starlight"] #root,
+[data-theme="starlight"] .bg-\[\#F7F5F2\],
+[data-theme="starlight"] .bg-slate-50,
+[data-theme="starlight"] .bg-gray-50 {
+  background-color: #090A1A !important;
+}
+
+[data-theme="starlight"] .bg-white {
+  background-color: #11122B !important;
+}
+
+[data-theme="starlight"] header .bg-\[\#F7F5F2\],
+[data-theme="starlight"] nav.bg-\[\#F7F5F2\],
+[data-theme="starlight"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="starlight"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="starlight"] .grid.bg-\[\#F7F5F2\],
+[data-theme="starlight"] .bg-slate-100 {
+  background-color: #181A3C !important;
+}
+
+[data-theme="starlight"] .bg-\[\#F0EDFA\] {
+  background-color: #201E4B !important;
+  color: #A78BFA !important;
+}
+
+[data-theme="starlight"] .text-\[\#25242A\],
+[data-theme="starlight"] h1, [data-theme="starlight"] h2, [data-theme="starlight"] h3, [data-theme="starlight"] h4,
+[data-theme="starlight"] .text-slate-900 {
+  color: #F3F4F6 !important;
+}
+
+[data-theme="starlight"] .text-\[\#77747D\],
+[data-theme="starlight"] .text-slate-500 {
+  color: #9CA3AF !important;
+}
+
+[data-theme="starlight"] .border-\[\#E7E3DF\],
+[data-theme="starlight"] .border-b-\[\#E7E3DF\],
+[data-theme="starlight"] .border-t-\[\#E7E3DF\],
+[data-theme="starlight"] .divide-\[\#E7E3DF\] > *,
+[data-theme="starlight"] .border-slate-200,
+[data-theme="starlight"] .border-gray-200 {
+  border-color: #222452 !important;
+}
+
+[data-theme="starlight"] ::-webkit-scrollbar-track {
+  background: #090A1A;
+}
+[data-theme="starlight"] ::-webkit-scrollbar-thumb {
+  background: #222452;
+}
+
+/* -------------------------------------------------------------------------
+   3. SNOW (雪 - Yuki Mode) — Winter Night
+   Icy blue, silver, cool white, midnight blue, and gentle snowfall
+   ------------------------------------------------------------------------- */
+[data-theme="snow"],
+html[data-theme="snow"],
+body[data-theme="snow"],
+[data-theme="snow"] #root,
+[data-theme="snow"] .bg-\[\#F7F5F2\],
+[data-theme="snow"] .bg-slate-50,
+[data-theme="snow"] .bg-gray-50 {
+  background-color: #0A111E !important;
+}
+
+[data-theme="snow"] .bg-white {
+  background-color: #111C2E !important;
+}
+
+[data-theme="snow"] header .bg-\[\#F7F5F2\],
+[data-theme="snow"] nav.bg-\[\#F7F5F2\],
+[data-theme="snow"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="snow"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="snow"] .grid.bg-\[\#F7F5F2\],
+[data-theme="snow"] .bg-slate-100 {
+  background-color: #18263D !important;
+}
+
+[data-theme="snow"] .bg-\[\#F0EDFA\] {
+  background-color: #152D4A !important;
+  color: #7DD3FC !important;
+}
+
+[data-theme="snow"] .text-\[\#25242A\],
+[data-theme="snow"] h1, [data-theme="snow"] h2, [data-theme="snow"] h3, [data-theme="snow"] h4,
+[data-theme="snow"] .text-slate-900 {
+  color: #F0F9FF !important;
+}
+
+[data-theme="snow"] .text-\[\#77747D\],
+[data-theme="snow"] .text-slate-500 {
+  color: #93C5FD !important;
+}
+
+[data-theme="snow"] .border-\[\#E7E3DF\],
+[data-theme="snow"] .border-b-\[\#E7E3DF\],
+[data-theme="snow"] .border-t-\[\#E7E3DF\],
+[data-theme="snow"] .divide-\[\#E7E3DF\] > *,
+[data-theme="snow"] .border-slate-200,
+[data-theme="snow"] .border-gray-200 {
+  border-color: #1E314F !important;
+}
+
+[data-theme="snow"] ::-webkit-scrollbar-track {
+  background: #0A111E;
+}
+[data-theme="snow"] ::-webkit-scrollbar-thumb {
+  background: #1E314F;
+}
+
+/* -------------------------------------------------------------------------
+   4. SUNNY (晴 - Hare Mode) — Clear Sky
+   Sky blue, pale blue, warm white, and restrained golden accents
+   ------------------------------------------------------------------------- */
+[data-theme="sunny"],
+html[data-theme="sunny"],
+body[data-theme="sunny"],
+[data-theme="sunny"] #root,
+[data-theme="sunny"] .bg-\[\#F7F5F2\] {
+  background-color: #F0F7FF !important;
+}
+
+[data-theme="sunny"] .bg-white {
+  background-color: #FFFFFF !important;
+}
+
+[data-theme="sunny"] header .bg-\[\#F7F5F2\],
+[data-theme="sunny"] nav.bg-\[\#F7F5F2\],
+[data-theme="sunny"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="sunny"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="sunny"] .grid.bg-\[\#F7F5F2\] {
+  background-color: #E2EFFD !important;
+}
+
+[data-theme="sunny"] .bg-\[\#F0EDFA\] {
+  background-color: #E0F2FE !important;
+  color: #0284C7 !important;
+}
+
+[data-theme="sunny"] .text-\[\#25242A\] {
+  color: #0F172A !important;
+}
+
+[data-theme="sunny"] .text-\[\#77747D\] {
+  color: #64748B !important;
+}
+
+[data-theme="sunny"] .border-\[\#E7E3DF\] {
+  border-color: #D0E3F7 !important;
+}
+
+/* -------------------------------------------------------------------------
+   5. CLOUDY (曇 - Kumori Mode) — Overcast
+   Muted blue-gray, silver, and calm desaturated cool gradients
+   ------------------------------------------------------------------------- */
+[data-theme="cloudy"],
+html[data-theme="cloudy"],
+body[data-theme="cloudy"],
+[data-theme="cloudy"] #root,
+[data-theme="cloudy"] .bg-\[\#F7F5F2\] {
+  background-color: #ECEFF3 !important;
+}
+
+[data-theme="cloudy"] .bg-white {
+  background-color: #F8FAFC !important;
+}
+
+[data-theme="cloudy"] header .bg-\[\#F7F5F2\],
+[data-theme="cloudy"] nav.bg-\[\#F7F5F2\],
+[data-theme="cloudy"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="cloudy"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="cloudy"] .grid.bg-\[\#F7F5F2\] {
+  background-color: #E2E8F0 !important;
+}
+
+[data-theme="cloudy"] .bg-\[\#F0EDFA\] {
+  background-color: #E2E8F0 !important;
+  color: #475569 !important;
+}
+
+[data-theme="cloudy"] .text-\[\#25242A\] {
+  color: #1E293B !important;
+}
+
+[data-theme="cloudy"] .text-\[\#77747D\] {
+  color: #64748B !important;
+}
+
+[data-theme="cloudy"] .border-\[\#E7E3DF\] {
+  border-color: #D7DDE5 !important;
+}
+
+/* -------------------------------------------------------------------------
+   6. AUTUMN (秋 - Aki Mode) — Maple Sunset
+   Warm amber, burnt orange, warm brown, and burgundy accents
+   ------------------------------------------------------------------------- */
+[data-theme="autumn"],
+html[data-theme="autumn"],
+body[data-theme="autumn"],
+[data-theme="autumn"] #root,
+[data-theme="autumn"] .bg-\[\#F7F5F2\] {
+  background-color: #FBF6EE !important;
+}
+
+[data-theme="autumn"] .bg-white {
+  background-color: #FFFFFF !important;
+}
+
+[data-theme="autumn"] header .bg-\[\#F7F5F2\],
+[data-theme="autumn"] nav.bg-\[\#F7F5F2\],
+[data-theme="autumn"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="autumn"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="autumn"] .grid.bg-\[\#F7F5F2\] {
+  background-color: #F4EBD9 !important;
+}
+
+[data-theme="autumn"] .bg-\[\#F0EDFA\] {
+  background-color: #FEF3C7 !important;
+  color: #D97706 !important;
+}
+
+[data-theme="autumn"] .text-\[\#25242A\] {
+  color: #291E16 !important;
+}
+
+[data-theme="autumn"] .text-\[\#77747D\] {
+  color: #7C6C5E !important;
+}
+
+[data-theme="autumn"] .border-\[\#E7E3DF\] {
+  border-color: #EDE2D0 !important;
+}
+
+/* -------------------------------------------------------------------------
+   7. SAKURA (桜 - Sakura Mode)
+   Delicate cherry blossom aesthetic with light pink accents
+   ------------------------------------------------------------------------- */
+[data-theme="sakura"],
+html[data-theme="sakura"],
+body[data-theme="sakura"],
+[data-theme="sakura"] #root,
+[data-theme="sakura"] .bg-\[\#F7F5F2\] {
+  background-color: #FDF5F7 !important;
+}
+
+[data-theme="sakura"] header .bg-\[\#F7F5F2\],
+[data-theme="sakura"] nav.bg-\[\#F7F5F2\],
+[data-theme="sakura"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="sakura"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="sakura"] .grid.bg-\[\#F7F5F2\] {
+  background-color: #FAEAEE !important;
+}
+
+[data-theme="sakura"] .bg-\[\#F0EDFA\] {
+  background-color: #FCE7EC !important;
+  color: #E06D8A !important;
+}
+
+[data-theme="sakura"] .border-\[\#E7E3DF\] {
+  border-color: #F8D7E0 !important;
+}
+
+
+/* =========================================================================
    ANIVERSE MUSIC LAB — PERFORMER INSTRUMENT ANIMATIONS
    GPU-composited CSS transforms with reduced-motion support
    ========================================================================= */

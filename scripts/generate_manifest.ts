@@ -41,7 +41,7 @@ function createSlugId(filename: string, index: number): string {
 
 async function run() {
   console.log('Fetching tree from GitHub API...');
-  const tree = await fetchUrl('https://api.github.com/repos/Henry2120/AniVerse-BlueArchive-Assets/git/trees/main?recursive=1');
+  const tree = await fetchUrl('https://api.github.com/repos/Henry2120/BlueArchiveModels/git/trees/main?recursive=1');
   const glbFiles: { path: string; size?: number }[] = (tree.tree || []).filter((item: any) => item.path.endsWith('.glb'));
 
   console.log(`Found ${glbFiles.length} .glb files`);
@@ -60,7 +60,7 @@ async function run() {
     // Properly encode filename for GitHub media URL
     // encodeURIComponent encodes spaces as %20, ( as %28, ) as %29, etc.
     const encodedFilename = encodeURIComponent(filename).replace(/%2F/g, '/');
-    const url = `https://media.githubusercontent.com/media/Henry2120/AniVerse-BlueArchive-Assets/main/${encodedFilename}`;
+    const url = `https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/${encodedFilename}`;
 
     return {
       id,

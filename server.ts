@@ -2257,6 +2257,81 @@ app.post("/api/gemini/insights", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// LIVE WEATHER ENDPOINT (Open-Meteo Proxy & Cache)
+// ----------------------------------------------------
+const weatherCache = new Map<string, { timestamp: number; data: any }>();
+
+app.get("/api/weather", async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat as string);
+    const lon = parseFloat(req.query.lon as string);
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ success: false, error: "Missing or invalid lat/lon parameters" });
+    }
+
+    const cacheKey = `${lat.toFixed(2)}_${lon.toFixed(2)}`;
+    const cached = weatherCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 15 * 60 * 1000) {
+      return res.json({ success: true, ...cached.data, cached: true });
+    }
+
+    const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,is_day&timezone=auto`;
+    const response = await fetch(openMeteoUrl, {
+      headers: { "User-Agent": "AniVerse-Tracker/1.0" },
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Open-Meteo returned status ${response.status}`);
+    }
+
+    const data: any = await response.json();
+    const current = data.current || {};
+    const weatherCode = current.weather_code ?? 0;
+    const isDay = current.is_day === 1;
+    const temp = current.temperature_2m;
+
+    let mappedTheme = isDay ? "sunny" : "starlight";
+    let conditionText = isDay ? "Clear Sky" : "Clear Night";
+
+    if (weatherCode === 0 || weatherCode === 1) {
+      mappedTheme = isDay ? "sunny" : "starlight";
+      conditionText = isDay ? "Clear Sky" : "Starry Night";
+    } else if (weatherCode === 2 || weatherCode === 3 || weatherCode === 45 || weatherCode === 48) {
+      mappedTheme = "cloudy";
+      conditionText = weatherCode >= 45 ? "Misty Fog" : "Overcast";
+    } else if (
+      (weatherCode >= 51 && weatherCode <= 67) ||
+      (weatherCode >= 80 && weatherCode <= 82) ||
+      (weatherCode >= 95 && weatherCode <= 99)
+    ) {
+      mappedTheme = "rain";
+      conditionText = weatherCode >= 95 ? "Thunderstorm" : "Rain";
+    } else if (
+      (weatherCode >= 71 && weatherCode <= 77) ||
+      (weatherCode >= 85 && weatherCode <= 86)
+    ) {
+      mappedTheme = "snow";
+      conditionText = "Snowfall";
+    }
+
+    const result = {
+      weatherCode,
+      isDay,
+      temp,
+      theme: mappedTheme,
+      conditionText,
+    };
+
+    weatherCache.set(cacheKey, { timestamp: Date.now(), data: result });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[WEATHER] Error fetching weather:", err);
+    return res.status(502).json({ success: false, error: err.message || "Failed to fetch weather data" });
+  }
+});
+
+// ----------------------------------------------------
 // VITE MIDDLEWARE SETUP
 // ----------------------------------------------------
 async function startServer() {

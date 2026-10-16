@@ -24,7 +24,7 @@ import {
   CharacterManifestEntry,
 } from '../../data/blueArchiveCharacters';
 import { LoadedCharacterInstance } from './types';
-import { AppTheme } from '../../types/theme';
+import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 
 interface CharacterBrowserDrawerProps {
   theme: AppTheme;
@@ -61,7 +61,7 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
   const [activeTab, setActiveTab] = useState<'roster' | 'scene'>('roster');
   const [alphabetFilter, setAlphabetFilter] = useState<string>('ALL');
 
-  const isDark = theme === 'dark';
+  const isDark = isDarkThemeFamily(theme);
   const isSakura = theme === 'sakura';
 
   // Extract unique starting letters for quick alphabetic jump

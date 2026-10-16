@@ -24,7 +24,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { MalUser, MalListItem, SeasonalAnimeItem, MalUpdateStatusPayload, MalAnimeNode, ReleaseCalendarItem } from './types';
-import { AppTheme } from './types/theme';
+import { AppTheme, isDarkThemeFamily } from './types/theme';
 import { MalAnimeCard } from './components/MalAnimeCard';
 import { MalCatalogueSearchResults } from './components/MalCatalogueSearchResults';
 import { SeasonTable } from './components/SeasonTable';
@@ -72,7 +72,8 @@ import { AnimeHeaderConcertWidget } from './components/CharacterViewer/AnimeHead
 
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
-import { SakuraPetalsCanvas } from './components/SakuraPetalsCanvas';
+import { AtmosphericCanvas } from './components/AtmosphericCanvas';
+import { fetchLiveWeather, requestUserCoordinates, getCachedWeather, WeatherData } from './utils/weatherUtils';
 import { Top500EasterEgg } from './components/Top500EasterEgg';
 import { APP_VERSION_INFO } from './config/version';
 import { getSeasonCompletionStats, getCachedCalendarItems, mergeCalendarItems } from './utils/completionUtils';
@@ -108,11 +109,12 @@ function AppContent() {
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isExcelExportModalOpen, setIsExcelExportModalOpen] = useState(false);
 
-  // Appearance / Theme State ('light' | 'dark' | 'sakura')
+  // Appearance / Theme State (Expanded 9-Theme System)
   const [theme, setTheme] = useState<AppTheme>(() => {
     try {
       const saved = localStorage.getItem('aniverse_appearance') || localStorage.getItem('aniverse_theme');
-      if (saved === 'dark' || saved === 'sakura' || saved === 'light') {
+      const validThemes: AppTheme[] = ['light', 'dark', 'sakura', 'rain', 'sunny', 'cloudy', 'starlight', 'autumn', 'snow'];
+      if (saved && validThemes.includes(saved as AppTheme)) {
         return saved as AppTheme;
       }
     } catch {
@@ -120,6 +122,87 @@ function AppContent() {
     }
     return 'light';
   });
+
+  // Live Weather State
+  const [isLiveWeather, setIsLiveWeather] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('aniverse_live_weather_enabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [liveWeatherData, setLiveWeatherData] = useState<WeatherData | null>(() => getCachedWeather());
+  const [liveWeatherLoading, setLiveWeatherLoading] = useState<boolean>(false);
+  const [liveWeatherError, setLiveWeatherError] = useState<string | null>(null);
+
+  // Sync Live Weather on mount or when enabled
+  useEffect(() => {
+    if (!isLiveWeather) return;
+
+    let cancelled = false;
+    const updateWeather = async () => {
+      setLiveWeatherLoading(true);
+      setLiveWeatherError(null);
+      try {
+        const coords = await requestUserCoordinates();
+        if (cancelled) return;
+        const weather = await fetchLiveWeather(coords.lat, coords.lon);
+        if (cancelled) return;
+        setLiveWeatherData(weather);
+        setTheme(weather.theme);
+      } catch (err: any) {
+        if (cancelled) return;
+        console.warn('[LiveWeather] Failed to fetch weather:', err);
+        setLiveWeatherError(err.message || 'Unable to detect live weather.');
+      } finally {
+        if (!cancelled) setLiveWeatherLoading(false);
+      }
+    };
+
+    updateWeather();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLiveWeather]);
+
+  const handleToggleLiveWeather = async (enabled: boolean) => {
+    setIsLiveWeather(enabled);
+    try {
+      localStorage.setItem('aniverse_live_weather_enabled', String(enabled));
+    } catch {}
+
+    if (enabled) {
+      setLiveWeatherLoading(true);
+      setLiveWeatherError(null);
+      try {
+        const coords = await requestUserCoordinates();
+        const weather = await fetchLiveWeather(coords.lat, coords.lon);
+        setLiveWeatherData(weather);
+        setTheme(weather.theme);
+      } catch (err: any) {
+        console.warn('[LiveWeather] Failed to activate:', err);
+        setLiveWeatherError(err.message || 'Unable to detect weather.');
+      } finally {
+        setLiveWeatherLoading(false);
+      }
+    }
+  };
+
+  const handleThemeChange = (newTheme: AppTheme) => {
+    setTheme(newTheme);
+    if (isLiveWeather) {
+      setIsLiveWeather(false);
+      try {
+        localStorage.setItem('aniverse_live_weather_enabled', 'false');
+      } catch {}
+    }
+    try {
+      localStorage.setItem('aniverse_appearance', newTheme);
+      localStorage.setItem('aniverse_theme', newTheme);
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   // Insights dropdown navigation state
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
@@ -160,16 +243,6 @@ function AppContent() {
     window.addEventListener('aniverse:open-about', handleOpenAboutEvent);
     return () => window.removeEventListener('aniverse:open-about', handleOpenAboutEvent);
   }, []);
-
-  const handleThemeChange = (newTheme: AppTheme) => {
-    setTheme(newTheme);
-    try {
-      localStorage.setItem('aniverse_appearance', newTheme);
-      localStorage.setItem('aniverse_theme', newTheme);
-    } catch {
-      // Ignore storage errors
-    }
-  };
 
   // MAL Auth & List State
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
@@ -426,7 +499,7 @@ function AppContent() {
 
     // Determine current MAL status if in user's list
     const currentStatus = existingMalEntry?.list_status || target.list_status || target.currentStatus || (target.userScore !== undefined || target.episodesWatched !== undefined ? {
-      status: target.status || 'plan_to_watch',
+      status: target.status || 'watching',
       score: target.userScore || 0,
       num_episodes_watched: target.episodesWatched || 0,
       comments: target.comment || customUserNotes[animeId] || '',
@@ -442,7 +515,7 @@ function AppContent() {
       mediaType,
       meanScore,
       currentStatus: currentStatus ? {
-        status: currentStatus.status || 'plan_to_watch',
+        status: currentStatus.status || 'watching',
         score: currentStatus.score || 0,
         num_episodes_watched: currentStatus.num_episodes_watched || 0,
         is_rewatching: currentStatus.is_rewatching || false,
@@ -514,7 +587,7 @@ function AppContent() {
               mean: editingMalAnime.meanScore || undefined,
             },
             list_status: {
-              status: payload.status || 'plan_to_watch',
+              status: payload.status || 'watching',
               score: payload.score || 0,
               num_episodes_watched: payload.num_watched_episodes || 0,
               is_rewatching: payload.is_rewatching || false,
@@ -574,7 +647,7 @@ function AppContent() {
     }
   };
 
-  // Add a new anime from the MAL catalogue to the user's list (defaulting to Plan to Watch)
+  // Add a new anime from the MAL catalogue to the user's list (defaulting to Watching)
   const handleAddCatalogueAnime = async (node: MalAnimeNode) => {
     if (!node?.id) return;
     const animeId = node.id;
@@ -582,7 +655,7 @@ function AppContent() {
 
     try {
       const payload: MalUpdateStatusPayload = {
-        status: 'plan_to_watch',
+        status: 'watching',
         score: 0,
         num_watched_episodes: 0,
       };
@@ -608,7 +681,7 @@ function AppContent() {
       const newItem: MalListItem = {
         node,
         list_status: {
-          status: 'plan_to_watch',
+          status: 'watching',
           score: 0,
           num_episodes_watched: 0,
           is_rewatching: false,
@@ -625,7 +698,7 @@ function AppContent() {
         return [newItem, ...prev];
       });
 
-      showSyncToast(`✓ Added "${node.title}" to My List (Plan to Watch)`, 'success');
+      showSyncToast(`✓ Added "${node.title}" to My List (Watching)`, 'success');
     } catch (err: any) {
       console.error('Error adding catalogue anime to MAL:', err);
       showSyncToast(err.message || 'Failed to add anime to MyAnimeList', 'error');
@@ -1728,21 +1801,21 @@ function AppContent() {
     });
   }, [malList, malFilterStatus, malSortOption, malSearchQuery, activeTab]);
 
-  const isEffectiveDark = theme === 'dark' && (malUser !== null || appMode === 'music');
-  const isEffectiveSakura = theme === 'sakura' && (malUser !== null || appMode === 'music');
+  const isEffectiveDark = isDarkThemeFamily(theme);
 
   useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
     if (isEffectiveDark) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [isEffectiveDark]);
+  }, [theme, isEffectiveDark]);
 
   return (
-    <div className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
-      {/* SAKURA PETALS CANVAS (SHOWN ONLY IN SAKURA MODE WHEN LOGGED IN) */}
-      {isEffectiveSakura && <SakuraPetalsCanvas />}
+    <div data-theme={theme} className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
+      {/* ATMOSPHERIC CANVAS (SAKURA, RAIN, STARLIGHT, AUTUMN, SNOW, SUNNY, CLOUDY) */}
+      <AtmosphericCanvas theme={theme} />
 
       {/* MINIMAL TOP NAVIGATION BAR */}
       <header className={`w-full sticky top-0 z-40 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs ${
@@ -1950,13 +2023,17 @@ function AppContent() {
 
           {/* RIGHT ACTION / USER PROFILE */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* THEME / APPEARANCE SELECTOR (AUTHENTICATED ONLY) */}
-            {malUser && (
-              <AppearanceSelector
-                currentTheme={theme}
-                onThemeChange={handleThemeChange}
-              />
-            )}
+            {/* THEME / APPEARANCE SELECTOR */}
+            <AppearanceSelector
+              currentTheme={theme}
+              onThemeChange={handleThemeChange}
+              isLiveWeather={isLiveWeather}
+              onToggleLiveWeather={handleToggleLiveWeather}
+              liveWeatherCondition={liveWeatherData?.conditionText}
+              liveWeatherTemp={liveWeatherData?.temp}
+              liveWeatherLoading={liveWeatherLoading}
+              liveWeatherError={liveWeatherError}
+            />
 
             {malUser && (
               <button
