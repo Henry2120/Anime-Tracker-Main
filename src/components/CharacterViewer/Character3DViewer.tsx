@@ -365,6 +365,25 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     return isHina && isDress;
   }, [loadedCharacters]);
 
+  // Check if Hina's piano is present and currently visible in the 3D scene
+  const isPianoVisible = useMemo(() => {
+    if (!isDressHinaAlone || loadedCharacters.length !== 1) return false;
+    const char = loadedCharacters[0];
+    if (!char || !char.scene) return false;
+
+    // Check Piano_Switch object in Hina's scene hierarchy
+    const pianoSwitch = char.scene.getObjectByName('Piano_Switch');
+    if (pianoSwitch) {
+      return pianoSwitch.visible && pianoSwitch.scale.x > 0.5;
+    }
+
+    // Check direct piano model mesh if present
+    const pianoMesh =
+      char.scene.getObjectByName('my_gehennaparty_01_piano_01') ||
+      char.scene.getObjectByName('Mesh_0');
+    return Boolean(pianoMesh && pianoMesh.visible);
+  }, [isDressHinaAlone, loadedCharacters]);
+
   // Activate the beach only when both conditions are satisfied:
   // 1. Dress Hina is the only character placed in the 3D viewer.
   // 2. The existing music player reports that music is actively playing.
@@ -698,6 +717,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             {isSpecialSceneActive ? (
               <NightBeachScene
                 characterPosition={loadedCharacters[0]?.position}
+                character={loadedCharacters[0]}
+                isPianoVisible={isPianoVisible}
+                isPlaying={isPlaying}
                 isMini={isMini}
               />
             ) : (
