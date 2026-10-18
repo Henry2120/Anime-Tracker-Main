@@ -1,7 +1,7 @@
 import React, { Suspense, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, ContactShadows, Html } from '@react-three/drei';
+import { OrbitControls, Html } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { LoadedCharacter, ViewerSettings } from '../../types/characterViewer';
 import { AppTheme } from '../../types/theme';
@@ -192,17 +192,12 @@ export const Character3DViewport: React.FC<Character3DViewportProps> = ({
             autoRotateSpeed={settings.autoRotateSpeed}
           />
 
-          {/* Ground Plane & Contact Shadows */}
+          {/* Ground Plane Contact Shadow Mesh */}
           {settings.showShadows && (
-            <ContactShadows
-              position={[0, 0, 0]}
-              opacity={0.45}
-              scale={10}
-              blur={1.8}
-              far={4.0}
-              resolution={1024}
-              color="#0F0C1B"
-            />
+            <mesh position={[0, -0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0, 4.5, 32]} />
+              <meshBasicMaterial color="#0F0C1B" transparent opacity={0.35} depthWrite={false} />
+            </mesh>
           )}
 
           {/* Ground Grid Helper */}

@@ -1,7 +1,7 @@
 import React, { Suspense, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, ContactShadows, Grid as DreiGrid } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
   User,
@@ -46,6 +46,57 @@ interface Character3DViewerProps {
   onExpand?: () => void;
   onCloseMini?: () => void;
 }
+
+/**
+ * Procedural Studio Contact Shadow Texture generator for standard stage environments.
+ * Renders as a lightweight native Three.js mesh, completely bypassing buggy ContactShadows render passes.
+ */
+function createStudioContactShadowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size * 0.46;
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  grad.addColorStop(0, 'rgba(12, 10, 24, 0.65)');
+  grad.addColorStop(0.28, 'rgba(14, 12, 28, 0.42)');
+  grad.addColorStop(0.58, 'rgba(16, 14, 32, 0.16)');
+  grad.addColorStop(0.85, 'rgba(20, 18, 38, 0.03)');
+  grad.addColorStop(1, 'rgba(20, 18, 38, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const StudioContactShadow: React.FC<{ opacity: number; scale?: number }> = ({ opacity, scale = 16.0 }) => {
+  const shadowTex = useMemo(() => createStudioContactShadowTexture(), []);
+  if (!shadowTex) return null;
+
+  return (
+    <mesh position={[0, -0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[scale, scale]} />
+      <meshBasicMaterial
+        map={shadowTex}
+        transparent
+        opacity={opacity}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+};
 
 /**
  * Lighting & Environment System (Physical Stage Platform Removed)
@@ -142,13 +193,7 @@ const ViewerEnvironment3D: React.FC<{
       />
 
       {/* Soft Contact Shadows on the floor under standing performers */}
-      <ContactShadows
-        position={[0, -0.01, 0]}
-        opacity={envConfigs.shadowOpacity}
-        scale={16.0}
-        blur={1.8}
-        far={3.0}
-      />
+      <StudioContactShadow opacity={envConfigs.shadowOpacity} scale={16.0} />
     </>
   );
 };
@@ -364,25 +409,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
     return isHina && isDress;
   }, [loadedCharacters]);
-
-  // Check if Hina's piano is present and currently visible in the 3D scene
-  const isPianoVisible = useMemo(() => {
-    if (!isDressHinaAlone || loadedCharacters.length !== 1) return false;
-    const char = loadedCharacters[0];
-    if (!char || !char.scene) return false;
-
-    // Check Piano_Switch object in Hina's scene hierarchy
-    const pianoSwitch = char.scene.getObjectByName('Piano_Switch');
-    if (pianoSwitch) {
-      return pianoSwitch.visible && pianoSwitch.scale.x > 0.5;
-    }
-
-    // Check direct piano model mesh if present
-    const pianoMesh =
-      char.scene.getObjectByName('my_gehennaparty_01_piano_01') ||
-      char.scene.getObjectByName('Mesh_0');
-    return Boolean(pianoMesh && pianoMesh.visible);
-  }, [isDressHinaAlone, loadedCharacters]);
 
   // Activate the beach only when both conditions are satisfied:
   // 1. Dress Hina is the only character placed in the 3D viewer.
@@ -717,9 +743,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             {isSpecialSceneActive ? (
               <NightBeachScene
                 characterPosition={loadedCharacters[0]?.position}
-                character={loadedCharacters[0]}
-                isPianoVisible={isPianoVisible}
-                isPlaying={isPlaying}
                 isMini={isMini}
               />
             ) : (
@@ -757,17 +780,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
             {/* Ground Grid (Full mode and regular stage only) */}
             {showGrid && !isMini && !isSpecialSceneActive && (
-              <DreiGrid
+              <gridHelper
+                args={[16, 32, '#7567C7', '#9A8BF0']}
                 position={[0, 0, 0]}
-                args={[16, 16]}
-                cellSize={0.5}
-                cellThickness={1.0}
-                cellColor="#7567C7"
-                sectionSize={2.0}
-                sectionThickness={1.5}
-                sectionColor="#9A8BF0"
-                fadeDistance={18}
-                fadeStrength={1.5}
               />
             )}
 
