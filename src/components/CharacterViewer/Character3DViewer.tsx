@@ -83,7 +83,7 @@ function createStudioContactShadowTexture(): THREE.CanvasTexture | null {
 
 const StudioContactShadow: React.FC<{ opacity: number; scale?: number }> = ({ opacity, scale = 16.0 }) => {
   const shadowTex = useMemo(() => createStudioContactShadowTexture(), []);
-  if (!shadowTex) return null;
+  if (!shadowTex || opacity <= 0) return null;
 
   return (
     <mesh position={[0, -0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -113,7 +113,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.6,
       rimColor: '#E6E6FA',
       rimIntensity: 1.0,
-      shadowOpacity: 0.45,
+      shadowOpacity: 0, // Uniform pure white background without floor shadow gradient
     },
     dark: {
       ambientIntensity: 0.75,
@@ -123,7 +123,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.5,
       rimColor: '#BCA8F8',
       rimIntensity: 1.4,
-      shadowOpacity: 0.75,
+      shadowOpacity: 0.65,
     },
     sakura: {
       ambientIntensity: 0.95,
@@ -133,7 +133,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.7,
       rimColor: '#F472B6',
       rimIntensity: 1.2,
-      shadowOpacity: 0.45,
+      shadowOpacity: 0,
     },
     sunset: {
       ambientIntensity: 0.8,
@@ -143,7 +143,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.6,
       rimColor: '#FB923C',
       rimIntensity: 1.3,
-      shadowOpacity: 0.6,
+      shadowOpacity: 0.5,
     },
     clean: {
       ambientIntensity: 1.15,
@@ -153,7 +153,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.5,
       rimColor: '#FFFFFF',
       rimIntensity: 0.8,
-      shadowOpacity: 0.35,
+      shadowOpacity: 0,
     },
   }[environment];
 
@@ -540,15 +540,19 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   }, [handleSelectFromDrawer]);
 
   // Matching container background to current Anime Tracker theme family (or night meadow if special scene active)
-  // Ensures crisp White Background Consistency across clean and classic light modes
+  // Ensures crisp White Background Consistency (#FFFFFF) across Studio and clean viewer modes
   const containerBg = isSpecialSceneActive
     ? 'bg-[#050814] text-[#F4F2F7]'
-    : environment === 'clean'
+    : environment === 'studio' || environment === 'clean'
     ? 'bg-white text-[#25242A]'
+    : environment === 'dark'
+    ? 'bg-[#14121C] text-[#F4F2F7]'
+    : environment === 'sakura'
+    ? 'bg-[#FDF6F8] text-[#25242A]'
+    : environment === 'sunset'
+    ? 'bg-[#2A1D2D] text-[#F4F2F7]'
     : isDark
     ? 'bg-[#14121C] text-[#F4F2F7]'
-    : isSakura
-    ? 'bg-[#FDF6F8] text-[#25242A]'
     : 'bg-white text-[#25242A]';
 
   return (
@@ -759,7 +763,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               <color
                 attach="background"
                 args={[
-                  environment === 'clean'
+                  environment === 'studio' || environment === 'clean'
                     ? '#FFFFFF'
                     : isDark
                     ? '#14121C'

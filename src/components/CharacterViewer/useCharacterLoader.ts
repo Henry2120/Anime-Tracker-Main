@@ -44,6 +44,39 @@ export function disposeHierarchy(root: THREE.Object3D, mixer?: THREE.AnimationMi
 let globalLoadedCharactersCache: LoadedCharacterInstance[] = [];
 let globalSelectedInstanceIdCache: string | null = null;
 
+/**
+ * Creates or retrieves the seamlessly looping short piano-playing segment of Exs_Cutin.
+ * In Blue Archive, the full Exs_Cutin clip is 12s with intro sit-down and outro.
+ * The active piano performance loop segment occurs between frame 118 (~3.93s) and frame 211 (~7.03s),
+ * where Hina's hands strike and passionately play the piano keys continuously.
+ */
+export function getOrCreateExsCutinLoop(animations: THREE.AnimationClip[]): THREE.AnimationClip | null {
+  const existing = THREE.AnimationClip.findByName(animations, 'Exs_Cutin_PianoLoop');
+  if (existing) return existing;
+
+  const originalCutin =
+    THREE.AnimationClip.findByName(animations, 'Exs_Cutin') ||
+    THREE.AnimationClip.findByName(animations, 'exs_cutin');
+  if (!originalCutin) return null;
+
+  try {
+    // Frame 118 (3.93s) to frame 211 (7.03s) at 30 fps produces the optimal smooth playing loop
+    const sub = THREE.AnimationUtils.subclip(originalCutin, 'Exs_Cutin_PianoLoop', 118, 211, 30);
+    // Explicitly guarantee Piano_Switch remains scaled and visible throughout
+    const pianoTrack = new THREE.VectorKeyframeTrack(
+      'Piano_Switch.scale',
+      [0, sub.duration],
+      [1, 1, 1, 1, 1, 1]
+    );
+    sub.tracks.push(pianoTrack);
+    animations.push(sub);
+    return sub;
+  } catch (err) {
+    console.warn('[Animation] Failed to generate Exs_Cutin subclip, falling back to original:', err);
+    return originalCutin;
+  }
+}
+
 export function useCharacterLoader() {
   const [loadedCharacters, setLoadedCharacters] = useState<LoadedCharacterInstance[]>(
     () => globalLoadedCharactersCache
@@ -203,7 +236,10 @@ export function useCharacterLoader() {
               let currentAnimationName: string | null = null;
 
               const targetAnimName = options.initialAnimation || 'Cafe_Idle';
-              const targetClip = THREE.AnimationClip.findByName(animations, targetAnimName);
+              const isTargetExs = targetAnimName === 'Exs_Cutin' || targetAnimName === 'exs_cutin';
+              const targetClip = isTargetExs
+                ? getOrCreateExsCutinLoop(animations) || THREE.AnimationClip.findByName(animations, targetAnimName)
+                : THREE.AnimationClip.findByName(animations, targetAnimName);
 
               if (targetClip) {
                 currentAction = mixer.clipAction(targetClip);
@@ -388,7 +424,10 @@ export function useCharacterLoader() {
         return prev;
       }
 
-      const clip = THREE.AnimationClip.findByName(target.animations, animationName);
+      const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
+      const clip = isExs
+        ? getOrCreateExsCutinLoop(target.animations) || THREE.AnimationClip.findByName(target.animations, animationName)
+        : THREE.AnimationClip.findByName(target.animations, animationName);
       if (!clip) {
         console.warn(`[Blue Archive Viewer] Animation "${animationName}" not found in model ${target.manifestEntry.name}`);
         return prev;
@@ -400,7 +439,6 @@ export function useCharacterLoader() {
       nextAction.setLoop(THREE.LoopRepeat, Infinity);
 
       // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active
-      const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
       if (pianoSwitch) {
         if (isExs) {

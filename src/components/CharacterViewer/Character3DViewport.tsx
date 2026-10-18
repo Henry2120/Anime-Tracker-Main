@@ -143,11 +143,11 @@ export const Character3DViewport: React.FC<Character3DViewportProps> = ({
     if (theme === 'sunny') return '#F0F7FF';
     if (theme === 'cloudy') return '#ECEFF3';
     if (theme === 'autumn') return '#FBF6EE';
-    return '#F5F3EF';
+    return '#FFFFFF';
   };
 
   return (
-    <div className="relative w-full h-full min-h-[450px] rounded-2xl overflow-hidden select-none bg-gradient-to-b from-black/5 to-black/15">
+    <div className="relative w-full h-full min-h-[450px] rounded-2xl overflow-hidden select-none bg-white dark:bg-[#111017]">
       <Canvas
         shadows={settings.showShadows}
         camera={{ position: [0, 1.2, 2.5], fov: 42, near: 0.1, far: 50 }}

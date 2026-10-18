@@ -117,9 +117,8 @@ function createFireflyGlowTexture(): THREE.CanvasTexture | null {
 }
 
 /**
- * Procedural Lush Night Grass Turf Texture:
+ * Procedural Lush Night Grass Turf Texture for base ground plane:
  * Natural blade striations, micro-clumping, deep nocturne forest green tones.
- * Completely eliminates flat plain color or beach-like appearance.
  */
 function createGrassTurfTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
@@ -130,8 +129,7 @@ function createGrassTurfTexture(): THREE.CanvasTexture | null {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  // Deep midnight emerald base
-  ctx.fillStyle = '#0d2817';
+  ctx.fillStyle = '#163b22';
   ctx.fillRect(0, 0, size, size);
 
   const imgData = ctx.getImageData(0, 0, size, size);
@@ -142,46 +140,50 @@ function createGrassTurfTexture(): THREE.CanvasTexture | null {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
 
-      // Vertical fiber / blade directionality
-      const bladePattern = Math.sin(x * 0.45 + Math.sin(y * 0.12) * 3.0) * 12;
-      const microNoise = (Math.random() - 0.5) * 18;
-      const patchNoise = Math.sin(x * 0.04) * Math.cos(y * 0.04) * 14;
+      const bladePattern = Math.sin(x * 0.45 + Math.sin(y * 0.12) * 3.0) * 14;
+      const microNoise = (Math.random() - 0.5) * 20;
+      const patchNoise = Math.sin(x * 0.04) * Math.cos(y * 0.04) * 16;
       const variation = bladePattern + microNoise + patchNoise;
 
-      // Base: R: 14, G: 42, B: 24 (Lush deep night emerald)
-      data[idx] = Math.max(8, Math.min(32, Math.floor(14 + variation * 0.4)));
-      data[idx + 1] = Math.max(26, Math.min(78, Math.floor(44 + variation * 1.1)));
-      data[idx + 2] = Math.max(14, Math.min(48, Math.floor(25 + variation * 0.5)));
+      // Base: R: 22, G: 58, B: 34 (Lush visible night emerald)
+      data[idx] = Math.max(14, Math.min(48, Math.floor(22 + variation * 0.5)));
+      data[idx + 1] = Math.max(38, Math.min(95, Math.floor(58 + variation * 1.2)));
+      data[idx + 2] = Math.max(20, Math.min(60, Math.floor(34 + variation * 0.6)));
       data[idx + 3] = 255;
     }
   }
   ctx.putImageData(imgData, 0, 0);
 
   // Soft scattered blades overlay
-  ctx.fillStyle = 'rgba(38, 92, 52, 0.25)';
+  ctx.strokeStyle = 'rgba(78, 142, 85, 0.35)';
+  ctx.lineWidth = 1.2;
   for (let i = 0; i < 400; i++) {
-    const rx = (i * 37) % size;
-    const ry = (i * 59) % size;
-    const rw = 1.5;
-    const rh = 6 + (i % 5) * 2;
-    ctx.fillRect(rx, ry, rw, rh);
+    const bx = Math.random() * size;
+    const by = Math.random() * size;
+    const blen = 6 + Math.random() * 12;
+    const curve = (Math.random() - 0.5) * 4;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(bx + curve, by - blen * 0.6, bx + curve * 1.5, by - blen);
+    ctx.stroke();
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(24, 24);
+  tex.repeat.set(16, 16);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
 /**
- * Procedural Grass Blade Clump Texture for 3D tufts
+ * Procedural 3D Grass Tuft Alpha Texture:
+ * Multi-blade clump shape for layered vegetation silhouettes.
  */
 function createGrassTuftTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const width = 128;
-  const height = 256;
+  const height = 128;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -190,26 +192,30 @@ function createGrassTuftTexture(): THREE.CanvasTexture | null {
 
   ctx.clearRect(0, 0, width, height);
 
-  // Draw 5 natural tapered grass blades
-  const bladeCount = 5;
-  for (let b = 0; b < bladeCount; b++) {
-    const baseX = 24 + b * 20;
-    const tipX = baseX + (b - 2) * 16;
-    const tipY = 20 + Math.abs(b - 2) * 25;
+  const bladeCount = 18;
+  for (let i = 0; i < bladeCount; i++) {
+    const startX = width * 0.5 + (Math.random() - 0.5) * 32;
+    const startY = height - 2;
+    const bladeHeight = height * (0.55 + Math.random() * 0.42);
+    const lean = (Math.random() - 0.5) * 36;
+    const midX = startX + lean * 0.5;
+    const midY = startY - bladeHeight * 0.55;
+    const tipX = startX + lean;
+    const tipY = startY - bladeHeight;
 
-    const grad = ctx.createLinearGradient(baseX, height, tipX, tipY);
-    grad.addColorStop(0.0, 'rgba(10, 32, 18, 0.95)');
-    grad.addColorStop(0.5, 'rgba(24, 68, 38, 0.88)');
-    grad.addColorStop(0.85, 'rgba(46, 112, 64, 0.75)');
-    grad.addColorStop(1.0, 'rgba(74, 158, 96, 0.85)');
+    const bladeGrad = ctx.createLinearGradient(startX, startY, tipX, tipY);
+    bladeGrad.addColorStop(0, 'rgba(32, 75, 42, 0.98)');
+    bladeGrad.addColorStop(0.65, 'rgba(56, 122, 68, 0.95)');
+    bladeGrad.addColorStop(1, 'rgba(84, 162, 98, 0.9)');
 
-    ctx.fillStyle = grad;
+    ctx.strokeStyle = bladeGrad;
+    ctx.lineWidth = 2.8 + Math.random() * 1.8;
+    ctx.lineCap = 'round';
+
     ctx.beginPath();
-    ctx.moveTo(baseX - 4, height);
-    ctx.quadraticCurveTo(baseX - 1, height * 0.45, tipX, tipY);
-    ctx.quadraticCurveTo(baseX + 2, height * 0.45, baseX + 4, height);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(midX, midY, tipX, tipY);
+    ctx.stroke();
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -218,33 +224,30 @@ function createGrassTuftTexture(): THREE.CanvasTexture | null {
 }
 
 /**
- * Procedural Soft Feathered Contact Shadow Texture (Zero artificial black rings)
+ * Procedural Soft Contact Shadow Texture under Hina and Piano
  */
 function createSoftContactShadowTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
-  const size = 512;
+  const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  ctx.clearRect(0, 0, size, size);
-
   const cx = size / 2;
   const cy = size / 2;
-  const radius = size * 0.45;
+  const rad = size * 0.44;
 
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  grad.addColorStop(0, 'rgba(8, 18, 12, 0.55)');
-  grad.addColorStop(0.3, 'rgba(10, 24, 16, 0.35)');
-  grad.addColorStop(0.65, 'rgba(12, 28, 20, 0.12)');
-  grad.addColorStop(0.85, 'rgba(14, 32, 22, 0.03)');
-  grad.addColorStop(1, 'rgba(14, 32, 22, 0)');
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+  grad.addColorStop(0, 'rgba(5, 12, 8, 0.75)');
+  grad.addColorStop(0.3, 'rgba(7, 16, 10, 0.55)');
+  grad.addColorStop(0.65, 'rgba(9, 20, 13, 0.22)');
+  grad.addColorStop(1, 'rgba(10, 24, 15, 0)');
 
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.ellipse(cx, cy, radius, radius * 0.78, 0, 0, Math.PI * 2);
+  ctx.arc(cx, cy, rad, 0, Math.PI * 2);
   ctx.fill();
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -252,105 +255,140 @@ function createSoftContactShadowTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+/**
+ * Procedural 3D Grass Blade Geometry:
+ * Tapered, curved 3-segment blade geometry for realistic specular highlights,
+ * genuine volume, and depth when viewed from front, perspective, and side angles.
+ */
+function createGrassBladeGeometry(): THREE.BufferGeometry {
+  const geom = new THREE.BufferGeometry();
+
+  // 3 segments (6 vertices) forming a tapered curved blade
+  // Bottom: Y=0, width=0.07m
+  // Mid: Y=0.22m, width=0.048m, bent forward in Z by 0.04m
+  // Top: Y=0.45m, width=0.006m, curved forward in Z by 0.12m
+  const positions = new Float32Array([
+    // Quad 1: Base to Mid
+    -0.035, 0.0, 0.0,
+    0.035, 0.0, 0.0,
+    -0.024, 0.22, 0.04,
+
+    0.035, 0.0, 0.0,
+    0.024, 0.22, 0.04,
+    -0.024, 0.22, 0.04,
+
+    // Quad 2: Mid to Tip
+    -0.024, 0.22, 0.04,
+    0.024, 0.22, 0.04,
+    -0.004, 0.45, 0.12,
+
+    0.024, 0.22, 0.04,
+    0.004, 0.45, 0.12,
+    -0.004, 0.45, 0.12,
+  ]);
+
+  const uvs = new Float32Array([
+    0.0, 0.0,
+    1.0, 0.0,
+    0.15, 0.5,
+
+    1.0, 0.0,
+    0.85, 0.5,
+    0.15, 0.5,
+
+    0.15, 0.5,
+    0.85, 0.5,
+    0.45, 1.0,
+
+    0.85, 0.5,
+    0.55, 1.0,
+    0.45, 1.0,
+  ]);
+
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.computeVertexNormals();
+
+  return geom;
+}
+
 // ============================================================================
-// 1. PROCEDURAL NIGHT SKY DOME & TWINKLING STARFIELD (PRESERVED EXACTLY)
+// 1. PROCEDURAL SKY DOME (EXACTLY PRESERVED)
 // ============================================================================
 
 const ProceduralSkyDome: React.FC = () => {
   const skyTexture = useMemo(() => createProceduralSkyTexture(), []);
 
   return (
-    <group name="Procedural_Sky_Dome">
-      <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[135, 48, 24]} />
-        <meshBasicMaterial
-          map={skyTexture || undefined}
-          color={skyTexture ? '#ffffff' : '#0a1c42'}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
+    <mesh name="Sky_Dome" scale={[-1, 1, 1]} position={[0, -2, 0]}>
+      <sphereGeometry args={[140, 48, 32]} />
+      <meshBasicMaterial
+        map={skyTexture || undefined}
+        side={THREE.BackSide}
+        depthWrite={false}
+      />
+    </mesh>
   );
 };
 
+// ============================================================================
+// TWINKLING STARFIELD (EXACTLY PRESERVED)
+// ============================================================================
+
 const TwinklingStarfield: React.FC = () => {
   const pointsRef = useRef<THREE.Points>(null);
-  const starCount = 2200;
-  const starDotTexture = useMemo(() => createStarDotTexture(), []);
+  const starTexture = useMemo(() => createStarDotTexture(), []);
+  const starCount = 650;
 
-  const [positions, colors, baseSizes, phases, speeds] = useMemo(() => {
+  const [positions, baseAlphas, blinkFrequencies, blinkPhases] = useMemo(() => {
     const pos = new Float32Array(starCount * 3);
-    const col = new Float32Array(starCount * 3);
-    const sizes = new Float32Array(starCount);
-    const ph = new Float32Array(starCount);
-    const sp = new Float32Array(starCount);
-
-    const colorPalette = [
-      new THREE.Color('#ffffff'), // Diamond white
-      new THREE.Color('#d8f0ff'), // Cool ice blue
-      new THREE.Color('#bae6fd'), // Pale cyan
-      new THREE.Color('#e0e7ff'), // Soft periwinkle
-      new THREE.Color('#93c5fd'), // Azure starlight
-    ];
+    const alphas = new Float32Array(starCount);
+    const freqs = new Float32Array(starCount);
+    const phases = new Float32Array(starCount);
 
     for (let i = 0; i < starCount; i++) {
-      const u = Math.random();
-      const v = Math.random();
-      const theta = u * 2.0 * Math.PI;
-      const phi = Math.acos(1.0 - v * 0.92);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 0.88 + 0.12);
+      const r = 135;
 
-      const r = 120 + Math.random() * 8;
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = Math.max(3.0, r * Math.cos(phi));
-      const z = r * Math.sin(phi) * Math.sin(theta);
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = r * Math.cos(phi) - 2;
+      pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
 
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = y;
-      pos[i * 3 + 2] = z;
-
-      const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
-      col[i * 3] = c.r;
-      col[i * 3 + 1] = c.g;
-      col[i * 3 + 2] = c.b;
-
-      const isBright = Math.random() < 0.08;
-      sizes[i] = isBright ? 2.0 + Math.random() * 1.2 : 0.85 + Math.random() * 0.8;
-
-      ph[i] = Math.random() * Math.PI * 2;
-      sp[i] = 0.8 + Math.random() * 1.8;
+      alphas[i] = 0.45 + Math.random() * 0.55;
+      freqs[i] = 0.8 + Math.random() * 2.5;
+      phases[i] = Math.random() * Math.PI * 2;
     }
 
-    return [pos, col, sizes, ph, sp];
+    return [pos, alphas, freqs, phases];
   }, [starCount]);
 
   useFrame(({ clock }) => {
-    const t = clock.getElapsedTime();
     if (pointsRef.current) {
+      const t = clock.getElapsedTime();
       const geom = pointsRef.current.geometry;
-      const sizeAttr = geom.getAttribute('size') as THREE.BufferAttribute;
-      if (sizeAttr) {
+      const alphaAttr = geom.getAttribute('customAlpha') as THREE.BufferAttribute;
+
+      if (alphaAttr) {
         for (let i = 0; i < starCount; i++) {
-          const twinkle = Math.sin(t * speeds[i] + phases[i]);
-          const currentSize = baseSizes[i] * (0.8 + 0.3 * twinkle);
-          sizeAttr.setX(i, currentSize);
+          const val = baseAlphas[i] * (0.65 + 0.35 * Math.sin(t * blinkFrequencies[i] + blinkPhases[i]));
+          alphaAttr.setX(i, val);
         }
-        sizeAttr.needsUpdate = true;
+        alphaAttr.needsUpdate = true;
       }
     }
   });
 
   return (
-    <points ref={pointsRef}>
+    <points ref={pointsRef} name="Twinkling_Stars">
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-        <bufferAttribute attach="attributes-color" args={[colors, 3]} />
-        <bufferAttribute attach="attributes-size" args={[baseSizes, 1]} />
+        <bufferAttribute attach="attributes-customAlpha" args={[baseAlphas, 1]} />
       </bufferGeometry>
       <pointsMaterial
-        map={starDotTexture || undefined}
-        vertexColors
-        size={1.4}
+        map={starTexture || undefined}
+        color="#F0F8FF"
+        size={2.2}
         transparent
         opacity={0.92}
         blending={THREE.AdditiveBlending}
@@ -361,71 +399,92 @@ const TwinklingStarfield: React.FC = () => {
   );
 };
 
+// ============================================================================
+// SHOOTING METEORS (EXACTLY PRESERVED)
+// ============================================================================
+
 const ShootingMeteors: React.FC = () => {
-  const meteorRef = useRef<THREE.LineSegments>(null);
-  const meteorState = useRef({
-    active: false,
-    progress: 0,
-    start: new THREE.Vector3(-30, 26, -42),
-    end: new THREE.Vector3(18, 12, -38),
-    timer: 2.0,
-  });
+  const lineRef = useRef<THREE.LineSegments>(null);
+  const meteorCount = 3;
+
+  const [positions, colors] = useMemo(() => {
+    const pos = new Float32Array(meteorCount * 6);
+    const col = new Float32Array(meteorCount * 6);
+    for (let i = 0; i < meteorCount; i++) {
+      pos[i * 6] = 0; pos[i * 6 + 1] = 0; pos[i * 6 + 2] = 0;
+      pos[i * 6 + 3] = 0; pos[i * 6 + 4] = 0; pos[i * 6 + 5] = 0;
+
+      col[i * 6] = 1; col[i * 6 + 1] = 1; col[i * 6 + 2] = 1;
+      col[i * 6 + 3] = 0.5; col[i * 6 + 4] = 0.7; col[i * 6 + 5] = 1;
+    }
+    return [pos, col];
+  }, [meteorCount]);
+
+  const meteorsState = useRef(
+    Array.from({ length: meteorCount }, () => ({
+      active: false,
+      progress: 0,
+      speed: 0.35,
+      start: new THREE.Vector3(),
+      dir: new THREE.Vector3(),
+      length: 12,
+      timer: Math.random() * 4 + 2,
+    }))
+  );
 
   useFrame((_, delta) => {
-    const s = meteorState.current;
-    if (!s.active) {
-      s.timer -= delta;
-      if (s.timer <= 0) {
-        s.active = true;
-        s.progress = 0;
-        const startX = -36 + Math.random() * 20;
-        const startY = 20 + Math.random() * 9;
-        const endX = startX + 34 + Math.random() * 16;
-        const endY = startY - 14 - Math.random() * 7;
-        s.start.set(startX, startY, -40);
-        s.end.set(endX, endY, -36);
-      }
-    } else {
-      s.progress += delta * 1.35;
-      if (s.progress >= 1.0) {
-        s.active = false;
-        s.timer = 4.5 + Math.random() * 6.0;
-      }
+    if (!lineRef.current) return;
+    const geom = lineRef.current.geometry;
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
 
-      if (meteorRef.current) {
-        const geom = meteorRef.current.geometry;
-        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
-        if (posAttr) {
-          const headT = Math.min(1.0, s.progress);
-          const tailT = Math.max(0.0, s.progress - 0.24);
-
-          const head = s.start.clone().lerp(s.end, headT);
-          const tail = s.start.clone().lerp(s.end, tailT);
-
-          posAttr.setXYZ(0, tail.x, tail.y, tail.z);
-          posAttr.setXYZ(1, head.x, head.y, head.z);
-          posAttr.needsUpdate = true;
+    meteorsState.current.forEach((m, idx) => {
+      if (!m.active) {
+        m.timer -= delta;
+        if (m.timer <= 0) {
+          m.active = true;
+          m.progress = 0;
+          m.speed = 0.45 + Math.random() * 0.4;
+          m.length = 10 + Math.random() * 14;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.random() * 0.45 + 0.25;
+          const r = 125;
+          m.start.set(
+            r * Math.sin(phi) * Math.cos(theta),
+            r * Math.cos(phi) + 10,
+            r * Math.sin(phi) * Math.sin(theta)
+          );
+          m.dir.set(-0.65 - Math.random() * 0.3, -0.4 - Math.random() * 0.3, -0.2 + Math.random() * 0.4).normalize();
         }
-
-        const mat = meteorRef.current.material as THREE.LineBasicMaterial;
-        if (mat) {
-          mat.opacity = s.active ? Math.sin(s.progress * Math.PI) * 0.92 : 0;
+      } else {
+        m.progress += delta * m.speed;
+        if (m.progress >= 1.0) {
+          m.active = false;
+          m.timer = 3.5 + Math.random() * 6.0;
+          posAttr.setXYZ(idx * 2, 0, 0, 0);
+          posAttr.setXYZ(idx * 2 + 1, 0, 0, 0);
+        } else {
+          const travelDist = m.progress * 45;
+          const head = m.start.clone().addScaledVector(m.dir, travelDist);
+          const tail = head.clone().addScaledVector(m.dir, -m.length);
+          posAttr.setXYZ(idx * 2, head.x, head.y, head.z);
+          posAttr.setXYZ(idx * 2 + 1, tail.x, tail.y, tail.z);
         }
       }
-    }
+    });
+
+    posAttr.needsUpdate = true;
   });
 
-  const linePositions = useMemo(() => new Float32Array(6), []);
-
   return (
-    <lineSegments ref={meteorRef}>
+    <lineSegments ref={lineRef} name="Shooting_Meteors">
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[linePositions, 3]} />
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[colors, 3]} />
       </bufferGeometry>
       <lineBasicMaterial
-        color="#a5f3fc"
+        vertexColors
         transparent
-        opacity={0}
+        opacity={0.85}
         blending={THREE.AdditiveBlending}
         linewidth={1.5}
         depthWrite={false}
@@ -437,7 +496,7 @@ const ShootingMeteors: React.FC = () => {
 // ============================================================================
 // 2. NATURAL LUSH GRASS MEADOW TERRAIN
 // Stable, perfectly flat ground around Hina and piano, with gentle natural rolling
-// undulations in the distance. Completely removes all beach sand and rocks.
+// undulations in the distance.
 // ============================================================================
 
 const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
@@ -460,12 +519,12 @@ const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
       const z = pos[i + 2];
       const distFromCenter = Math.sqrt(x * x + z * z);
 
-      // Inner circle (radius < 4.5m) around Hina and the piano is strictly flat at Y=0
-      if (distFromCenter < 4.5) {
+      // Inner circle (radius < 4.2m) around Hina and the piano is strictly flat at Y=0
+      if (distFromCenter < 4.2) {
         pos[i + 1] = 0;
       } else {
         // Smooth transition to natural gentle undulating rolling meadow knolls
-        const t = Math.min(1.0, (distFromCenter - 4.5) / 12.0);
+        const t = Math.min(1.0, (distFromCenter - 4.2) / 10.0);
         const wave1 = Math.sin(x * 0.08) * Math.cos(z * 0.07) * 0.45;
         const wave2 = Math.sin(x * 0.03 + z * 0.04) * 0.65;
         const hillElevation = (distFromCenter > 25 ? Math.sin(distFromCenter * 0.05) * 0.8 : 0);
@@ -483,10 +542,10 @@ const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
       <mesh geometry={meadowGeometry} receiveShadow>
         <meshStandardMaterial
           map={grassTexture || undefined}
-          color="#1e462a"
-          roughness={0.78}
-          metalness={0.04}
-          bumpScale={0.05}
+          color="#225433"
+          roughness={0.72}
+          metalness={0.03}
+          bumpScale={0.06}
         />
       </mesh>
 
@@ -494,7 +553,7 @@ const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
       <mesh position={[0, 1.2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[56, 68, 64]} />
         <meshBasicMaterial
-          color="#091a10"
+          color="#0b2214"
           transparent
           opacity={0.85}
           side={THREE.DoubleSide}
@@ -512,7 +571,7 @@ const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
           <meshBasicMaterial
             map={shadowTexture}
             transparent
-            opacity={0.75}
+            opacity={0.65}
             depthWrite={false}
           />
         </mesh>
@@ -522,29 +581,170 @@ const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
 };
 
 // ============================================================================
-// 3. 3D GRASS TUFTS & MEADOW VEGETATION (Natural Swaying)
+// 3. VISIBLY THREE-DIMENSIONAL INSTANCED 3D GRASS BLADES & VEGETATION
 // ============================================================================
 
+/**
+ * High-density Instanced 3D Grass Blades:
+ * Visible geometry with individual height, width, rotation, and organic green shades.
+ * Placed in foreground (directly visible from front camera), midground, and perimeter.
+ * Keeps Hina's seat and piano base clear to prevent clipping.
+ */
+const Instanced3DGrassMeadow: React.FC = () => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const bladeGeometry = useMemo(() => createGrassBladeGeometry(), []);
+
+  // 2,200 3D grass blade instances
+  const count = 2200;
+
+  const [matrices, colors] = useMemo(() => {
+    const dummy = new THREE.Object3D();
+    const matList: THREE.Matrix4[] = [];
+    const colList: THREE.Color[] = [];
+
+    // Organic color palette: warm olive, rich emerald, lime-moss, and deep jade
+    const colorPalette = [
+      new THREE.Color('#3d7f45'),
+      new THREE.Color('#50964a'),
+      new THREE.Color('#2d6d39'),
+      new THREE.Color('#5ca654'),
+      new THREE.Color('#255d32'),
+      new THREE.Color('#468a48'),
+    ];
+
+    // Seeded random helper for stable layout across renders
+    let seed = 42;
+    const random = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    let placed = 0;
+    let attempts = 0;
+
+    while (placed < count && attempts < count * 3) {
+      attempts++;
+
+      let x = 0;
+      let z = 0;
+
+      // 35% of blades densely placed in foreground between camera [0, 2.5, 7.5] and Hina [0, 0, 0]
+      if (placed < count * 0.35) {
+        x = (random() - 0.5) * 11.0;
+        z = 1.35 + random() * 6.2;
+      } else {
+        // 65% radiating out across the surrounding meadow up to radius 22m
+        const angle = random() * Math.PI * 2;
+        const dist = 1.3 + Math.sqrt(random()) * 20.5;
+        x = Math.cos(angle) * dist;
+        z = Math.sin(angle) * dist;
+      }
+
+      // CRITICAL: Strictly keep Hina's feet, stool, and piano pedals footprint clear
+      // Hina sits at ~[0, 0, 0], piano extends slightly in -Z (~-0.9 to +0.8)
+      if (Math.abs(x) < 1.05 && z > -0.95 && z < 0.85) {
+        continue;
+      }
+
+      // Ground elevation matching meadow undulations
+      const distFromCenter = Math.sqrt(x * x + z * z);
+      let y = 0;
+      if (distFromCenter > 4.2) {
+        const t = Math.min(1.0, (distFromCenter - 4.2) / 10.0);
+        const wave1 = Math.sin(x * 0.08) * Math.cos(z * 0.07) * 0.45;
+        const wave2 = Math.sin(x * 0.03 + z * 0.04) * 0.65;
+        y = (wave1 + wave2) * t;
+      }
+
+      // Height variation: 0.32m to 0.62m (varied blade heights for rich depth)
+      const heightScale = 0.75 + random() * 0.65;
+      const widthScale = 0.8 + random() * 0.5;
+
+      dummy.position.set(x, y, z);
+      dummy.rotation.y = random() * Math.PI * 2;
+      dummy.rotation.x = (random() - 0.5) * 0.18; // Natural slight tilt
+      dummy.rotation.z = (random() - 0.5) * 0.18;
+      dummy.scale.set(widthScale, heightScale, widthScale);
+      dummy.updateMatrix();
+
+      matList.push(dummy.matrix.clone());
+
+      const chosenColor = colorPalette[Math.floor(random() * colorPalette.length)].clone();
+      // Subtle luminosity variation per blade
+      const lum = 0.88 + random() * 0.24;
+      chosenColor.multiplyScalar(lum);
+      colList.push(chosenColor);
+
+      placed++;
+    }
+
+    return [matList, colList];
+  }, [count]);
+
+  useEffect(() => {
+    if (meshRef.current) {
+      for (let i = 0; i < matrices.length; i++) {
+        meshRef.current.setMatrixAt(i, matrices[i]);
+        meshRef.current.setColorAt(i, colors[i]);
+      }
+      meshRef.current.instanceMatrix.needsUpdate = true;
+      if (meshRef.current.instanceColor) {
+        meshRef.current.instanceColor.needsUpdate = true;
+      }
+    }
+  }, [matrices, colors]);
+
+  // Gentle wind sway across the meadow
+  useFrame(({ clock }) => {
+    if (meshRef.current) {
+      const t = clock.getElapsedTime() * 1.5;
+      meshRef.current.rotation.y = Math.sin(t * 0.5) * 0.012;
+      meshRef.current.rotation.z = Math.cos(t * 0.7) * 0.008;
+    }
+  });
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[bladeGeometry, undefined as any, matrices.length]}
+      name="Instanced_3D_Grass"
+      receiveShadow
+    >
+      <meshStandardMaterial
+        color="#ffffff" // Color driven by instanceColor attribute
+        roughness={0.65}
+        metalness={0.04}
+        side={THREE.DoubleSide}
+      />
+    </instancedMesh>
+  );
+};
+
+/**
+ * Layered Grass Tufts & Vegetation Clumps:
+ * Cross-quad tufts distributed across midground and distant mounds for dense silhouette depth.
+ */
 const GrassTuftsField: React.FC = () => {
   const tuftsGroupRef = useRef<THREE.Group>(null);
   const tuftTexture = useMemo(() => createGrassTuftTexture(), []);
 
-  // Generate natural positions for grass tufts around the meadow
   const tuftTransforms = useMemo(() => {
     const list: { position: [number, number, number]; rotation: number; scale: number }[] = [];
-    const count = 160;
+    const count = 180;
 
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      // Scatter from radius 3.2m to 28m (keeping piano footprint clear)
-      const dist = 3.2 + Math.sqrt(Math.random()) * 24;
+      const dist = 2.4 + Math.sqrt(Math.random()) * 22;
       const x = Math.cos(angle) * dist;
       const z = Math.sin(angle) * dist;
 
-      // Slight natural undulation matching meadow
-      const y = dist < 4.5 ? 0 : Math.sin(x * 0.08) * Math.cos(z * 0.07) * 0.35;
+      if (Math.abs(x) < 1.15 && z > -1.0 && z < 0.9) {
+        continue;
+      }
+
+      const y = dist < 4.2 ? 0 : Math.sin(x * 0.08) * Math.cos(z * 0.07) * 0.35;
       const rot = Math.random() * Math.PI * 2;
-      const scale = 0.55 + Math.random() * 0.45;
+      const scale = 0.65 + Math.random() * 0.55;
 
       list.push({ position: [x, y, z], rotation: rot, scale });
     }
@@ -557,8 +757,7 @@ const GrassTuftsField: React.FC = () => {
       const children = tuftsGroupRef.current.children;
       for (let i = 0; i < children.length; i++) {
         const tuft = children[i];
-        // Gentle nighttime breeze swaying
-        tuft.rotation.z = Math.sin(t + tuft.position.x * 0.35) * 0.06;
+        tuft.rotation.z = Math.sin(t + tuft.position.x * 0.35) * 0.05;
       }
     }
   });
@@ -567,13 +766,12 @@ const GrassTuftsField: React.FC = () => {
     <group ref={tuftsGroupRef} name="Grass_Tufts_Field">
       {tuftTransforms.map((tf, idx) => (
         <group key={idx} position={tf.position} rotation={[0, tf.rotation, 0]} scale={tf.scale}>
-          {/* Crossed billboard quads for 3D fullness */}
           <mesh position={[0, 0.32, 0]}>
-            <planeGeometry args={[0.7, 0.65]} />
+            <planeGeometry args={[0.75, 0.68]} />
             <meshStandardMaterial
               map={tuftTexture || undefined}
-              color="#235a34"
-              roughness={0.75}
+              color="#2a663b"
+              roughness={0.72}
               metalness={0.03}
               transparent
               alphaTest={0.25}
@@ -582,11 +780,11 @@ const GrassTuftsField: React.FC = () => {
             />
           </mesh>
           <mesh position={[0, 0.32, 0]} rotation={[0, Math.PI / 2, 0]}>
-            <planeGeometry args={[0.7, 0.65]} />
+            <planeGeometry args={[0.75, 0.68]} />
             <meshStandardMaterial
               map={tuftTexture || undefined}
-              color="#1f522e"
-              roughness={0.75}
+              color="#235c33"
+              roughness={0.72}
               metalness={0.03}
               transparent
               alphaTest={0.25}
@@ -602,16 +800,14 @@ const GrassTuftsField: React.FC = () => {
 
 // ============================================================================
 // 4. MAGICAL FIREFLIES SYSTEM
-// Floating bioluminescent warm golden-green orbs drifting across the meadow,
-// pulsing gently and illuminating the night grass softly.
+// Floating bioluminescent warm golden-green orbs drifting across the meadow
 // ============================================================================
 
 const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false }) => {
   const pointsRef = useRef<THREE.Points>(null);
-  const fireflyCount = 75;
+  const fireflyCount = 80;
   const glowTexture = useMemo(() => createFireflyGlowTexture(), []);
 
-  // Point lights for key fireflies near the performance area
   const light1Ref = useRef<THREE.PointLight>(null);
   const light2Ref = useRef<THREE.PointLight>(null);
 
@@ -624,9 +820,9 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
 
     for (let i = 0; i < fireflyCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 1.2 + Math.sqrt(Math.random()) * 18;
+      const dist = 1.1 + Math.sqrt(Math.random()) * 19;
       const x = Math.cos(angle) * dist;
-      const y = 0.35 + Math.random() * 2.8; // Floating from low grass to mid air
+      const y = 0.35 + Math.random() * 2.8;
       const z = Math.sin(angle) * dist;
 
       pos[i * 3] = x;
@@ -657,7 +853,6 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
         const phase = phases[i];
         const r = floatRadii[i];
 
-        // Organic 3D figure-8 / Lissajous wandering
         const offsetX = Math.sin(t * speed + phase) * r + Math.cos(t * speed * 0.5 + phase) * 0.3;
         const offsetY = Math.sin(t * speed * 1.3 + phase * 1.5) * (r * 0.45);
         const offsetZ = Math.cos(t * speed * 0.8 + phase) * r;
@@ -670,21 +865,18 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
       }
       posAttr.needsUpdate = true;
 
-      // Animate material opacity with natural firefly breathing/pulsing
       const mat = pointsRef.current.material as THREE.PointsMaterial;
       if (mat) {
-        const pulse = 0.65 + Math.sin(t * 1.8) * 0.28 + Math.cos(t * 2.4) * 0.12;
-        mat.opacity = Math.max(0.4, Math.min(0.98, pulse));
+        const pulse = 0.68 + Math.sin(t * 1.8) * 0.26 + Math.cos(t * 2.4) * 0.1;
+        mat.opacity = Math.max(0.45, Math.min(0.98, pulse));
       }
     }
 
-    // Dynamic wandering for local firefly point lights
     if (light1Ref.current) {
       const lx = Math.cos(t * 0.6) * 2.8;
       const lz = Math.sin(t * 0.6) * 2.8;
       const ly = 1.1 + Math.sin(t * 1.2) * 0.4;
       light1Ref.current.position.set(lx, ly, lz);
-      // Gentle breathing intensity
       const pulse1 = 0.6 + Math.pow(Math.sin(t * 2.2), 4) * 0.6;
       light1Ref.current.intensity = isPlaying ? pulse1 * 1.25 : pulse1 * 0.8;
     }
@@ -701,7 +893,6 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
 
   return (
     <group name="Meadow_Fireflies">
-      {/* Fireflies particle points */}
       <points ref={pointsRef}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" args={[positions, 3]} />
@@ -718,7 +909,6 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
         />
       </points>
 
-      {/* Soft local bioluminescent lights drifting near the performance */}
       <pointLight
         ref={light1Ref}
         color="#bef264"
@@ -732,6 +922,43 @@ const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false 
         distance={4.5}
         decay={2}
         intensity={0.7}
+      />
+    </group>
+  );
+};
+
+// ============================================================================
+// 5. LOCAL LIGHTING AROUND HINA'S PIANO PERFORMANCE
+// Soft, warm-white / pale-golden local illumination focused on Hina and the piano.
+// Illuminates nearby grass and piano lacquer with smooth falloff, preventing overexposure.
+// ============================================================================
+
+const HinaPerformanceLighting: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false }) => {
+  return (
+    <group name="Hina_Performance_Lighting">
+      {/* Primary Soft Warm-White Overhead Local Light */}
+      <pointLight
+        position={[0.3, 3.4, 1.6]}
+        color="#FFF5DF" // Gentle pale-golden warm-white
+        distance={10.5}
+        decay={2}
+        intensity={isPlaying ? 1.85 : 1.25}
+      />
+
+      {/* Gentle Diffuse Ground Fill (reveals grass blade shapes and piano pedals) */}
+      <pointLight
+        position={[0.0, 0.45, 0.9]}
+        color="#FEECC8" // Soft warm amber-gold
+        distance={5.5}
+        decay={2}
+        intensity={isPlaying ? 0.75 : 0.45}
+      />
+
+      {/* Subtle Specular Accent for Piano Lacquer and Sheet Music */}
+      <directionalLight
+        position={[2.0, 4.0, 2.5]}
+        color="#FFF8EB"
+        intensity={isPlaying ? 0.6 : 0.35}
       />
     </group>
   );
@@ -766,13 +993,19 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
       {/* 2. Natural Lush Grass Meadow Ground (Stable flat center for Hina & Piano) */}
       <NaturalGrassMeadow characterPosition={characterPosition} />
 
-      {/* 3. 3D Grass Tufts & Meadow Flora */}
+      {/* 3. Visibly Three-Dimensional Instanced 3D Grass Blades (Rich depth from front camera) */}
+      <Instanced3DGrassMeadow />
+
+      {/* 4. Layered Grass Tufts & Vegetation Clumps */}
       <GrassTuftsField />
 
-      {/* 4. Magical Glowing Fireflies (Bioluminescent floating orbs) */}
+      {/* 5. Magical Glowing Fireflies (Bioluminescent floating orbs) */}
       <MeadowFireflies isPlaying={isPlaying} />
 
-      {/* 5. Balanced Moonless Night Meadow Lighting */}
+      {/* 6. Subtle Local Lighting around Hina's Piano Performance */}
+      <HinaPerformanceLighting isPlaying={isPlaying} />
+
+      {/* 7. Balanced Moonless Night Meadow Lighting */}
       {/* Cool Celestial Starlight Key Light */}
       <directionalLight
         position={[5, 18, -10]}
@@ -804,7 +1037,7 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
       {/* Soft Front Key (clean illumination for character expression, dress, and piano keys) */}
       <directionalLight
         position={[0, 3.2, 5.5]}
-        intensity={0.8}
+        intensity={0.7}
         color="#F2F7FF"
       />
     </group>

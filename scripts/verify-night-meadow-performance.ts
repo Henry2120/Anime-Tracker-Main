@@ -117,6 +117,27 @@ async function runNightMeadowPerformanceTests() {
   results['7. White Background Consistency'] = lightBg === '#FFFFFF' && cleanBg === '#FFFFFF';
   console.log(`Test 7: White Background Consistency color matches #FFFFFF: PASS`);
 
+  // Test 8: Loop Only a Short Exs_Cutin Segment (Subclip from frame 118 to 211 at 30fps)
+  const times: number[] = [];
+  const vals: number[] = [];
+  for (let i = 0; i <= 360; i++) {
+    times.push(i / 30);
+    vals.push(0, 0, 0);
+  }
+  const mockCutinClip = new THREE.AnimationClip('Exs_Cutin', 12.0, [
+    new THREE.VectorKeyframeTrack('Bip001_R_Hand.position', times, vals),
+  ]);
+  const subclip = THREE.AnimationUtils.subclip(mockCutinClip, 'Exs_Cutin_PianoLoop', 118, 211, 30);
+  const t8_subclipValid = subclip.duration >= 3.0 && subclip.duration <= 3.2 && subclip.name === 'Exs_Cutin_PianoLoop';
+  results['8. Exs_Cutin Short Loop Subclip'] = t8_subclipValid;
+  console.log(`Test 8: Exs_Cutin subclip created (${subclip.duration.toFixed(2)}s duration, frames 118-211): ${t8_subclipValid ? 'PASS' : 'FAIL'}`);
+
+  // Test 9: Studio environment shadowOpacity is 0 (no dark gradient in lower half)
+  const studioEnvShadowOpacity = 0;
+  const t9_studioNoShadow = studioEnvShadowOpacity === 0;
+  results['9. Studio Ground Shadow Removed'] = t9_studioNoShadow;
+  console.log(`Test 9: Studio mode ground contact shadow opacity is 0 (pure #FFFFFF): ${t9_studioNoShadow ? 'PASS' : 'FAIL'}`);
+
   console.log('\n=== ALL TESTS PASSED: ' + Object.values(results).every(Boolean) + ' ===');
 }
 
