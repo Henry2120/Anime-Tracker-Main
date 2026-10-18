@@ -422,16 +422,27 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     loadedCharactersRef.current = loadedCharacters;
   }, [loadedCharacters]);
 
-  // Synchronized animation state machine for ensemble concert:
-  // YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction for background performers
-  // YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle for background performers
-  // Note: Dress Hina's animation state is NEVER altered by music playback or environment activation,
-  // preventing any model corruption, and preserving user-selected animations (e.g. Cafe_Idle or Exs_Cutin).
+  // Synchronized animation state machine for performance & ensemble concert:
+  // 1. Dress Hina Piano Performance:
+  //    When Dress Hina is alone on stage and YouTube music is playing (isPlaying === true),
+  //    she performs her grand piano cut-in (Exs_Cutin) with her grand piano.
+  //    When music stops or pauses (isPlaying === false), she gracefully returns to Cafe_Idle.
+  // 2. Ensemble performers:
+  //    YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction
+  //    YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle
   useEffect(() => {
-    if (isDressHinaAlone) return;
-
     const chars = loadedCharactersRef.current;
     if (chars.length === 0) return;
+
+    if (isDressHinaAlone) {
+      const hina = chars[0];
+      if (!hina) return;
+      const targetAnim = isPlaying ? 'Exs_Cutin' : 'Cafe_Idle';
+      if (hina.currentAnimationName !== targetAnim) {
+        playAnimation(hina.id, targetAnim);
+      }
+      return;
+    }
 
     const targetAnim = isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle';
     chars.forEach((char) => {
@@ -528,14 +539,17 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     }
   }, [handleSelectFromDrawer]);
 
-  // Matching container background to current Anime Tracker theme family (or night ocean if special scene active)
+  // Matching container background to current Anime Tracker theme family (or night meadow if special scene active)
+  // Ensures crisp White Background Consistency across clean and classic light modes
   const containerBg = isSpecialSceneActive
     ? 'bg-[#050814] text-[#F4F2F7]'
+    : environment === 'clean'
+    ? 'bg-white text-[#25242A]'
     : isDark
     ? 'bg-[#14121C] text-[#F4F2F7]'
     : isSakura
     ? 'bg-[#FDF6F8] text-[#25242A]'
-    : 'bg-[#F7F5F2] text-[#25242A]';
+    : 'bg-white text-[#25242A]';
 
   return (
     <div
@@ -575,9 +589,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             {/* Special Scene Active Indicator Badge */}
             {isSpecialSceneActive && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-slate-900/60 border border-blue-400/40 text-xs font-bold text-blue-100 shadow-md">
-                <Waves className="h-4 w-4 text-cyan-300" />
-                <span className="hidden sm:inline">Night Beach Environment</span>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-emerald-950/70 via-teal-950/70 to-slate-900/70 border border-emerald-400/40 text-xs font-bold text-emerald-100 shadow-md">
+                <Sparkles className="h-4 w-4 text-emerald-300" />
+                <span className="hidden sm:inline">Night Meadow Performance</span>
               </div>
             )}
 
@@ -587,7 +601,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 type="button"
                 onClick={handleEquipHinaWithPiano}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer ring-2 ring-purple-400/30"
-                title="Stage Hina (Dress with Piano) to activate the Night Beach Piano Cut-in"
+                title="Stage Hina (Dress with Piano) to activate the Night Meadow Piano Performance"
               >
                 <Sparkles className="h-3.5 w-3.5 text-yellow-300" />
                 <span>Stage Hina (Dress with Piano)</span>
@@ -740,9 +754,29 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
+            {/* White Background Consistency for standard viewer modes */}
+            {!isSpecialSceneActive && (
+              <color
+                attach="background"
+                args={[
+                  environment === 'clean'
+                    ? '#FFFFFF'
+                    : isDark
+                    ? '#14121C'
+                    : isSakura
+                    ? '#FDF6F8'
+                    : environment === 'sunset'
+                    ? '#2A1D2D'
+                    : '#FFFFFF'
+                ]}
+              />
+            )}
+
             {isSpecialSceneActive ? (
               <NightBeachScene
                 characterPosition={loadedCharacters[0]?.position}
+                character={loadedCharacters[0]}
+                isPlaying={isPlaying}
                 isMini={isMini}
               />
             ) : (

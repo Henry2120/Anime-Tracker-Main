@@ -233,6 +233,19 @@ export function useCharacterLoader() {
                 }
               }
 
+              // Initial piano visibility based on target animation
+              const initialPianoSwitch = scene.getObjectByName('Piano_Switch');
+              if (initialPianoSwitch) {
+                const isExs = currentAnimationName === 'Exs_Cutin' || currentAnimationName === 'exs_cutin';
+                if (isExs) {
+                  initialPianoSwitch.scale.set(1, 1, 1);
+                  initialPianoSwitch.visible = true;
+                } else {
+                  initialPianoSwitch.scale.set(0.0001, 0.0001, 0.0001);
+                  initialPianoSwitch.visible = false;
+                }
+              }
+
               const newInstance: LoadedCharacterInstance = {
                 id: `instance-${entry.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
                 characterId: entry.id,
@@ -386,18 +399,16 @@ export function useCharacterLoader() {
       nextAction.reset();
       nextAction.setLoop(THREE.LoopRepeat, Infinity);
 
-      // Ensure Piano_Switch is visible and scaled when Exs_Cutin or Hina with Piano is active
+      // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active
       const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
-      const isPianoModel =
-        target.manifestEntry.filename === 'Hina_Dress_with_Piano.glb' ||
-        target.manifestEntry.id.includes('piano');
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
       if (pianoSwitch) {
-        if (isExs || isPianoModel) {
+        if (isExs) {
           pianoSwitch.scale.set(1, 1, 1);
           pianoSwitch.visible = true;
         } else {
           pianoSwitch.scale.set(0.0001, 0.0001, 0.0001);
+          pianoSwitch.visible = false;
         }
       }
 
