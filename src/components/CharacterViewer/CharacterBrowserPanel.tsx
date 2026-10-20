@@ -16,6 +16,9 @@ import {
   Grid,
   Filter,
   Info,
+  Play,
+  Pause,
+  Film,
 } from 'lucide-react';
 import { CharacterManifestEntry, LoadedCharacter } from '../../types/characterViewer';
 import { AppTheme } from '../../types/theme';
@@ -37,6 +40,8 @@ interface CharacterBrowserPanelProps {
     instanceId: string,
     transform: { position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number] }
   ) => void;
+  onSelectAnimation?: (instanceId: string, animationName: string) => void;
+  onTogglePlayPause?: (instanceId: string) => void;
   theme: AppTheme;
 }
 
@@ -51,6 +56,8 @@ export const CharacterBrowserPanel: React.FC<CharacterBrowserPanelProps> = ({
   onSelectInstance,
   onToggleVisibility,
   onUpdateTransform,
+  onSelectAnimation,
+  onTogglePlayPause,
   theme,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -412,6 +419,45 @@ export const CharacterBrowserPanel: React.FC<CharacterBrowserPanelProps> = ({
                           className="w-full accent-[#7567C7] cursor-pointer"
                         />
                       </div>
+
+                      {/* Animation Playback & Selection */}
+                      {char.availableAnimations && char.availableAnimations.length > 0 && (
+                        <div className="pt-2 border-t border-black/5 dark:border-white/5 space-y-1.5 text-[11px]">
+                          <div className="flex justify-between items-center font-semibold text-[#77747D]">
+                            <span className="flex items-center gap-1">
+                              <Film className="h-3 w-3 text-[#7567C7]" /> Animation ({char.availableAnimations.length}):
+                            </span>
+                            {onTogglePlayPause && (
+                              <button
+                                type="button"
+                                onClick={() => onTogglePlayPause(char.instanceId)}
+                                className="px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 hover:bg-[#7567C7] hover:text-white text-[#25242A] dark:text-white flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                {char.isPlayingAnimation ? (
+                                  <>
+                                    <Pause className="h-2.5 w-2.5" /> Pause
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="h-2.5 w-2.5" /> Play
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={char.currentAnimationName || ''}
+                            onChange={(e) => onSelectAnimation?.(char.instanceId, e.target.value)}
+                            className="w-full py-1.5 px-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs font-medium text-[#25242A] dark:text-white focus:outline-none focus:border-[#7567C7] cursor-pointer"
+                          >
+                            {char.availableAnimations.map((a) => (
+                              <option key={a.name} value={a.name} className="bg-white dark:bg-[#1C192E] text-[#25242A] dark:text-white">
+                                {a.name} ({a.duration}s{a.tracksCount ? ` • ${a.tracksCount} tracks` : ''})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

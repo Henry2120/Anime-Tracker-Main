@@ -6,11 +6,32 @@ import {
   LoadedCharacter,
   ViewerSettings,
 } from '../../types/characterViewer';
+import {
+  createCharacterVisibilityController,
+  CharacterVisibilityController,
+} from './characterVisibilityController';
 
 /**
  * Deep Resource Disposer to prevent memory leaks
  */
-export const disposeGLTFScene = (scene: THREE.Object3D) => {
+export const disposeGLTFScene = (
+  scene: THREE.Object3D,
+  mixer?: THREE.AnimationMixer,
+  visibilityController?: CharacterVisibilityController
+) => {
+  if (visibilityController) {
+    try {
+      visibilityController.dispose();
+    } catch {}
+  }
+
+  if (mixer) {
+    mixer.stopAllAction();
+    try {
+      mixer.uncacheRoot(scene);
+    } catch {}
+  }
+
   if (!scene) return;
   scene.traverse((node: any) => {
     if (node.isMesh) {
@@ -77,8 +98,8 @@ export const useCharacterViewerState = () => {
 
       setLoadedCharacters((prev) => {
         if (replaceAll) {
-          // Dispose all existing scenes
-          prev.forEach((char) => disposeGLTFScene(char.scene));
+          // Dispose all existing scenes, mixers, and controllers
+          prev.forEach((char) => disposeGLTFScene(char.scene, char.mixer, char.visibilityController));
           return [newInstance];
         }
         // Multi mode: auto-offset along X if at origin
@@ -112,11 +133,28 @@ export const useCharacterViewerState = () => {
 
         const scene = gltf.scene as THREE.Group;
 
-        // Ensure shadows on all meshes
+        // Traverse scene and setup shadows, materials, and culling
         scene.traverse((node: any) => {
           if (node.isMesh) {
             node.castShadow = true;
             node.receiveShadow = true;
+
+            // Prevent animated skinned meshes from disappearing when bones animate outside bind bounds
+            if (node.isSkinnedMesh) {
+              node.frustumCulled = false;
+            }
+
+            if (node.material) {
+              const mats = Array.isArray(node.material) ? node.material : [node.material];
+              mats.forEach((m: any) => {
+                if ('map' in m && m.map) {
+                  m.map.colorSpace = THREE.SRGBColorSpace;
+                }
+                if (m.transparent === false || ('alphaTest' in m && m.alphaTest > 0)) {
+                  m.depthWrite = true;
+                }
+              });
+            }
           }
         });
 
@@ -135,6 +173,39 @@ export const useCharacterViewerState = () => {
         // Recompute grounded bounding box
         const groundedBox = new THREE.Box3().setFromObject(scene);
 
+        // Animation System & Visibility Controller Setup
+        const animations: THREE.AnimationClip[] = gltf.animations || [];
+        const availableAnimations = animations.map((clip) => ({
+          name: clip.name,
+          duration: parseFloat(clip.duration.toFixed(2)),
+          tracksCount: clip.tracks.length,
+        }));
+        const mixer = new THREE.AnimationMixer(scene);
+        const visibilityController = createCharacterVisibilityController(scene, animations);
+
+        let currentAction: THREE.AnimationAction | null = null;
+        let currentAnimationName: string | null = null;
+
+        const defaultClip =
+          THREE.AnimationClip.findByName(animations, 'Cafe_Idle') ||
+          THREE.AnimationClip.findByName(animations, 'Formation_Idle') ||
+          THREE.AnimationClip.findByName(animations, 'Normal_Idle') ||
+          THREE.AnimationClip.findByName(animations, 'Idle') ||
+          (animations.length > 0 ? animations[0] : null);
+
+        if (defaultClip) {
+          currentAction = mixer.clipAction(defaultClip);
+          currentAction.reset();
+          currentAction.setEffectiveTimeScale(1);
+          currentAction.setEffectiveWeight(1);
+          currentAction.setLoop(THREE.LoopRepeat, Infinity);
+          currentAction.play();
+          currentAnimationName = defaultClip.name;
+          visibilityController.applyAnimationVisibility(defaultClip);
+        } else {
+          visibilityController.resetToBaseline();
+        }
+
         setLoadedCharacters((prev) =>
           prev.map((item) =>
             item.instanceId === instanceId
@@ -147,6 +218,13 @@ export const useCharacterViewerState = () => {
                   isLoading: false,
                   loadProgress: 100,
                   gltf,
+                  animations,
+                  availableAnimations,
+                  mixer,
+                  currentAction,
+                  currentAnimationName,
+                  isPlayingAnimation: currentAction !== null,
+                  visibilityController,
                 }
               : item
           )
@@ -171,13 +249,97 @@ export const useCharacterViewerState = () => {
   );
 
   /**
+   * Switch animation for a loaded character instance
+   */
+  const playAnimation = useCallback((instanceId: string, animationName: string) => {
+    setLoadedCharacters((prev) => {
+      const target = prev.find((item) => item.instanceId === instanceId);
+      if (!target || !target.mixer) return prev;
+
+      if (target.currentAnimationName === animationName && target.isPlayingAnimation) {
+        return prev;
+      }
+
+      const clip = THREE.AnimationClip.findByName(target.animations || [], animationName);
+      if (!clip) {
+        console.warn(`[BlueArchiveViewer] Animation "${animationName}" not found on ${target.manifestEntry.displayName}`);
+        return prev;
+      }
+
+      const prevAction = target.currentAction;
+      const nextAction = target.mixer.clipAction(clip);
+
+      // Apply visibility directives for this animation
+      target.visibilityController?.applyAnimationVisibility(clip);
+
+      if (prevAction && prevAction !== nextAction) {
+        prevAction.fadeOut(0.2);
+        nextAction.reset();
+        nextAction.enabled = true;
+        nextAction.setEffectiveTimeScale(1);
+        nextAction.setEffectiveWeight(1);
+        nextAction.fadeIn(0.2);
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+        nextAction.play();
+
+        const oldAct = prevAction;
+        setTimeout(() => {
+          try {
+            if (oldAct !== target.mixer?.clipAction(clip)) {
+              oldAct.stop();
+            }
+          } catch {}
+        }, 220);
+      } else {
+        nextAction.reset();
+        nextAction.enabled = true;
+        nextAction.setEffectiveTimeScale(1);
+        nextAction.setEffectiveWeight(1);
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+        nextAction.play();
+      }
+
+      return prev.map((item) =>
+        item.instanceId === instanceId
+          ? {
+              ...item,
+              currentAction: nextAction,
+              currentAnimationName: animationName,
+              isPlayingAnimation: true,
+            }
+          : item
+      );
+    });
+  }, []);
+
+  /**
+   * Toggle play / pause animation for a loaded character instance
+   */
+  const togglePlayPauseAnimation = useCallback((instanceId: string) => {
+    setLoadedCharacters((prev) =>
+      prev.map((item) => {
+        if (item.instanceId !== instanceId || !item.currentAction) return item;
+        const isCurrentlyPlaying = item.isPlayingAnimation && !item.currentAction.paused;
+        if (isCurrentlyPlaying) {
+          item.currentAction.paused = true;
+          return { ...item, isPlayingAnimation: false };
+        } else {
+          item.currentAction.paused = false;
+          item.currentAction.play();
+          return { ...item, isPlayingAnimation: true };
+        }
+      })
+    );
+  }, []);
+
+  /**
    * Remove a specific character instance and dispose resources
    */
   const removeCharacter = useCallback((instanceId: string) => {
     setLoadedCharacters((prev) => {
       const target = prev.find((item) => item.instanceId === instanceId);
       if (target) {
-        disposeGLTFScene(target.scene);
+        disposeGLTFScene(target.scene, target.mixer, target.visibilityController);
       }
       const filtered = prev.filter((item) => item.instanceId !== instanceId);
       return filtered;
@@ -191,7 +353,7 @@ export const useCharacterViewerState = () => {
    */
   const clearCharacters = useCallback(() => {
     setLoadedCharacters((prev) => {
-      prev.forEach((char) => disposeGLTFScene(char.scene));
+      prev.forEach((char) => disposeGLTFScene(char.scene, char.mixer, char.visibilityController));
       return [];
     });
     setSelectedInstanceId(null);
@@ -255,6 +417,8 @@ export const useCharacterViewerState = () => {
     settings,
     setSettings,
     loadCharacter,
+    playAnimation,
+    togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,

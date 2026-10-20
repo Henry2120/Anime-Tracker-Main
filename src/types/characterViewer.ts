@@ -29,6 +29,13 @@ export interface LoadedCharacter {
   loadProgress: number; // 0 to 100
   loadError: string | null;
   gltf?: any;
+  animations?: THREE.AnimationClip[];
+  availableAnimations?: { name: string; duration: number; tracksCount?: number }[];
+  mixer?: THREE.AnimationMixer;
+  currentAction?: THREE.AnimationAction | null;
+  currentAnimationName?: string | null;
+  isPlayingAnimation?: boolean;
+  visibilityController?: any;
 }
 
 export interface ViewerSettings {

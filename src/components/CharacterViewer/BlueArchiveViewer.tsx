@@ -50,6 +50,8 @@ export const BlueArchiveViewer: React.FC<BlueArchiveViewerProps> = ({
     settings,
     setSettings,
     loadCharacter,
+    playAnimation,
+    togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,
@@ -215,6 +217,8 @@ export const BlueArchiveViewer: React.FC<BlueArchiveViewerProps> = ({
           onSelectInstance={setSelectedInstanceId}
           onToggleVisibility={toggleCharacterVisibility}
           onUpdateTransform={updateCharacterTransform}
+          onSelectAnimation={playAnimation}
+          onTogglePlayPause={togglePlayPauseAnimation}
           theme={theme}
         />
       </main>

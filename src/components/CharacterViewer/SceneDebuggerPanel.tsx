@@ -8,6 +8,9 @@ import {
   ChevronDown,
   ChevronRight,
   Info,
+  Play,
+  Film,
+  Layers,
 } from 'lucide-react';
 import { LoadedCharacterInstance, ViewerCameraPreset, ViewerEnvironment } from './types';
 
@@ -53,15 +56,18 @@ interface SceneDebuggerPanelProps {
   isOpen: boolean;
   onClose: () => void;
   data: SceneDebuggerData;
+  onSelectAnimation?: (instanceId: string, animationName: string) => void;
 }
 
 export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
   isOpen,
   onClose,
   data,
+  onSelectAnimation,
 }) => {
   const [copiedFormat, setCopiedFormat] = useState<'text' | 'json' | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showModelDiagnostics, setShowModelDiagnostics] = useState(false);
 
   // Inspect first character for Dress Hina
   const firstChar = data.loadedCharacters[0];
@@ -292,6 +298,133 @@ Status Reason: ${inactiveReason}
             </p>
           </div>
         </div>
+
+        {/* Collapsed-by-default Character & Animation Diagnostics Panel (Section 7) */}
+        {data.loadedCharacters.length > 0 && (
+          <div className="border border-white/10 rounded-xl bg-black/30 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowModelDiagnostics((prev) => !prev)}
+              className="w-full px-3 py-2 flex items-center justify-between text-left text-[10.5px] font-bold text-cyan-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5">
+                <Film className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Model & Animation Diagnostics</span>
+              </span>
+              {showModelDiagnostics ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+
+            {showModelDiagnostics && (
+              <div className="px-3 pb-3 pt-1 space-y-2.5 text-[10.5px] border-t border-white/5">
+                {(() => {
+                  const targetChar =
+                    data.loadedCharacters.find((c) => c.id === data.selectedInstanceId) ||
+                    data.loadedCharacters[0];
+                  if (!targetChar) return null;
+
+                  const switchDiagnostics = targetChar.visibilityController?.getDiagnostics() || {};
+                  const switchEntries = Object.entries(switchDiagnostics);
+                  const switchIds = targetChar.visibilityController?.getSwitchIds() || [];
+
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                        <span className="text-[#94A3B8]">Selected Character:</span>
+                        <span className="font-bold text-white truncate max-w-[170px]">
+                          {targetChar.manifestEntry.name}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                        <span className="text-[#94A3B8]">Mesh / Vertex Count:</span>
+                        <span className="font-mono text-white">
+                          {targetChar.meshCount} meshes / {targetChar.vertexCount.toLocaleString()} verts
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                        <span className="text-[#94A3B8]">Active Animation:</span>
+                        <span className="font-bold text-emerald-400">
+                          {targetChar.currentAnimationName || 'None'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center py-0.5 border-b border-white/5">
+                        <span className="text-[#94A3B8]">Mixer & Action State:</span>
+                        <span className="font-mono text-cyan-300">
+                          {targetChar.isPlayingAnimation ? 'PLAYING (LoopRepeat)' : 'PAUSED'}
+                        </span>
+                      </div>
+
+                      {/* Switch & Visibility Metadata Status */}
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[#94A3B8] font-bold block text-[10px] uppercase tracking-wider">
+                          Switch Visibility ({switchIds.length > 0 ? switchIds.join(', ') : 'None'}):
+                        </span>
+                        {switchEntries.length > 0 ? (
+                          <div className="space-y-1 bg-black/40 p-2 rounded-lg border border-white/5">
+                            {switchEntries.map(([nodeName, info]: [string, any]) => (
+                              <div key={nodeName} className="flex items-center justify-between font-mono text-[9.5px]">
+                                <span className="text-white truncate max-w-[140px]">{nodeName}</span>
+                                <span className="text-cyan-300">[{info.switches.join(', ')}]</span>
+                                <span className={`px-1.5 py-0.2 rounded font-bold ${info.visible ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
+                                  {info.visible ? 'VISIBLE' : 'HIDDEN'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[#64748B] text-[10px] italic">No switch-controlled props in this model</span>
+                        )}
+                      </div>
+
+                      {/* Embedded Animation Clips with Play Buttons */}
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[#94A3B8] font-bold block text-[10px] uppercase tracking-wider">
+                          Animation Clips ({targetChar.availableAnimations.length}):
+                        </span>
+                        <div className="max-h-36 overflow-y-auto space-y-1 bg-black/40 p-1.5 rounded-lg border border-white/5 custom-scrollbar">
+                          {targetChar.availableAnimations.map((clip) => {
+                            const isCurrent = targetChar.currentAnimationName === clip.name;
+                            return (
+                              <div
+                                key={clip.name}
+                                className={`flex items-center justify-between p-1 rounded transition-colors ${
+                                  isCurrent ? 'bg-[#7567C7]/30 border border-[#7567C7]/50' : 'hover:bg-white/5'
+                                }`}
+                              >
+                                <div className="truncate min-w-0 pr-1">
+                                  <span className={`text-[10px] font-medium block truncate ${isCurrent ? 'text-white font-bold' : 'text-[#CBD5E1]'}`}>
+                                    {clip.name}
+                                  </span>
+                                  <span className="text-[9px] text-[#64748B] font-mono">
+                                    {clip.duration}s • {clip.tracksCount ?? 0} tracks
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectAnimation?.(targetChar.id, clip.name)}
+                                  className={`px-2 py-0.5 rounded text-[9.5px] font-bold shrink-0 transition-colors cursor-pointer flex items-center gap-1 ${
+                                    isCurrent
+                                      ? 'bg-emerald-500 text-black'
+                                      : 'bg-white/10 hover:bg-[#7567C7] text-white'
+                                  }`}
+                                >
+                                  <Play className="h-2.5 w-2.5 fill-current" />
+                                  <span>{isCurrent ? 'ACTIVE' : 'TEST'}</span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Optional Collapsed Advanced Diagnostics Section */}
         <div className="border border-white/5 rounded-xl bg-black/20 overflow-hidden">

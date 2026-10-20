@@ -442,7 +442,10 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       if (!hina) return;
       const targetAnim = isPlaying ? 'Exs_Cutin' : 'Cafe_Idle';
       if (hina.currentAnimationName !== targetAnim) {
-        playAnimation(hina.id, targetAnim);
+        const hasTarget = hina.animations.some((a) => a.name === targetAnim);
+        if (hasTarget) {
+          playAnimation(hina.id, targetAnim);
+        }
       }
       return;
     }
@@ -454,7 +457,10 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
         char.currentAnimationName === 'exs_cutin';
       if (isExs || char.currentAnimationName === targetAnim) return;
 
-      playAnimation(char.id, targetAnim);
+      const hasTarget = char.animations.some((a) => a.name === targetAnim);
+      if (hasTarget) {
+        playAnimation(char.id, targetAnim);
+      }
     });
   }, [isPlaying, isDressHinaAlone, playAnimation]);
 
@@ -1041,6 +1047,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           isOpen={isDebuggerOpen && !isMini}
           onClose={() => setIsDebuggerOpen(false)}
           data={debuggerData}
+          onSelectAnimation={playAnimation}
         />
 
         {/* 295 Character Roster Browser Drawer */}

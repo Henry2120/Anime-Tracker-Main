@@ -77,6 +77,14 @@ const CharacterInstanceRenderer: React.FC<{
 }> = ({ character, isSelected, showBoundingBox, onSelect }) => {
   const groupRef = useRef<THREE.Group>(null);
 
+  // Advance animation mixer on every frame using safe delta time
+  useFrame((_, delta) => {
+    if (character.mixer && character.visible) {
+      const safeDelta = Math.min(delta, 0.1);
+      character.mixer.update(safeDelta);
+    }
+  });
+
   return (
     <group
       ref={groupRef}

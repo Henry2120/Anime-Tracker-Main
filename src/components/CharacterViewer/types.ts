@@ -4,6 +4,7 @@ import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
 export interface CharacterAnimationInfo {
   name: string;
   duration: number;
+  tracksCount?: number;
 }
 
 export interface LoadedCharacterInstance {
@@ -33,6 +34,7 @@ export interface LoadedCharacterInstance {
   currentAction: THREE.AnimationAction | null;
   currentAnimationName: string | null;
   isPlayingAnimation: boolean;
+  visibilityController?: any;
 }
 
 export type ViewerCameraPreset = 'front' | 'perspective' | 'side' | 'closeUp' | 'top' | 'back';

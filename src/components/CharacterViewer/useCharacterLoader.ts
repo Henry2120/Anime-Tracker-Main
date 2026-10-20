@@ -3,11 +3,27 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
 import { LoadedCharacterInstance, CharacterAnimationInfo } from './types';
+import {
+  createCharacterVisibilityController,
+  CharacterVisibilityController,
+} from './characterVisibilityController';
 
 /**
  * Deeply disposes a Three.js Object3D hierarchy and associated AnimationMixer
  */
-export function disposeHierarchy(root: THREE.Object3D, mixer?: THREE.AnimationMixer) {
+export function disposeHierarchy(
+  root: THREE.Object3D,
+  mixer?: THREE.AnimationMixer,
+  visibilityController?: CharacterVisibilityController
+) {
+  if (visibilityController) {
+    try {
+      visibilityController.dispose();
+    } catch {
+      // Ignore
+    }
+  }
+
   if (mixer) {
     mixer.stopAllAction();
     try {
@@ -145,6 +161,11 @@ export function useCharacterLoader() {
                   mesh.castShadow = true;
                   mesh.receiveShadow = true;
 
+                  // Prevent animated skinned meshes from disappearing when bones move outside bind bounding box
+                  if ((obj as any).isSkinnedMesh) {
+                    obj.frustumCulled = false;
+                  }
+
                   if (mesh.geometry) {
                     vertexCount += mesh.geometry.attributes.position?.count || 0;
                   }
@@ -160,9 +181,12 @@ export function useCharacterLoader() {
                   if (mesh.material) {
                     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                     mats.forEach((m) => {
-                      m.side = THREE.DoubleSide;
+                      // Preserve original material.side from GLTF specifications (do not force DoubleSide globally)
                       if ('map' in m && m.map) {
                         (m.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+                      }
+                      if (m.transparent === false || ('alphaTest' in m && (m as any).alphaTest > 0)) {
+                        m.depthWrite = true;
                       }
                       if (isPianoMesh) {
                         // Piano lacquer finish: smooth glossy clearcoat, elegant specular shine
@@ -226,10 +250,14 @@ export function useCharacterLoader() {
               const availableAnimations: CharacterAnimationInfo[] = animations.map((clip) => ({
                 name: clip.name,
                 duration: parseFloat(clip.duration.toFixed(2)),
+                tracksCount: clip.tracks.length,
               }));
 
               // Create independent AnimationMixer for this character
               const mixer = new THREE.AnimationMixer(scene);
+
+              // Create Generic Character Visibility Controller for switch metadata
+              const visibilityController = createCharacterVisibilityController(scene, animations);
 
               // Target animation: defaults to Cafe_Idle for initial concert state
               let currentAction: THREE.AnimationAction | null = null;
@@ -244,9 +272,13 @@ export function useCharacterLoader() {
               if (targetClip) {
                 currentAction = mixer.clipAction(targetClip);
                 currentAction.reset();
+                currentAction.setEffectiveTimeScale(1);
+                currentAction.setEffectiveWeight(1);
                 currentAction.setLoop(THREE.LoopRepeat, Infinity);
                 currentAction.play();
                 currentAnimationName = targetAnimName;
+
+                visibilityController.applyAnimationVisibility(targetClip);
 
                 console.log(
                   `[Concert] Character ${entry.name}: ${targetAnimName} FOUND & PLAYING`
@@ -255,17 +287,27 @@ export function useCharacterLoader() {
                 console.warn(
                   `[Concert] Character ${entry.name}: ${targetAnimName} not found`
                 );
-                // Graceful fallback to Cafe_Reaction or first clip if target not found
+                // Graceful fallback to Cafe_Reaction, Formation_Idle, Normal_Idle, or first clip
                 const fallbackClip =
                   THREE.AnimationClip.findByName(animations, 'Cafe_Reaction') ||
+                  THREE.AnimationClip.findByName(animations, 'Formation_Idle') ||
+                  THREE.AnimationClip.findByName(animations, 'Normal_Idle') ||
+                  THREE.AnimationClip.findByName(animations, 'Idle') ||
                   (animations.length > 0 ? animations[0] : null);
 
                 if (fallbackClip) {
                   currentAction = mixer.clipAction(fallbackClip);
                   currentAction.reset();
+                  currentAction.setEffectiveTimeScale(1);
+                  currentAction.setEffectiveWeight(1);
                   currentAction.setLoop(THREE.LoopRepeat, Infinity);
                   currentAction.play();
                   currentAnimationName = fallbackClip.name;
+
+                  visibilityController.applyAnimationVisibility(fallbackClip);
+                } else {
+                  // No animations: reset switch objects to baseline
+                  visibilityController.resetToBaseline();
                 }
               }
 
@@ -305,18 +347,19 @@ export function useCharacterLoader() {
                 currentAction,
                 currentAnimationName,
                 isPlayingAnimation: currentAction !== null,
+                visibilityController,
               };
 
               setLoadedCharacters((prev) => {
                 if (options.replace) {
                   // Dispose old characters & mixers
-                  prev.forEach((p) => disposeHierarchy(p.scene, p.mixer));
+                  prev.forEach((p) => disposeHierarchy(p.scene, p.mixer, p.visibilityController));
                   return [newInstance];
                 } else if (options.slotIndex !== undefined) {
                   // Replace specific slot
                   const existingIdx = prev.findIndex((p) => p.slotIndex === options.slotIndex);
                   if (existingIdx !== -1) {
-                    disposeHierarchy(prev[existingIdx].scene, prev[existingIdx].mixer);
+                    disposeHierarchy(prev[existingIdx].scene, prev[existingIdx].mixer, prev[existingIdx].visibilityController);
                     const next = [...prev];
                     next[existingIdx] = newInstance;
                     return next;
@@ -390,14 +433,36 @@ export function useCharacterLoader() {
         anyChanged = true;
         const prevAction = char.currentAction;
         const nextAction = char.mixer.clipAction(clip);
-        nextAction.reset();
-        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+
+        // Apply visibility directives for this animation
+        char.visibilityController?.applyAnimationVisibility(clip);
 
         if (prevAction && prevAction !== nextAction) {
-          prevAction.fadeOut(0.3);
-          nextAction.fadeIn(0.3);
+          prevAction.fadeOut(0.2);
+          nextAction.reset();
+          nextAction.enabled = true;
+          nextAction.setEffectiveTimeScale(1);
+          nextAction.setEffectiveWeight(1);
+          nextAction.fadeIn(0.2);
+          nextAction.setLoop(THREE.LoopRepeat, Infinity);
+          nextAction.play();
+
+          const oldAct = prevAction;
+          setTimeout(() => {
+            try {
+              if (oldAct !== char.mixer.clipAction(clip)) {
+                oldAct.stop();
+              }
+            } catch {}
+          }, 220);
+        } else {
+          nextAction.reset();
+          nextAction.enabled = true;
+          nextAction.setEffectiveTimeScale(1);
+          nextAction.setEffectiveWeight(1);
+          nextAction.setLoop(THREE.LoopRepeat, Infinity);
+          nextAction.play();
         }
-        nextAction.play();
 
         return {
           ...char,
@@ -435,8 +500,9 @@ export function useCharacterLoader() {
 
       const prevAction = target.currentAction;
       const nextAction = target.mixer.clipAction(clip);
-      nextAction.reset();
-      nextAction.setLoop(THREE.LoopRepeat, Infinity);
+
+      // Apply visibility directives for the new animation clip
+      target.visibilityController?.applyAnimationVisibility(clip);
 
       // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
@@ -450,11 +516,33 @@ export function useCharacterLoader() {
         }
       }
 
+      // Smooth, clean crossfade without leaving zombie actions in mixer
       if (prevAction && prevAction !== nextAction) {
-        prevAction.fadeOut(0.25);
-        nextAction.fadeIn(0.25);
+        prevAction.fadeOut(0.2);
+        nextAction.reset();
+        nextAction.enabled = true;
+        nextAction.setEffectiveTimeScale(1);
+        nextAction.setEffectiveWeight(1);
+        nextAction.fadeIn(0.2);
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+        nextAction.play();
+
+        const oldAct = prevAction;
+        setTimeout(() => {
+          try {
+            if (oldAct !== target.mixer.clipAction(clip)) {
+              oldAct.stop();
+            }
+          } catch {}
+        }, 220);
+      } else {
+        nextAction.reset();
+        nextAction.enabled = true;
+        nextAction.setEffectiveTimeScale(1);
+        nextAction.setEffectiveWeight(1);
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+        nextAction.play();
       }
-      nextAction.play();
 
       return prev.map((char) =>
         char.id === instanceId
@@ -477,13 +565,21 @@ export function useCharacterLoader() {
       prev.map((char) => {
         if (char.id !== instanceId || !char.currentAction) return char;
 
-        const isPaused = char.currentAction.paused;
-        char.currentAction.paused = !isPaused;
-
-        return {
-          ...char,
-          isPlayingAnimation: isPaused,
-        };
+        const isCurrentlyPlaying = char.isPlayingAnimation && !char.currentAction.paused;
+        if (isCurrentlyPlaying) {
+          char.currentAction.paused = true;
+          return {
+            ...char,
+            isPlayingAnimation: false,
+          };
+        } else {
+          char.currentAction.paused = false;
+          char.currentAction.play();
+          return {
+            ...char,
+            isPlayingAnimation: true,
+          };
+        }
       })
     );
   }, []);
@@ -495,7 +591,7 @@ export function useCharacterLoader() {
     setLoadedCharacters((prev) => {
       const target = prev.find((c) => c.id === instanceId);
       if (target) {
-        disposeHierarchy(target.scene, target.mixer);
+        disposeHierarchy(target.scene, target.mixer, target.visibilityController);
       }
       const remaining = prev.filter((c) => c.id !== instanceId);
       if (selectedInstanceId === instanceId) {
@@ -510,7 +606,7 @@ export function useCharacterLoader() {
    */
   const clearCharacters = useCallback(() => {
     setLoadedCharacters((prev) => {
-      prev.forEach((c) => disposeHierarchy(c.scene, c.mixer));
+      prev.forEach((c) => disposeHierarchy(c.scene, c.mixer, c.visibilityController));
       return [];
     });
     setSelectedInstanceId(null);

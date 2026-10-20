@@ -102,9 +102,9 @@ export function extractVisibilityDirectives(
 
   const hide = new Set<string>();
   const show = new Set<string>();
-  const sources = [clip.userData];
+  const sources: Record<string, any>[] = [clip.userData];
   if (clip.userData.extras && typeof clip.userData.extras === 'object') {
-    sources.push(clip.userData.extras);
+    sources.push(clip.userData.extras as Record<string, any>);
   }
 
   for (const src of sources) {
@@ -245,10 +245,10 @@ export function createCharacterVisibilityController(
 
       obj.visible = targetVisible;
 
-      // Synchronize all descendant objects that do not have their own independent switch
+      // Synchronize descendant objects that do not have their own independent switch, respecting their baseline
       obj.traverse((child) => {
         if (child !== obj && !objectToSwitches.has(child)) {
-          child.visible = targetVisible;
+          child.visible = targetVisible ? (baselineVisibility.get(child) ?? true) : false;
         }
       });
     }
