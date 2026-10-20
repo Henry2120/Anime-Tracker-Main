@@ -37,6 +37,7 @@ import { CharacterViewerToolbar } from './CharacterViewerToolbar';
 import { getConcertSlotTransform } from './concertConfig';
 import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
 import { NightBeachScene } from './NightBeachScene';
+import { SceneDebuggerPanel, SceneDebuggerData } from './SceneDebuggerPanel';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -360,6 +361,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   );
   const [showGrid, setShowGrid] = useState(false);
   const [showWireframe, setShowWireframe] = useState(false);
+  const [isDebuggerOpen, setIsDebuggerOpen] = useState(false);
+  const [runtimeErrors, setRuntimeErrors] = useState<{ timestamp: string; subsystem: string; message: string }[]>([]);
 
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
@@ -538,6 +541,125 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       await handleSelectFromDrawer(hinaWithPiano, 'replace');
     }
   }, [handleSelectFromDrawer]);
+
+  // Log runtime loader errors for debugger diagnostics
+  useEffect(() => {
+    if (error) {
+      setRuntimeErrors((prev) => [
+        ...prev,
+        {
+          timestamp: new Date().toLocaleTimeString(),
+          subsystem: 'GLTF_Loader',
+          message: `Failed to load ${error.character?.name || 'character'}: ${error.message}`,
+        },
+      ]);
+    }
+  }, [error]);
+
+  // ESC key shortcut closes open debugger panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isDebuggerOpen) {
+        setIsDebuggerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDebuggerOpen]);
+
+  // Compute live scene debugger diagnostics
+  const debuggerData: SceneDebuggerData = useMemo(() => {
+    const bgMode = isSpecialSceneActive
+      ? 'PERFORMANCE_MEADOW'
+      : environment === 'studio'
+      ? 'STUDIO_WHITE'
+      : environment.toUpperCase();
+
+    const activeBgColor = isSpecialSceneActive
+      ? '#050814'
+      : environment === 'studio' || environment === 'clean'
+      ? '#FFFFFF'
+      : isDark
+      ? '#14121C'
+      : isSakura
+      ? '#FDF6F8'
+      : environment === 'sunset'
+      ? '#2A1D2D'
+      : '#FFFFFF';
+
+    const activeSceneName = isSpecialSceneActive
+      ? 'Night Meadow Performance'
+      : environment === 'studio'
+      ? 'Clean Studio Stage'
+      : environment === 'dark'
+      ? 'Dark Stage'
+      : environment === 'sakura'
+      ? 'Sakura Stage'
+      : environment === 'sunset'
+      ? 'Sunset Stage'
+      : 'Clean Stage';
+
+    const selectionReason = isSpecialSceneActive
+      ? 'Dress Hina is the sole performer and YouTube concert music is actively playing in the viewer.'
+      : isDressHinaAlone && !isPlaying
+      ? 'Dress Hina is staged alone. Start music playback or YouTube concert to activate Night Meadow.'
+      : loadedCharacters.length > 1
+      ? `Standard Ensemble Stage (${loadedCharacters.length} performers on stage). Special solo performance disabled.`
+      : loadedCharacters.length === 0
+      ? 'No performers loaded on stage.'
+      : `Standard Character Stage with active environment preset: ${environment}`;
+
+    return {
+      environment,
+      isSpecialSceneActive,
+      isDressHinaAlone,
+      activeSceneName,
+      sceneStatus: loading ? 'LOADING' : error ? 'ERROR' : 'READY',
+      sceneTransition: loading ? 'LOADING_ASSETS' : isSpecialSceneActive ? 'NIGHT_MEADOW_ACTIVE' : 'IDLE',
+      backgroundMode: bgMode,
+      activeBackgroundColor: activeBgColor,
+      selectionReason,
+      fallbackActive: false,
+      loadedCharacters,
+      selectedInstanceId,
+      loading,
+      loadingProgress,
+      loadingCharacterName: loadingCharacter?.name,
+      videoId,
+      videoTitle,
+      isPlaying,
+      isPaused,
+      isStopped,
+      isConcertActive,
+      cameraPreset,
+      showGrid,
+      showWireframe,
+      runtimeErrors,
+      onClearErrors: () => setRuntimeErrors([]),
+    };
+  }, [
+    environment,
+    isSpecialSceneActive,
+    isDressHinaAlone,
+    loading,
+    error,
+    loadedCharacters,
+    selectedInstanceId,
+    loadingProgress,
+    loadingCharacter,
+    videoId,
+    videoTitle,
+    isPlaying,
+    isPaused,
+    isStopped,
+    isConcertActive,
+    cameraPreset,
+    showGrid,
+    showWireframe,
+    runtimeErrors,
+    isDark,
+    isSakura,
+  ]);
 
   // Matching container background to current Anime Tracker theme family (or night meadow if special scene active)
   // Ensures crisp White Background Consistency (#FFFFFF) across Studio and clean viewer modes
@@ -909,8 +1031,17 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             isConcertPlaying={isPlaying}
             onToggleConcertMusic={togglePlay}
             isSpecialSceneActive={isSpecialSceneActive}
+            isDebuggerOpen={isDebuggerOpen}
+            onToggleDebugger={() => setIsDebuggerOpen((prev) => !prev)}
           />
         )}
+
+        {/* 3D Scene Debugger Diagnostic Console */}
+        <SceneDebuggerPanel
+          isOpen={isDebuggerOpen && !isMini}
+          onClose={() => setIsDebuggerOpen(false)}
+          data={debuggerData}
+        />
 
         {/* 295 Character Roster Browser Drawer */}
         <CharacterBrowserDrawer

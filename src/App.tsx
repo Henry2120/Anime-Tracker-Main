@@ -73,6 +73,14 @@ import { AnimeHeaderConcertWidget } from './components/CharacterViewer/AnimeHead
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { AtmosphericCanvas } from './components/AtmosphericCanvas';
+import {
+  loadCustomTheme,
+  saveCustomTheme,
+  applyCustomThemeToDOM,
+  loadRainIntensity,
+  saveRainIntensity,
+} from './utils/customTheme';
+import { CustomThemeConfig, RainIntensityLevel } from './types/theme';
 import { fetchLiveWeather, requestUserCoordinates, getCachedWeather, WeatherData } from './utils/weatherUtils';
 import { Top500EasterEgg } from './components/Top500EasterEgg';
 import { APP_VERSION_INFO } from './config/version';
@@ -109,11 +117,11 @@ function AppContent() {
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isExcelExportModalOpen, setIsExcelExportModalOpen] = useState(false);
 
-  // Appearance / Theme State (Expanded 9-Theme System)
+  // Appearance / Theme State (Expanded 10-Theme System with Custom Palette)
   const [theme, setTheme] = useState<AppTheme>(() => {
     try {
       const saved = localStorage.getItem('aniverse_appearance') || localStorage.getItem('aniverse_theme');
-      const validThemes: AppTheme[] = ['light', 'dark', 'sakura', 'rain', 'sunny', 'cloudy', 'starlight', 'autumn', 'snow'];
+      const validThemes: AppTheme[] = ['light', 'dark', 'sakura', 'rain', 'sunny', 'cloudy', 'starlight', 'autumn', 'snow', 'custom'];
       if (saved && validThemes.includes(saved as AppTheme)) {
         return saved as AppTheme;
       }
@@ -122,6 +130,26 @@ function AppContent() {
     }
     return 'light';
   });
+
+  // Custom Theme Configuration
+  const [customThemeConfig, setCustomThemeConfig] = useState<CustomThemeConfig>(() => loadCustomTheme());
+
+  // Rain Weather Intensity (0=Off, 1=Light, 2=Moderate, 3=Heavy, 4=Rainstorm)
+  const [rainIntensity, setRainIntensity] = useState<RainIntensityLevel>(() => {
+    const saved = loadRainIntensity();
+    try {
+      const cur = localStorage.getItem('aniverse_appearance') || localStorage.getItem('aniverse_theme');
+      if (cur === 'rain' && localStorage.getItem('aniverse_rain_intensity_level') === null) {
+        return 2;
+      }
+    } catch {}
+    return saved;
+  });
+
+  // Apply custom theme CSS variables to DOM
+  useEffect(() => {
+    applyCustomThemeToDOM(customThemeConfig);
+  }, [customThemeConfig]);
 
   // Live Weather State
   const [isLiveWeather, setIsLiveWeather] = useState<boolean>(() => {
@@ -190,6 +218,10 @@ function AppContent() {
 
   const handleThemeChange = (newTheme: AppTheme) => {
     setTheme(newTheme);
+    if (newTheme === 'rain' && rainIntensity === 0) {
+      setRainIntensity(2);
+      saveRainIntensity(2);
+    }
     if (isLiveWeather) {
       setIsLiveWeather(false);
       try {
@@ -202,6 +234,17 @@ function AppContent() {
     } catch {
       // Ignore storage errors
     }
+  };
+
+  const handleSaveCustomTheme = (newConfig: CustomThemeConfig) => {
+    setCustomThemeConfig(newConfig);
+    saveCustomTheme(newConfig);
+    applyCustomThemeToDOM(newConfig);
+  };
+
+  const handleRainIntensityChange = (level: RainIntensityLevel) => {
+    setRainIntensity(level);
+    saveRainIntensity(level);
   };
 
   // Insights dropdown navigation state
@@ -1801,21 +1844,33 @@ function AppContent() {
     });
   }, [malList, malFilterStatus, malSortOption, malSearchQuery, activeTab]);
 
-  const isEffectiveDark = isDarkThemeFamily(theme);
+  const isEffectiveDark = isDarkThemeFamily(theme, customThemeConfig.pageBg);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('data-theme', theme);
     if (isEffectiveDark) {
       document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
     }
   }, [theme, isEffectiveDark]);
 
   return (
-    <div data-theme={theme} className={`w-full min-w-full min-h-screen flex-1 ${isEffectiveDark ? 'dark bg-[#141318] text-[#F4F2F7]' : 'bg-[#F7F5F2] text-[#25242A]'} font-sans antialiased flex flex-col justify-between relative`}>
+    <div
+      data-theme={theme}
+      className={`app-theme-root w-full min-w-full min-h-screen flex-1 ${
+        isEffectiveDark ? 'dark text-[#F4F2F7]' : 'text-[#25242A]'
+      } font-sans antialiased flex flex-col justify-between relative`}
+    >
       {/* ATMOSPHERIC CANVAS (SAKURA, RAIN, STARLIGHT, AUTUMN, SNOW, SUNNY, CLOUDY) */}
-      <AtmosphericCanvas theme={theme} />
+      <AtmosphericCanvas
+        theme={theme}
+        rainIntensity={rainIntensity}
+        customPageBg={theme === 'custom' ? customThemeConfig.pageBg : undefined}
+      />
 
       {/* MINIMAL TOP NAVIGATION BAR */}
       <header className={`w-full sticky top-0 z-40 bg-white dark:bg-[#1E1D24] border-b border-[#E7E3DF] dark:border-[#2E2C37] shadow-2xs ${
@@ -2033,6 +2088,10 @@ function AppContent() {
               liveWeatherTemp={liveWeatherData?.temp}
               liveWeatherLoading={liveWeatherLoading}
               liveWeatherError={liveWeatherError}
+              customConfig={customThemeConfig}
+              onSaveCustomConfig={handleSaveCustomTheme}
+              rainIntensity={rainIntensity}
+              onRainIntensityChange={handleRainIntensityChange}
             />
 
             {malUser && (

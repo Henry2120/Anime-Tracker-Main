@@ -15,6 +15,7 @@ import {
   Waves,
   Eye,
   EyeOff,
+  Bug,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
@@ -40,6 +41,8 @@ interface CharacterViewerToolbarProps {
   isSpecialSceneActive?: boolean;
   isToolbarVisible?: boolean;
   onToggleToolbarVisible?: () => void;
+  isDebuggerOpen?: boolean;
+  onToggleDebugger?: () => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
@@ -63,6 +66,8 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   isSpecialSceneActive = false,
   isToolbarVisible: externalToolbarVisible,
   onToggleToolbarVisible,
+  isDebuggerOpen = false,
+  onToggleDebugger,
 }) => {
   const [internalToolbarVisible, setInternalToolbarVisible] = useState(true);
   const isToolbarVisible =
@@ -369,6 +374,23 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
+
+        {/* Scene Debugger Toggle Button */}
+        {onToggleDebugger && (
+          <button
+            type="button"
+            onClick={onToggleDebugger}
+            title={isDebuggerOpen ? 'Close Scene Debugger' : 'Open 3D Scene Debugger Panel'}
+            className={`px-2 py-1 rounded-xl transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
+              isDebuggerOpen
+                ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 ring-1 ring-emerald-500/30'
+                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
+            }`}
+          >
+            <Bug className="h-3.5 w-3.5 text-emerald-500" />
+            <span className="hidden sm:inline">Debug</span>
+          </button>
+        )}
       </div>
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />

@@ -267,7 +267,9 @@ body.dark,
 html[data-theme="rain"],
 body[data-theme="rain"],
 [data-theme="rain"] #root,
+[data-theme="rain"] .app-theme-root,
 [data-theme="rain"] .bg-\[\#F7F5F2\],
+[data-theme="rain"] .bg-\[\#141318\],
 [data-theme="rain"] .bg-slate-50,
 [data-theme="rain"] .bg-gray-50 {
   background-color: #0B1320 !important;
@@ -311,6 +313,16 @@ body[data-theme="rain"],
   border-color: #1E3352 !important;
 }
 
+[data-theme="rain"] .text-\[\#7567C7\] {
+  color: #38BDF8 !important;
+}
+[data-theme="rain"] .bg-\[\#7567C7\] {
+  background-color: #0284C7 !important;
+}
+[data-theme="rain"] .border-\[\#7567C7\] {
+  border-color: #38BDF8 !important;
+}
+
 [data-theme="rain"] ::-webkit-scrollbar-track {
   background: #0B1320;
 }
@@ -326,7 +338,9 @@ body[data-theme="rain"],
 html[data-theme="starlight"],
 body[data-theme="starlight"],
 [data-theme="starlight"] #root,
+[data-theme="starlight"] .app-theme-root,
 [data-theme="starlight"] .bg-\[\#F7F5F2\],
+[data-theme="starlight"] .bg-\[\#141318\],
 [data-theme="starlight"] .bg-slate-50,
 [data-theme="starlight"] .bg-gray-50 {
   background-color: #090A1A !important;
@@ -370,6 +384,16 @@ body[data-theme="starlight"],
   border-color: #222452 !important;
 }
 
+[data-theme="starlight"] .text-\[\#7567C7\] {
+  color: #A78BFA !important;
+}
+[data-theme="starlight"] .bg-\[\#7567C7\] {
+  background-color: #7C3AED !important;
+}
+[data-theme="starlight"] .border-\[\#7567C7\] {
+  border-color: #A78BFA !important;
+}
+
 [data-theme="starlight"] ::-webkit-scrollbar-track {
   background: #090A1A;
 }
@@ -385,7 +409,9 @@ body[data-theme="starlight"],
 html[data-theme="snow"],
 body[data-theme="snow"],
 [data-theme="snow"] #root,
+[data-theme="snow"] .app-theme-root,
 [data-theme="snow"] .bg-\[\#F7F5F2\],
+[data-theme="snow"] .bg-\[\#141318\],
 [data-theme="snow"] .bg-slate-50,
 [data-theme="snow"] .bg-gray-50 {
   background-color: #0A111E !important;
@@ -429,6 +455,16 @@ body[data-theme="snow"],
   border-color: #1E314F !important;
 }
 
+[data-theme="snow"] .text-\[\#7567C7\] {
+  color: #7DD3FC !important;
+}
+[data-theme="snow"] .bg-\[\#7567C7\] {
+  background-color: #0284C7 !important;
+}
+[data-theme="snow"] .border-\[\#7567C7\] {
+  border-color: #7DD3FC !important;
+}
+
 [data-theme="snow"] ::-webkit-scrollbar-track {
   background: #0A111E;
 }
@@ -444,7 +480,9 @@ body[data-theme="snow"],
 html[data-theme="sunny"],
 body[data-theme="sunny"],
 [data-theme="sunny"] #root,
-[data-theme="sunny"] .bg-\[\#F7F5F2\] {
+[data-theme="sunny"] .app-theme-root,
+[data-theme="sunny"] .bg-\[\#F7F5F2\],
+[data-theme="sunny"] .bg-\[\#141318\] {
   background-color: #F0F7FF !important;
 }
 
@@ -477,6 +515,16 @@ body[data-theme="sunny"],
   border-color: #D0E3F7 !important;
 }
 
+[data-theme="sunny"] .text-\[\#7567C7\] {
+  color: #0284C7 !important;
+}
+[data-theme="sunny"] .bg-\[\#7567C7\] {
+  background-color: #0284C7 !important;
+}
+[data-theme="sunny"] .border-\[\#7567C7\] {
+  border-color: #0284C7 !important;
+}
+
 /* -------------------------------------------------------------------------
    5. CLOUDY (曇 - Kumori Mode) — Overcast
    Muted blue-gray, silver, and calm desaturated cool gradients
@@ -485,7 +533,9 @@ body[data-theme="sunny"],
 html[data-theme="cloudy"],
 body[data-theme="cloudy"],
 [data-theme="cloudy"] #root,
-[data-theme="cloudy"] .bg-\[\#F7F5F2\] {
+[data-theme="cloudy"] .app-theme-root,
+[data-theme="cloudy"] .bg-\[\#F7F5F2\],
+[data-theme="cloudy"] .bg-\[\#141318\] {
   background-color: #ECEFF3 !important;
 }
 
@@ -518,6 +568,16 @@ body[data-theme="cloudy"],
   border-color: #D7DDE5 !important;
 }
 
+[data-theme="cloudy"] .text-\[\#7567C7\] {
+  color: #64748B !important;
+}
+[data-theme="cloudy"] .bg-\[\#7567C7\] {
+  background-color: #64748B !important;
+}
+[data-theme="cloudy"] .border-\[\#7567C7\] {
+  border-color: #64748B !important;
+}
+
 /* -------------------------------------------------------------------------
    6. AUTUMN (秋 - Aki Mode) — Maple Sunset
    Warm amber, burnt orange, warm brown, and burgundy accents
@@ -526,7 +586,9 @@ body[data-theme="cloudy"],
 html[data-theme="autumn"],
 body[data-theme="autumn"],
 [data-theme="autumn"] #root,
-[data-theme="autumn"] .bg-\[\#F7F5F2\] {
+[data-theme="autumn"] .app-theme-root,
+[data-theme="autumn"] .bg-\[\#F7F5F2\],
+[data-theme="autumn"] .bg-\[\#141318\] {
   background-color: #FBF6EE !important;
 }
 
@@ -559,6 +621,16 @@ body[data-theme="autumn"],
   border-color: #EDE2D0 !important;
 }
 
+[data-theme="autumn"] .text-\[\#7567C7\] {
+  color: #D97706 !important;
+}
+[data-theme="autumn"] .bg-\[\#7567C7\] {
+  background-color: #D97706 !important;
+}
+[data-theme="autumn"] .border-\[\#7567C7\] {
+  border-color: #D97706 !important;
+}
+
 /* -------------------------------------------------------------------------
    7. SAKURA (桜 - Sakura Mode)
    Delicate cherry blossom aesthetic with light pink accents
@@ -567,8 +639,14 @@ body[data-theme="autumn"],
 html[data-theme="sakura"],
 body[data-theme="sakura"],
 [data-theme="sakura"] #root,
-[data-theme="sakura"] .bg-\[\#F7F5F2\] {
+[data-theme="sakura"] .app-theme-root,
+[data-theme="sakura"] .bg-\[\#F7F5F2\],
+[data-theme="sakura"] .bg-\[\#141318\] {
   background-color: #FDF5F7 !important;
+}
+
+[data-theme="sakura"] .bg-white {
+  background-color: #FFFFFF !important;
 }
 
 [data-theme="sakura"] header .bg-\[\#F7F5F2\],
@@ -584,8 +662,100 @@ body[data-theme="sakura"],
   color: #E06D8A !important;
 }
 
+[data-theme="sakura"] .text-\[\#25242A\] {
+  color: #25242A !important;
+}
+
+[data-theme="sakura"] .text-\[\#77747D\] {
+  color: #8B7077 !important;
+}
+
 [data-theme="sakura"] .border-\[\#E7E3DF\] {
   border-color: #F8D7E0 !important;
+}
+
+[data-theme="sakura"] .text-\[\#7567C7\] {
+  color: #E06D8A !important;
+}
+[data-theme="sakura"] .bg-\[\#7567C7\] {
+  background-color: #E06D8A !important;
+}
+[data-theme="sakura"] .border-\[\#7567C7\] {
+  border-color: #E06D8A !important;
+}
+
+/* -------------------------------------------------------------------------
+   8. CUSTOM THEME (自分色 - Jibun-iro Mode)
+   Custom user-defined palette, background gradients, and accents
+   ------------------------------------------------------------------------- */
+[data-theme="custom"],
+html[data-theme="custom"],
+body[data-theme="custom"],
+[data-theme="custom"] #root,
+[data-theme="custom"] .app-theme-root {
+  background: var(--custom-page-bg, #F7F5F2) !important;
+  color: var(--custom-text, #25242A) !important;
+}
+
+[data-theme="custom"] .bg-\[\#F7F5F2\],
+[data-theme="custom"] .bg-\[\#141318\],
+[data-theme="custom"] .bg-slate-50,
+[data-theme="custom"] .bg-gray-50 {
+  background-color: var(--custom-canvas, #F7F5F2) !important;
+}
+
+[data-theme="custom"] .bg-white,
+[data-theme="custom"].dark .bg-\[\#1E1D24\],
+[data-theme="custom"] .dark .bg-\[\#1E1D24\] {
+  background-color: var(--custom-card, #FFFFFF) !important;
+}
+
+[data-theme="custom"] header,
+[data-theme="custom"] header.bg-white,
+[data-theme="custom"] header.dark\:bg-\[\#1E1D24\] {
+  background-color: var(--custom-card, #FFFFFF) !important;
+  border-color: var(--custom-border, #E7E3DF) !important;
+}
+
+[data-theme="custom"] header .bg-\[\#F7F5F2\],
+[data-theme="custom"] nav.bg-\[\#F7F5F2\],
+[data-theme="custom"] .bg-\[\#F7F5F2\].rounded-xl,
+[data-theme="custom"] .bg-\[\#F7F5F2\].rounded-2xl,
+[data-theme="custom"] .grid.bg-\[\#F7F5F2\] {
+  background-color: var(--custom-canvas, #F7F5F2) !important;
+  border-color: var(--custom-border, #E7E3DF) !important;
+}
+
+[data-theme="custom"] .bg-\[\#F0EDFA\] {
+  background-color: var(--custom-canvas, #F0EDFA) !important;
+  color: var(--custom-accent, #7567C7) !important;
+}
+
+[data-theme="custom"] .text-\[\#25242A\],
+[data-theme="custom"] .dark .text-\[\#F4F2F7\] {
+  color: var(--custom-text, #25242A) !important;
+}
+
+[data-theme="custom"] .text-\[\#77747D\],
+[data-theme="custom"] .dark .text-\[\#9E9AA6\] {
+  color: var(--custom-muted-text, #77747D) !important;
+}
+
+[data-theme="custom"] .border-\[\#E7E3DF\],
+[data-theme="custom"] .dark .border-\[\#2E2C37\] {
+  border-color: var(--custom-border, #E7E3DF) !important;
+}
+
+[data-theme="custom"] .bg-\[\#7567C7\] {
+  background-color: var(--custom-accent, #7567C7) !important;
+}
+
+[data-theme="custom"] .text-\[\#7567C7\] {
+  color: var(--custom-accent, #7567C7) !important;
+}
+
+[data-theme="custom"] .border-\[\#7567C7\] {
+  border-color: var(--custom-accent, #7567C7) !important;
 }
 
 
