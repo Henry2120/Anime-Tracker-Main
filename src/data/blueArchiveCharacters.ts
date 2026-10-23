@@ -1,7 +1,7 @@
 /**
  * Blue Archive 3D Character Models Manifest
  * Auto-generated from https://github.com/Henry2120/BlueArchiveModels
- * Total Characters: 296
+ * Total Characters: 298
  */
 
 export interface CharacterManifestEntry {
@@ -1460,6 +1460,18 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Shiroko%EF%BC%8ATerror.glb"
   },
   {
+    "id": "shiroko-violin-297",
+    "name": "Shiroko (Violin)",
+    "filename": "Shiroko_Violin.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Shiroko_Violin.glb"
+  },
+  {
+    "id": "shiroko-terror-violin-298",
+    "name": "Shiroko Terror (Violin)",
+    "filename": "Shiroko_Terror_Violin.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Shiroko_Terror_Violin.glb"
+  },
+  {
     "id": "shizuko-swimsuit-242",
     "name": "Shizuko (Swimsuit)",
     "filename": "Shizuko (Swimsuit).glb",
@@ -1791,7 +1803,7 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
   }
 ];
 
-export const BLUE_ARCHIVE_CHARACTER_COUNT = 296;
+export const BLUE_ARCHIVE_CHARACTER_COUNT = 298;
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);

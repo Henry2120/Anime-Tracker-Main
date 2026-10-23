@@ -1687,6 +1687,20 @@
     "fileSize": 132
   },
   {
+    "id": "shiroko-violin",
+    "displayName": "Shiroko (Violin)",
+    "filename": "Shiroko_Violin.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Shiroko_Violin.glb",
+    "fileSize": 132
+  },
+  {
+    "id": "shiroko-terror-violin",
+    "displayName": "Shiroko Terror (Violin)",
+    "filename": "Shiroko_Terror_Violin.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Shiroko_Terror_Violin.glb",
+    "fileSize": 132
+  },
+  {
     "id": "shizuko-swimsuit",
     "displayName": "Shizuko (Swimsuit)",
     "filename": "Shizuko (Swimsuit).glb",
