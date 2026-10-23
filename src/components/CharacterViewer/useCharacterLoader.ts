@@ -61,12 +61,42 @@ let globalLoadedCharactersCache: LoadedCharacterInstance[] = [];
 let globalSelectedInstanceIdCache: string | null = null;
 
 /**
- * Creates or retrieves the seamlessly looping short piano-playing segment of Exs_Cutin.
- * In Blue Archive, the full Exs_Cutin clip is 12s with intro sit-down and outro.
- * The active piano performance loop segment occurs between frame 118 (~3.93s) and frame 211 (~7.03s),
- * where Hina's hands strike and passionately play the piano keys continuously.
+ * Checks if a character is Dress Hina with Piano (the special solo piano performance)
  */
-export function getOrCreateExsCutinLoop(animations: THREE.AnimationClip[]): THREE.AnimationClip | null {
+export function isHinaPianoPerformer(
+  entry?: CharacterManifestEntry,
+  scene?: THREE.Object3D
+): boolean {
+  if (scene && scene.getObjectByName('Piano_Switch')) {
+    return true;
+  }
+  if (!entry) return false;
+  const name = (entry.name || '').toLowerCase();
+  const id = (entry.id || '').toLowerCase();
+  const filename = (entry.filename || '').toLowerCase();
+  const hasHina = name.includes('hina') || id.includes('hina') || filename.includes('hina');
+  const hasDress = name.includes('dress') || id.includes('dress') || filename.includes('dress');
+  return hasHina && hasDress;
+}
+
+/**
+ * Creates or retrieves the seamlessly looping short piano-playing segment of Exs_Cutin.
+ * Specifically for Dress Hina's piano performance (original duration 12s, active playing segment
+ * occurs between frame 118 (~3.93s) and frame 211 (~7.03s) at 30 fps).
+ * This must NEVER be applied to Arisu or other characters whose Exs_Cutin is their normal action.
+ */
+export function getOrCreateExsCutinLoop(
+  animations: THREE.AnimationClip[],
+  characterEntry?: CharacterManifestEntry,
+  scene?: THREE.Object3D
+): THREE.AnimationClip | null {
+  // If characterEntry or scene is provided, verify this is actually Dress Hina with piano
+  if (characterEntry || scene) {
+    if (!isHinaPianoPerformer(characterEntry, scene)) {
+      return null;
+    }
+  }
+
   const existing = THREE.AnimationClip.findByName(animations, 'Exs_Cutin_PianoLoop');
   if (existing) return existing;
 
@@ -74,6 +104,12 @@ export function getOrCreateExsCutinLoop(animations: THREE.AnimationClip[]): THRE
     THREE.AnimationClip.findByName(animations, 'Exs_Cutin') ||
     THREE.AnimationClip.findByName(animations, 'exs_cutin');
   if (!originalCutin) return null;
+
+  // Safeguard: Hina's piano performance cutin is 12s. If the clip duration is shorter than 7.1s,
+  // frames 118-211 (3.93s-7.03s) cannot be extracted and it is NOT Hina's piano performance!
+  if (originalCutin.duration < 7.1) {
+    return null;
+  }
 
   try {
     // Frame 118 (3.93s) to frame 211 (7.03s) at 30 fps produces the optimal smooth playing loop
@@ -264,9 +300,10 @@ export function useCharacterLoader() {
               let currentAnimationName: string | null = null;
 
               const targetAnimName = options.initialAnimation || 'Cafe_Idle';
+              const isHinaPiano = isHinaPianoPerformer(entry, scene);
               const isTargetExs = targetAnimName === 'Exs_Cutin' || targetAnimName === 'exs_cutin';
-              const targetClip = isTargetExs
-                ? getOrCreateExsCutinLoop(animations) || THREE.AnimationClip.findByName(animations, targetAnimName)
+              const targetClip = (isTargetExs && isHinaPiano)
+                ? getOrCreateExsCutinLoop(animations, entry, scene) || THREE.AnimationClip.findByName(animations, targetAnimName)
                 : THREE.AnimationClip.findByName(animations, targetAnimName);
 
               if (targetClip) {
@@ -311,11 +348,11 @@ export function useCharacterLoader() {
                 }
               }
 
-              // Initial piano visibility based on target animation
+              // Initial piano visibility based on target animation (only for Hina piano scene)
               const initialPianoSwitch = scene.getObjectByName('Piano_Switch');
               if (initialPianoSwitch) {
                 const isExs = currentAnimationName === 'Exs_Cutin' || currentAnimationName === 'exs_cutin';
-                if (isExs) {
+                if (isExs && isHinaPiano) {
                   initialPianoSwitch.scale.set(1, 1, 1);
                   initialPianoSwitch.visible = true;
                 } else {
@@ -415,9 +452,10 @@ export function useCharacterLoader() {
     setLoadedCharacters((prev) => {
       let anyChanged = false;
       const updated = prev.map((char) => {
-        // If character is currently performing Exs_Cutin, preserve their piano performance!
+        // If character is currently performing Exs_Cutin in Hina's piano performance, preserve it!
+        const isHinaPiano = isHinaPianoPerformer(char.manifestEntry, char.scene);
         const isExs = char.currentAnimationName === 'Exs_Cutin' || char.currentAnimationName === 'exs_cutin';
-        if (isExs) return char;
+        if (isExs && isHinaPiano) return char;
 
         // If already playing this animation, skip without modifying state
         if (char.currentAnimationName === animationName && char.isPlayingAnimation) {
@@ -489,9 +527,10 @@ export function useCharacterLoader() {
         return prev;
       }
 
+      const isHinaPiano = isHinaPianoPerformer(target.manifestEntry, target.scene);
       const isExs = animationName === 'Exs_Cutin' || animationName === 'exs_cutin';
-      const clip = isExs
-        ? getOrCreateExsCutinLoop(target.animations) || THREE.AnimationClip.findByName(target.animations, animationName)
+      const clip = (isExs && isHinaPiano)
+        ? getOrCreateExsCutinLoop(target.animations, target.manifestEntry, target.scene) || THREE.AnimationClip.findByName(target.animations, animationName)
         : THREE.AnimationClip.findByName(target.animations, animationName);
       if (!clip) {
         console.warn(`[Blue Archive Viewer] Animation "${animationName}" not found in model ${target.manifestEntry.name}`);
@@ -504,10 +543,10 @@ export function useCharacterLoader() {
       // Apply visibility directives for the new animation clip
       target.visibilityController?.applyAnimationVisibility(clip);
 
-      // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active
+      // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active for Hina
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
       if (pianoSwitch) {
-        if (isExs) {
+        if (isExs && isHinaPiano) {
           pianoSwitch.scale.set(1, 1, 1);
           pianoSwitch.visible = true;
         } else {
