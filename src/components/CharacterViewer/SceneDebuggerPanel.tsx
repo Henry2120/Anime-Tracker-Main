@@ -50,6 +50,10 @@ export interface SceneDebuggerData {
   // Errors / Warnings
   runtimeErrors?: { timestamp: string; subsystem: string; message: string }[];
   onClearErrors?: () => void;
+
+  // Manual Environment & Instrument Detection
+  hinaSpecialEnvEnabled?: boolean;
+  musicAnalysis?: any;
 }
 
 interface SceneDebuggerPanelProps {
@@ -86,7 +90,9 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
   const isSongLoaded = Boolean(data.videoId && data.videoId.trim().length > 0);
   const isSongPlaying = data.isPlaying;
   const isHinaSolePerformer = data.isDressHinaAlone && data.loadedCharacters.length === 1;
-  const specialSceneShouldActivate = isDressHinaLoaded && isHinaSolePerformer && isSongLoaded && isSongPlaying;
+  const isEnvSettingEnabled = Boolean(data.hinaSpecialEnvEnabled);
+  const specialSceneShouldActivate =
+    isDressHinaLoaded && isHinaSolePerformer && isSongLoaded && isSongPlaying && isEnvSettingEnabled;
 
   // Detailed reason why scene is active or inactive
   const inactiveReason = useMemo(() => {
@@ -108,6 +114,9 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
     if (!isSongPlaying) {
       return 'Target song is paused or stopped. Press Play to trigger Night Meadow.';
     }
+    if (!isEnvSettingEnabled) {
+      return 'Hina Piano Special Environment is set to OFF in Settings. Enable it in Settings (or top bar) to activate Night Meadow.';
+    }
     return data.selectionReason || 'Performance conditions not met.';
   }, [
     data.isSpecialSceneActive,
@@ -116,6 +125,7 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
     firstChar,
     isSongLoaded,
     isSongPlaying,
+    isEnvSettingEnabled,
     data.selectionReason,
   ]);
 
@@ -275,6 +285,11 @@ Status Reason: ${inactiveReason}
               'Hina is the only performer on the field',
               isHinaSolePerformer,
               data.loadedCharacters.length > 0 ? `${data.loadedCharacters.length} on field` : undefined
+            )}
+            {renderConditionRow(
+              'Hina Special Environment setting enabled',
+              isEnvSettingEnabled,
+              isEnvSettingEnabled ? 'ON' : 'OFF (Default)'
             )}
             <div className="pt-1 border-t border-white/5">
               {renderConditionRow('Special scene should activate', specialSceneShouldActivate, undefined, true)}

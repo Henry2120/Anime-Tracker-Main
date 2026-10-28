@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
+import { MeadowEnvironmentLayers, DEFAULT_MEADOW_LAYERS } from './NightBeachScene';
 
 interface CharacterViewerToolbarProps {
   theme: AppTheme;
@@ -43,6 +44,11 @@ interface CharacterViewerToolbarProps {
   onToggleToolbarVisible?: () => void;
   isDebuggerOpen?: boolean;
   onToggleDebugger?: () => void;
+  meadowLayers?: MeadowEnvironmentLayers;
+  onUpdateMeadowLayers?: (layers: Partial<MeadowEnvironmentLayers>) => void;
+  onResetMeadowLayers?: () => void;
+  specialEnvironmentEnabled?: boolean;
+  onToggleSpecialEnvironment?: () => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
@@ -68,6 +74,11 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   onToggleToolbarVisible,
   isDebuggerOpen = false,
   onToggleDebugger,
+  meadowLayers = DEFAULT_MEADOW_LAYERS,
+  onUpdateMeadowLayers,
+  onResetMeadowLayers,
+  specialEnvironmentEnabled = true,
+  onToggleSpecialEnvironment,
 }) => {
   const [internalToolbarVisible, setInternalToolbarVisible] = useState(true);
   const isToolbarVisible =
@@ -83,20 +94,25 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
   const [showCameraPresets, setShowCameraPresets] = useState(true);
+  const [layersPopoverOpen, setLayersPopoverOpen] = useState(false);
   const animDropdownRef = useRef<HTMLDivElement>(null);
+  const layersPopoverRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
       if (animDropdownRef.current && !animDropdownRef.current.contains(e.target as Node)) {
         setAnimDropdownOpen(false);
       }
+      if (layersPopoverRef.current && !layersPopoverRef.current.contains(e.target as Node)) {
+        setLayersPopoverOpen(false);
+      }
     };
-    if (animDropdownOpen) {
+    if (animDropdownOpen || layersPopoverOpen) {
       document.addEventListener('mousedown', handleOutside);
     }
     return () => document.removeEventListener('mousedown', handleOutside);
-  }, [animDropdownOpen]);
+  }, [animDropdownOpen, layersPopoverOpen]);
 
   // If toolbar is hidden by the master toggle, show the clean floating Show Toolbar button
   if (!isToolbarVisible) {
@@ -374,6 +390,152 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
+
+        {/* Meadow Environment Layers Popover Trigger */}
+        <div className="relative" ref={layersPopoverRef}>
+          <button
+            type="button"
+            onClick={() => setLayersPopoverOpen((prev) => !prev)}
+            title="Meadow Environment Layers Visibility & Controls"
+            className={`px-2 py-1 rounded-xl transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
+              layersPopoverOpen
+                ? 'bg-[#7567C7] text-white shadow-sm ring-1 ring-[#7567C7]/40'
+                : isSpecialSceneActive
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Meadow Layers</span>
+            <span className="text-[9.5px] px-1 py-0.2 rounded bg-black/10 dark:bg-white/10 font-mono">
+              {Object.values(meadowLayers).filter(Boolean).length}/6
+            </span>
+          </button>
+
+          {/* Meadow Environment Layers Popover Menu */}
+          {layersPopoverOpen && (
+            <div className="absolute bottom-full right-0 sm:left-1/2 sm:-translate-x-1/2 mb-2 w-72 sm:w-80 bg-white dark:bg-[#1A1828] rounded-2xl shadow-2xl border border-black/10 dark:border-white/15 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl space-y-3">
+              {/* Popover Header */}
+              <div className="flex items-center justify-between pb-2 border-b border-black/5 dark:border-white/10">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-[#7567C7]" />
+                  <span className="font-bold text-xs text-[#25242A] dark:text-white">
+                    Meadow Environment Layers
+                  </span>
+                </div>
+                {onResetMeadowLayers && (
+                  <button
+                    type="button"
+                    onClick={onResetMeadowLayers}
+                    className="text-[10px] text-[#7567C7] dark:text-[#A898F8] hover:underline font-semibold cursor-pointer"
+                  >
+                    Reset All
+                  </button>
+                )}
+              </div>
+
+              {/* Special Environment Master Switch */}
+              {onToggleSpecialEnvironment && (
+                <div className="p-2.5 rounded-xl bg-purple-500/10 dark:bg-purple-500/15 border border-purple-500/25 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-bold text-purple-900 dark:text-purple-200">
+                      Hina Piano Special Environment
+                    </p>
+                    <p className="text-[9.5px] text-purple-700/80 dark:text-purple-300/80 leading-tight">
+                      Activates meadow when Dress Hina plays solo
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onToggleSpecialEnvironment}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      specialEnvironmentEnabled
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-black/10 dark:bg-white/10 text-[#77747D]'
+                    }`}
+                  >
+                    {specialEnvironmentEnabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              )}
+
+              {/* 6 Independent Meadow Visual Layer Controls */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] uppercase font-bold text-[#77747D] tracking-wider px-1">
+                  Visual Layers ({Object.values(meadowLayers).filter(Boolean).length}/6 ON)
+                </p>
+
+                {(
+                  [
+                    {
+                      key: 'skyAndStarfield' as const,
+                      label: 'Night Sky and Starfield',
+                      desc: 'Procedural sky dome, celestial twilight gradient & twinkling stars',
+                    },
+                    {
+                      key: 'baseGround' as const,
+                      label: 'Base Ground / Meadow Terrain',
+                      desc: 'Lush turf mesh, rolling mounds, horizon ring & contact shadow',
+                    },
+                    {
+                      key: 'grassBlades' as const,
+                      label: '3D Grass Blades',
+                      desc: '2,200 instanced three-dimensional grass blade meshes',
+                    },
+                    {
+                      key: 'grassTufts' as const,
+                      label: 'Grass Tufts and Vegetation',
+                      desc: 'Layered cross-quad natural vegetation tuft clumps',
+                    },
+                    {
+                      key: 'fireflies' as const,
+                      label: 'Fireflies',
+                      desc: 'Floating bioluminescent golden-green glowing orbs & light',
+                    },
+                    {
+                      key: 'meadowLighting' as const,
+                      label: 'Meadow Lighting',
+                      desc: 'Dedicated starlight key, rim silhouette & piano illumination',
+                    },
+                  ]
+                ).map((layer) => {
+                  const isEnabled = meadowLayers[layer.key];
+                  return (
+                    <div
+                      key={layer.key}
+                      className={`p-2 rounded-xl transition-all flex items-center justify-between gap-2 border ${
+                        isEnabled
+                          ? 'bg-black/[0.02] dark:bg-white/[0.04] border-black/5 dark:border-white/5'
+                          : 'bg-black/[0.01] dark:bg-white/[0.01] border-transparent opacity-50'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-1">
+                        <p className="text-[11px] font-bold text-[#25242A] dark:text-white leading-tight">
+                          {layer.label}
+                        </p>
+                        <p className="text-[9.5px] text-[#77747D] dark:text-[#9E9AA6] truncate">
+                          {layer.desc}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => onUpdateMeadowLayers?.({ [layer.key]: !isEnabled })}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
+                          isEnabled
+                            ? 'bg-[#7567C7] text-white shadow-xs'
+                            : 'bg-black/10 dark:bg-white/10 text-[#77747D] hover:bg-black/20'
+                        }`}
+                      >
+                        {isEnabled ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Scene Debugger Toggle Button */}
         {onToggleDebugger && (

@@ -6,6 +6,7 @@ import { LoadedCharacterInstance, CharacterAnimationInfo } from './types';
 import {
   createCharacterVisibilityController,
   CharacterVisibilityController,
+  enforceHinaPianoWeaponHidden,
 } from './characterVisibilityController';
 
 /**
@@ -75,8 +76,14 @@ export function isHinaPianoPerformer(
   const id = (entry.id || '').toLowerCase();
   const filename = (entry.filename || '').toLowerCase();
   const hasHina = name.includes('hina') || id.includes('hina') || filename.includes('hina');
-  const hasDress = name.includes('dress') || id.includes('dress') || filename.includes('dress');
-  return hasHina && hasDress;
+  const hasDressOrPiano =
+    name.includes('dress') ||
+    id.includes('dress') ||
+    filename.includes('dress') ||
+    name.includes('piano') ||
+    id.includes('piano') ||
+    filename.includes('piano');
+  return hasHina && hasDressOrPiano;
 }
 
 /**
@@ -244,6 +251,11 @@ export function useCharacterLoader() {
                 }
               });
 
+              // Enforce floating weapon is hidden immediately on load for Hina with Piano
+              if (isHinaPianoPerformer(entry, scene)) {
+                enforceHinaPianoWeaponHidden(scene);
+              }
+
               scene.updateMatrixWorld(true);
               const box = new THREE.Box3().setFromObject(scene);
               const sphere = new THREE.Sphere();
@@ -348,17 +360,16 @@ export function useCharacterLoader() {
                 }
               }
 
-              // Initial piano visibility based on target animation (only for Hina piano scene)
+              // For Hina with Piano, guarantee the piano and piano seat remain visible and properly scaled at [1,1,1]
               const initialPianoSwitch = scene.getObjectByName('Piano_Switch');
-              if (initialPianoSwitch) {
-                const isExs = currentAnimationName === 'Exs_Cutin' || currentAnimationName === 'exs_cutin';
-                if (isExs && isHinaPiano) {
-                  initialPianoSwitch.scale.set(1, 1, 1);
-                  initialPianoSwitch.visible = true;
-                } else {
-                  initialPianoSwitch.scale.set(0.0001, 0.0001, 0.0001);
-                  initialPianoSwitch.visible = false;
-                }
+              if (initialPianoSwitch && isHinaPiano) {
+                initialPianoSwitch.scale.set(1, 1, 1);
+                initialPianoSwitch.visible = true;
+              }
+
+              // Enforce weapon remains hidden after animation and switch initialization
+              if (isHinaPiano) {
+                enforceHinaPianoWeaponHidden(scene);
               }
 
               const newInstance: LoadedCharacterInstance = {
@@ -475,6 +486,10 @@ export function useCharacterLoader() {
         // Apply visibility directives for this animation
         char.visibilityController?.applyAnimationVisibility(clip);
 
+        if (isHinaPiano) {
+          enforceHinaPianoWeaponHidden(char.scene);
+        }
+
         if (prevAction && prevAction !== nextAction) {
           prevAction.fadeOut(0.2);
           nextAction.reset();
@@ -543,16 +558,15 @@ export function useCharacterLoader() {
       // Apply visibility directives for the new animation clip
       target.visibilityController?.applyAnimationVisibility(clip);
 
-      // Ensure Piano_Switch is visible and scaled when Exs_Cutin piano performance is active for Hina
+      // Ensure Piano_Switch and grand piano are always visible and properly scaled for Hina with Piano
       const pianoSwitch = target.scene.getObjectByName('Piano_Switch');
-      if (pianoSwitch) {
-        if (isExs && isHinaPiano) {
-          pianoSwitch.scale.set(1, 1, 1);
-          pianoSwitch.visible = true;
-        } else {
-          pianoSwitch.scale.set(0.0001, 0.0001, 0.0001);
-          pianoSwitch.visible = false;
-        }
+      if (pianoSwitch && isHinaPiano) {
+        pianoSwitch.scale.set(1, 1, 1);
+        pianoSwitch.visible = true;
+      }
+
+      if (isHinaPiano) {
+        enforceHinaPianoWeaponHidden(target.scene);
       }
 
       // Smooth, clean crossfade without leaving zombie actions in mixer
@@ -605,6 +619,9 @@ export function useCharacterLoader() {
         if (char.id !== instanceId || !char.currentAction) return char;
 
         const isCurrentlyPlaying = char.isPlayingAnimation && !char.currentAction.paused;
+        if (isHinaPianoPerformer(char.manifestEntry, char.scene)) {
+          enforceHinaPianoWeaponHidden(char.scene);
+        }
         if (isCurrentlyPlaying) {
           char.currentAction.paused = true;
           return {

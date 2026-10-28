@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Check, Sun, Moon, CloudRain, Cloud, Sparkles, Snowflake, Compass, Loader2, Palette, Sliders, Wind } from 'lucide-react';
 import { AppTheme, THEME_OPTIONS, ThemeOption, CustomThemeConfig, DEFAULT_CUSTOM_THEME, RainIntensityLevel, RAIN_INTENSITY_LEVELS } from '../types/theme';
 import { CustomThemeEditorModal } from './CustomThemeEditorModal';
+import { loadMusicReactiveEnvSetting, saveMusicReactiveEnvSetting, MUSIC_REACTIVE_ENV_EVENT } from '../utils/environmentSettings';
 
 interface AppearanceSelectorProps {
   currentTheme: AppTheme;
@@ -36,6 +37,29 @@ export const AppearanceSelector: React.FC<AppearanceSelectorProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isCustomEditorOpen, setIsCustomEditorOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const [musicReactiveEnv, setMusicReactiveEnv] = useState<boolean>(() =>
+    loadMusicReactiveEnvSetting()
+  );
+
+  // Synchronize state across UI components
+  useEffect(() => {
+    const handleSync = (e: Event) => {
+      const customEvent = e as CustomEvent<{ enabled: boolean }>;
+      if (customEvent.detail && typeof customEvent.detail.enabled === 'boolean') {
+        setMusicReactiveEnv(customEvent.detail.enabled);
+      } else {
+        setMusicReactiveEnv(loadMusicReactiveEnvSetting());
+      }
+    };
+    window.addEventListener(MUSIC_REACTIVE_ENV_EVENT, handleSync);
+    return () => window.removeEventListener(MUSIC_REACTIVE_ENV_EVENT, handleSync);
+  }, []);
+
+  const handleToggleMusicReactiveEnv = (enabled: boolean) => {
+    setMusicReactiveEnv(enabled);
+    saveMusicReactiveEnvSetting(enabled);
+  };
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -376,6 +400,47 @@ export const AppearanceSelector: React.FC<AppearanceSelectorProps> = ({
                 )}
               </div>
             )}
+
+            {/* Music-Reactive Environment Setting (Hina Piano Sky & Ground) */}
+            <div className="py-2 px-1">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-[#F7F5F2] dark:bg-[#26252F] border border-[#E7E3DF] dark:border-[#2E2C37]">
+                <div className="flex items-center gap-2 pr-2">
+                  <div className="p-1.5 rounded-lg bg-white dark:bg-[#1E1D24] text-[#7567C7] dark:text-[#A898F8] shadow-2xs">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                        Music-Reactive Environment
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-[#77747D] dark:text-[#9E9AA6] leading-tight mt-0.5">
+                      Change the sky and ground when Hina Piano plays music.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="toggle-music-reactive-env"
+                  onClick={() => handleToggleMusicReactiveEnv(!musicReactiveEnv)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    musicReactiveEnv ? 'bg-[#7567C7]' : 'bg-[#E7E3DF] dark:bg-[#403E4C]'
+                  }`}
+                  role="switch"
+                  aria-checked={musicReactiveEnv}
+                  aria-label="Toggle Music-Reactive Environment"
+                  title="Toggle Music-Reactive Environment"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                      musicReactiveEnv ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
 
             {/* Classic Themes */}
             <div className="py-2">

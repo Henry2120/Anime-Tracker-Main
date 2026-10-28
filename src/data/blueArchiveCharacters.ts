@@ -1,7 +1,7 @@
 /**
  * Blue Archive 3D Character Models Manifest
  * Auto-generated from https://github.com/Henry2120/BlueArchiveModels
- * Total Characters: 298
+ * Total Characters: 304 (306 with ensemble performers)
  */
 
 export interface CharacterManifestEntry {
@@ -1800,10 +1800,58 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "name": "Hina (Dress) with Piano",
     "filename": "Hina_Dress_with_Piano.glb",
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Hina_Dress_with_Piano.glb"
+  },
+  {
+    "id": "ako-dress-sax-297",
+    "name": "Ako (Dress) with Saxophone",
+    "filename": "Ako_Dress_Sax.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Ako_Dress_Sax.glb"
+  },
+  {
+    "id": "yuzu-cello-298",
+    "name": "Yuzu with Cello",
+    "filename": "Yuzu_Cello.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Yuzu_Cello.glb"
+  },
+  {
+    "id": "wakamo-swimsuit-vibraphone-299",
+    "name": "Wakamo (Swimsuit) with Vibraphone",
+    "filename": "Wakamo_Swimsuit_Vibraphone.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Wakamo_Swimsuit_Vibraphone.glb"
+  },
+  {
+    "id": "wakamo-swimsuit-vibraphone-mask-on-300",
+    "name": "Wakamo (Swimsuit) with Vibraphone — Mask On",
+    "filename": "Wakamo_Swimsuit_Vibraphone_Mask_On.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Wakamo_Swimsuit_Vibraphone_Mask_On.glb"
+  },
+  {
+    "id": "fuuka-french-horn-301",
+    "name": "Fuuka with French Horn",
+    "filename": "Fuuka_FrenchHorn.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Fuuka_FrenchHorn.glb"
+  },
+  {
+    "id": "nodoka-trumpet-302",
+    "name": "Nodoka with Trumpet",
+    "filename": "Nodoka_Trumpet.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Nodoka_Trumpet.glb"
+  },
+  {
+    "id": "cellist-performer",
+    "name": "Cellist",
+    "filename": "cellist.glb",
+    "url": "/music-lab/musicians/cellist.glb"
+  },
+  {
+    "id": "violinist-performer",
+    "name": "Violinist",
+    "filename": "violinist.glb",
+    "url": "/music-lab/musicians/violinist.glb"
   }
 ];
 
-export const BLUE_ARCHIVE_CHARACTER_COUNT = 298;
+export const BLUE_ARCHIVE_CHARACTER_COUNT = 306;
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);

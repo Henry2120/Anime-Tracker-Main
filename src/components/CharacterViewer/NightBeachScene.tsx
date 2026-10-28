@@ -3,12 +3,31 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { LoadedCharacterInstance } from './types';
 
+export interface MeadowEnvironmentLayers {
+  skyAndStarfield: boolean;
+  baseGround: boolean;
+  grassBlades: boolean;
+  grassTufts: boolean;
+  fireflies: boolean;
+  meadowLighting: boolean;
+}
+
+export const DEFAULT_MEADOW_LAYERS: MeadowEnvironmentLayers = {
+  skyAndStarfield: true,
+  baseGround: true,
+  grassBlades: true,
+  grassTufts: true,
+  fireflies: true,
+  meadowLighting: true,
+};
+
 export interface NightBeachSceneProps {
   characterPosition?: THREE.Vector3;
   character?: LoadedCharacterInstance;
   isPianoVisible?: boolean;
   isPlaying?: boolean;
   isMini?: boolean;
+  layers?: MeadowEnvironmentLayers;
 }
 
 // ============================================================================
@@ -973,6 +992,7 @@ const HinaPerformanceLighting: React.FC<{ isPlaying?: boolean }> = ({ isPlaying 
 export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
   characterPosition = new THREE.Vector3(0, 0, 0),
   isPlaying = false,
+  layers = DEFAULT_MEADOW_LAYERS,
 }) => {
   const { camera } = useThree();
 
@@ -986,60 +1006,90 @@ export const NightBeachScene: React.FC<NightBeachSceneProps> = ({
   return (
     <group name="NightMeadowScene_Root">
       {/* 1. Seamless Procedural Sky Dome & Twinkling Starfield (EXACTLY PRESERVED) */}
-      <ProceduralSkyDome />
-      <TwinklingStarfield />
-      <ShootingMeteors />
+      {layers.skyAndStarfield && (
+        <group name="Layer_SkyAndStarfield">
+          <ProceduralSkyDome />
+          <TwinklingStarfield />
+          <ShootingMeteors />
+        </group>
+      )}
 
       {/* 2. Natural Lush Grass Meadow Ground (Stable flat center for Hina & Piano) */}
-      <NaturalGrassMeadow characterPosition={characterPosition} />
+      {layers.baseGround && (
+        <group name="Layer_BaseGround">
+          <NaturalGrassMeadow characterPosition={characterPosition} />
+        </group>
+      )}
 
       {/* 3. Visibly Three-Dimensional Instanced 3D Grass Blades (Rich depth from front camera) */}
-      <Instanced3DGrassMeadow />
+      {layers.grassBlades && (
+        <group name="Layer_GrassBlades">
+          <Instanced3DGrassMeadow />
+        </group>
+      )}
 
       {/* 4. Layered Grass Tufts & Vegetation Clumps */}
-      <GrassTuftsField />
+      {layers.grassTufts && (
+        <group name="Layer_GrassTufts">
+          <GrassTuftsField />
+        </group>
+      )}
 
-      {/* 5. Magical Glowing Fireflies (Bioluminescent floating orbs) */}
-      <MeadowFireflies isPlaying={isPlaying} />
+      {/* 5. Magical Glowing Fireflies (Bioluminescent floating orbs) - Independent of ground/grass */}
+      {layers.fireflies && (
+        <group name="Layer_Fireflies">
+          <MeadowFireflies isPlaying={isPlaying} />
+        </group>
+      )}
 
-      {/* 6. Subtle Local Lighting around Hina's Piano Performance */}
-      <HinaPerformanceLighting isPlaying={isPlaying} />
+      {/* 6. Meadow Lighting (Independent of sky and ground) */}
+      {layers.meadowLighting ? (
+        <group name="Layer_MeadowLighting">
+          {/* Subtle Local Lighting around Hina's Piano Performance */}
+          <HinaPerformanceLighting isPlaying={isPlaying} />
 
-      {/* 7. Balanced Moonless Night Meadow Lighting */}
-      {/* Cool Celestial Starlight Key Light */}
-      <directionalLight
-        position={[5, 18, -10]}
-        intensity={1.6}
-        color="#D4ECFF" // Crisp cool starlight cyan-white
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-bias={-0.0004}
-      />
+          {/* Cool Celestial Starlight Key Light */}
+          <directionalLight
+            position={[5, 18, -10]}
+            intensity={1.6}
+            color="#D4ECFF" // Crisp cool starlight cyan-white
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-bias={-0.0004}
+          />
 
-      {/* Midnight Sapphire & Forest Ambient Light */}
-      <ambientLight intensity={1.15} color="#102521" />
+          {/* Midnight Sapphire & Forest Ambient Light */}
+          <ambientLight intensity={1.15} color="#102521" />
 
-      {/* Upward Diffuse Meadow Bounce Light (soft green-tinted ground bounce) */}
-      <directionalLight
-        position={[0, -5, 2]}
-        intensity={0.4}
-        color="#1f5431"
-      />
+          {/* Upward Diffuse Meadow Bounce Light (soft green-tinted ground bounce) */}
+          <directionalLight
+            position={[0, -5, 2]}
+            intensity={0.4}
+            color="#1f5431"
+          />
 
-      {/* Cool Starlight Rim Backlight (silhouette separation for Hina & piano) */}
-      <directionalLight
-        position={[-8, 7, -12]}
-        intensity={0.85}
-        color="#8EC1F8"
-      />
+          {/* Cool Starlight Rim Backlight (silhouette separation for Hina & piano) */}
+          <directionalLight
+            position={[-8, 7, -12]}
+            intensity={0.85}
+            color="#8EC1F8"
+          />
 
-      {/* Soft Front Key (clean illumination for character expression, dress, and piano keys) */}
-      <directionalLight
-        position={[0, 3.2, 5.5]}
-        intensity={0.7}
-        color="#F2F7FF"
-      />
+          {/* Soft Front Key (clean illumination for character expression, dress, and piano keys) */}
+          <directionalLight
+            position={[0, 3.2, 5.5]}
+            intensity={0.7}
+            color="#F2F7FF"
+          />
+        </group>
+      ) : (
+        /* Neutral viewer lighting fallback so characters/models remain visible without darkening whole app */
+        <group name="Layer_MeadowLightingFallback">
+          <ambientLight intensity={0.9} color="#FFFFFF" />
+          <directionalLight position={[3, 6, 4]} intensity={1.2} color="#FFFFFF" />
+        </group>
+      )}
     </group>
   );
 };

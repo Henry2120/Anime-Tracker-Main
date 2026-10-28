@@ -23,6 +23,7 @@ import {
   BLUE_ARCHIVE_CHARACTERS,
   CharacterManifestEntry,
 } from '../../data/blueArchiveCharacters';
+import manifestData from '../../data/blueArchiveManifest.json';
 import { LoadedCharacterInstance } from './types';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 
@@ -64,27 +65,49 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
   const isDark = isDarkThemeFamily(theme);
   const isSakura = theme === 'sakura';
 
+  // Complete available character list combining base manifest and any new manifest entries
+  const allAvailableCharacters = useMemo(() => {
+    const list: CharacterManifestEntry[] = [...BLUE_ARCHIVE_CHARACTERS];
+    const existingIds = new Set(list.map((c) => c.id.toLowerCase()));
+    const existingFilenames = new Set(list.map((c) => c.filename.toLowerCase()));
+
+    (manifestData as any[]).forEach((m) => {
+      if (!existingIds.has(m.id.toLowerCase()) && !existingFilenames.has(m.filename.toLowerCase())) {
+        list.push({
+          id: m.id,
+          name: m.displayName || m.name,
+          filename: m.filename,
+          url: m.url,
+        });
+        existingIds.add(m.id.toLowerCase());
+        existingFilenames.add(m.filename.toLowerCase());
+      }
+    });
+
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
   // Extract unique starting letters for quick alphabetic jump
   const alphabetList = useMemo(() => {
     const letters = new Set<string>();
-    BLUE_ARCHIVE_CHARACTERS.forEach((c) => {
+    allAvailableCharacters.forEach((c) => {
       const firstChar = c.name.charAt(0).toUpperCase();
       if (/[A-Z]/.test(firstChar)) {
         letters.add(firstChar);
       }
     });
     return ['ALL', ...Array.from(letters).sort()];
-  }, []);
+  }, [allAvailableCharacters]);
 
-  // Filtered 295 roster
+  // Filtered roster
   const filteredCharacters = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return BLUE_ARCHIVE_CHARACTERS.filter((c) => {
+    return allAvailableCharacters.filter((c) => {
       const matchesQuery = !query || c.name.toLowerCase().includes(query) || c.filename.toLowerCase().includes(query);
       const matchesLetter = alphabetFilter === 'ALL' || c.name.toUpperCase().startsWith(alphabetFilter);
       return matchesQuery && matchesLetter;
     });
-  }, [searchQuery, alphabetFilter]);
+  }, [allAvailableCharacters, searchQuery, alphabetFilter]);
 
   // Check if a manifest entry is currently loaded in scene
   const isCharacterLoaded = (characterId: string) => {
@@ -106,7 +129,7 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
               Blue Archive Character Roster
             </h2>
             <p className="text-[11px] text-[#77747D] dark:text-[#9E9AA6]">
-              {BLUE_ARCHIVE_CHARACTERS.length} Public GLB 3D Models
+              {allAvailableCharacters.length} Public GLB 3D Models
             </p>
           </div>
         </div>

@@ -2,6 +2,11 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { LoadedCharacterInstance } from './types';
+import {
+  enforceHinaPianoWeaponHidden,
+  isHinaPianoWeaponObject,
+} from './characterVisibilityController';
+import { isHinaPianoPerformer } from './useCharacterLoader';
 
 interface CharacterInstanceMeshProps {
   instance: LoadedCharacterInstance;
@@ -19,6 +24,27 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   receiveShadow = true,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const isHinaPiano = isHinaPianoPerformer(instance.manifestEntry, instance.scene);
+  const weaponObjectsRef = useRef<THREE.Object3D[]>([]);
+
+  // Discover and enforce weapon hidden state for Hina with Piano
+  useEffect(() => {
+    if (!instance.scene) return;
+
+    if (isHinaPiano) {
+      enforceHinaPianoWeaponHidden(instance.scene);
+      const weapons: THREE.Object3D[] = [];
+      instance.scene.traverse((obj) => {
+        if (isHinaPianoWeaponObject(obj)) {
+          obj.visible = false;
+          weapons.push(obj);
+        }
+      });
+      weaponObjectsRef.current = weapons;
+    } else {
+      weaponObjectsRef.current = [];
+    }
+  }, [instance.scene, isHinaPiano]);
 
   // =========================================================================
   // ANIMATION MIXER FRAME UPDATE (Part 4)
@@ -29,6 +55,16 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
       // Clamp delta to avoid huge time jumps when switching tabs
       const safeDelta = Math.min(delta, 0.1);
       instance.mixer.update(safeDelta);
+
+      // Guarantee the detached weapon remains hidden across every animation frame
+      if (isHinaPiano && weaponObjectsRef.current.length > 0) {
+        for (let i = 0; i < weaponObjectsRef.current.length; i++) {
+          const w = weaponObjectsRef.current[i];
+          if (w.visible) {
+            w.visible = false;
+          }
+        }
+      }
     }
   });
 
@@ -36,7 +72,17 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   useEffect(() => {
     if (!instance.scene) return;
 
+    if (isHinaPiano) {
+      enforceHinaPianoWeaponHidden(instance.scene);
+    }
+
     instance.scene.traverse((obj) => {
+      // Skip weapon objects so they are never inadvertently made visible
+      if (isHinaPiano && isHinaPianoWeaponObject(obj)) {
+        obj.visible = false;
+        return;
+      }
+
       if ((obj as THREE.Mesh).isMesh) {
         const mesh = obj as THREE.Mesh;
         mesh.castShadow = castShadow;
@@ -52,7 +98,7 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
         }
       }
     });
-  }, [instance.scene, wireframe, castShadow, receiveShadow]);
+  }, [instance.scene, wireframe, castShadow, receiveShadow, isHinaPiano]);
 
   if (!instance.visible) return null;
 

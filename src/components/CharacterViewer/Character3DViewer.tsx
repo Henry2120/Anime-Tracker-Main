@@ -22,6 +22,8 @@ import {
   Moon,
   Waves,
   Sparkles,
+  Activity,
+  Box,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import {
@@ -36,8 +38,9 @@ import { CharacterBrowserDrawer } from './CharacterBrowserDrawer';
 import { CharacterViewerToolbar } from './CharacterViewerToolbar';
 import { getConcertSlotTransform } from './concertConfig';
 import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
-import { NightBeachScene } from './NightBeachScene';
+import { NightBeachScene, MeadowEnvironmentLayers, DEFAULT_MEADOW_LAYERS } from './NightBeachScene';
 import { SceneDebuggerPanel, SceneDebuggerData } from './SceneDebuggerPanel';
+import { InstrumentAnalysisView } from './InstrumentAnalysisView';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -364,6 +367,27 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const [isDebuggerOpen, setIsDebuggerOpen] = useState(false);
   const [runtimeErrors, setRuntimeErrors] = useState<{ timestamp: string; subsystem: string; message: string }[]>([]);
 
+  // Standalone Feature Tabs: 'viewer' (3D Viewer) vs 'analysis' (Instrument Analysis)
+  const [activeTab, setActiveTab] = useState<'viewer' | 'analysis'>('viewer');
+
+  // Independent Meadow Environment Layers (all default to ON = true)
+  const [meadowLayers, setMeadowLayers] = useState<MeadowEnvironmentLayers>(DEFAULT_MEADOW_LAYERS);
+
+  // Special Hina Piano Environment master toggle (defaults to ON = true)
+  const [specialEnvironmentEnabled, setSpecialEnvironmentEnabled] = useState<boolean>(true);
+
+  const handleUpdateMeadowLayers = useCallback((updated: Partial<MeadowEnvironmentLayers>) => {
+    setMeadowLayers((prev) => ({ ...prev, ...updated }));
+  }, []);
+
+  const handleResetMeadowLayers = useCallback(() => {
+    setMeadowLayers(DEFAULT_MEADOW_LAYERS);
+  }, []);
+
+  const handleToggleSpecialEnvironment = useCallback(() => {
+    setSpecialEnvironmentEnabled((prev) => !prev);
+  }, []);
+
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
   // Multi-GLB Character Loader with Concert Animation Support (Starts empty with 0 characters)
@@ -413,12 +437,12 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     return isHina && isDress;
   }, [loadedCharacters]);
 
-  // Activate the beach only when both conditions are satisfied:
+  // Activate the meadow only when all conditions are satisfied:
   // 1. Dress Hina is the only character placed in the 3D viewer.
   // 2. The existing music player reports that music is actively playing.
-  // When either condition becomes false (e.g. music paused/stopped, or performer changed),
-  // disable the beach environment and restore the existing stage appearance immediately.
-  const isSpecialSceneActive = isDressHinaAlone && isPlaying;
+  // 3. The special environment manual switch is enabled.
+  // When any condition becomes false, disable the meadow and restore the normal viewer environment immediately.
+  const isSpecialSceneActive = isDressHinaAlone && isPlaying && specialEnvironmentEnabled;
 
   const loadedCharactersRef = useRef(loadedCharacters);
   useEffect(() => {
@@ -688,10 +712,68 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       className={`relative w-full h-full min-h-0 flex-1 overflow-hidden flex flex-col select-none ${containerBg} ${className}`}
     >
       {/* =========================================================================
-          FULL PRESENTATION MODE: TOP YOUTUBE INPUT & CONTROL BAR
+          TOP NAVIGATION TABS: 3D VIEWER vs INSTRUMENT ANALYSIS
           ========================================================================= */}
       {!isMini && (
-        <div className="shrink-0 z-20 px-3 sm:px-4 py-2.5 bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="shrink-0 z-30 px-3 sm:px-4 py-2 bg-white/95 dark:bg-[#161422]/95 backdrop-blur-md border-b border-black/10 dark:border-white/10 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('viewer')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'viewer'
+                  ? 'bg-[#7567C7] text-white shadow-sm'
+                  : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              <Box className="h-3.5 w-3.5" />
+              <span>3D Viewer</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('analysis')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'analysis'
+                  ? 'bg-[#7567C7] text-white shadow-sm'
+                  : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Instrument Analysis</span>
+            </button>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 text-xs text-[#77747D] dark:text-[#9E9AA6]">
+            {activeTab === 'viewer' ? (
+              <span className="font-semibold">
+                {loadedCharacters.length} Performer{loadedCharacters.length !== 1 ? 's' : ''} on Stage
+              </span>
+            ) : (
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                Isolated Track Analysis Interface
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Standalone Instrument Analysis Tab Panel */}
+      {activeTab === 'analysis' && !isMini && (
+        <InstrumentAnalysisView theme={theme} />
+      )}
+
+      {/* 3D Viewer Stage Container (Kept in DOM so WebGL canvas & performers persist seamlessly) */}
+      <div
+        className={`flex-1 min-h-0 w-full h-full flex-col overflow-hidden relative ${
+          activeTab === 'viewer' || isMini ? 'flex' : 'hidden'
+        }`}
+      >
+        {/* =========================================================================
+            FULL PRESENTATION MODE: TOP YOUTUBE INPUT & CONTROL BAR
+            ========================================================================= */}
+        {!isMini && (
+          <div className="shrink-0 z-20 px-3 sm:px-4 py-2.5 bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-2.5">
           {/* Direct YouTube Input Bar */}
           <div className="flex flex-1 items-center gap-2 min-w-[260px] max-w-xl">
             <div className="relative flex-1">
@@ -910,6 +992,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 character={loadedCharacters[0]}
                 isPlaying={isPlaying}
                 isMini={isMini}
+                layers={meadowLayers}
               />
             ) : (
               <ViewerEnvironment3D environment={environment} />
@@ -1039,6 +1122,11 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             isSpecialSceneActive={isSpecialSceneActive}
             isDebuggerOpen={isDebuggerOpen}
             onToggleDebugger={() => setIsDebuggerOpen((prev) => !prev)}
+            meadowLayers={meadowLayers}
+            onUpdateMeadowLayers={handleUpdateMeadowLayers}
+            onResetMeadowLayers={handleResetMeadowLayers}
+            specialEnvironmentEnabled={specialEnvironmentEnabled}
+            onToggleSpecialEnvironment={handleToggleSpecialEnvironment}
           />
         )}
 
@@ -1073,5 +1161,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
         />
       </div>
     </div>
+  </div>
   );
 };

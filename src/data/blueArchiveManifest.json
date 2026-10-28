@@ -322,6 +322,13 @@
     "fileSize": 132
   },
   {
+    "id": "fuuka-french-horn",
+    "displayName": "Fuuka with French Horn",
+    "filename": "Fuuka_FrenchHorn.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Fuuka_FrenchHorn.glb",
+    "fileSize": 132
+  },
+  {
     "id": "fuyu",
     "displayName": "Fuyu",
     "filename": "Fuyu.glb",
@@ -1358,6 +1365,13 @@
     "fileSize": 132
   },
   {
+    "id": "nodoka-trumpet",
+    "displayName": "Nodoka with Trumpet",
+    "filename": "Nodoka_Trumpet.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Nodoka_Trumpet.glb",
+    "fileSize": 132
+  },
+  {
     "id": "nonomi-swimsuit",
     "displayName": "Nonomi (Swimsuit)",
     "filename": "Nonomi (Swimsuit).glb",
@@ -2084,5 +2098,29 @@
     "filename": "Hina_Dress_with_Piano.glb",
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Hina_Dress_with_Piano.glb",
     "fileSize": 10831408
+  },
+  {
+    "id": "ako-dress-sax",
+    "displayName": "Ako (Dress) with Saxophone",
+    "filename": "Ako_Dress_Sax.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Ako_Dress_Sax.glb"
+  },
+  {
+    "id": "yuzu-cello",
+    "displayName": "Yuzu with Cello",
+    "filename": "Yuzu_Cello.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Yuzu_Cello.glb"
+  },
+  {
+    "id": "wakamo-swimsuit-vibraphone",
+    "displayName": "Wakamo (Swimsuit) with Vibraphone",
+    "filename": "Wakamo_Swimsuit_Vibraphone.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Wakamo_Swimsuit_Vibraphone.glb"
+  },
+  {
+    "id": "wakamo-swimsuit-vibraphone-mask-on",
+    "displayName": "Wakamo (Swimsuit) with Vibraphone — Mask On",
+    "filename": "Wakamo_Swimsuit_Vibraphone_Mask_On.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Wakamo_Swimsuit_Vibraphone_Mask_On.glb"
   }
 ]

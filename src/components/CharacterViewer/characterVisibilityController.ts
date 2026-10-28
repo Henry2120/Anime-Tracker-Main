@@ -159,6 +159,57 @@ function resolveClip(
 }
 
 /**
+ * Detects whether an object in the scene belongs to Hina's detached floating machine gun.
+ * Verified against GLB hierarchy: Node 180 "CH0230_Weapon" / Three.js "CH0230_Weapon_1" with material "Hina_Original_Weapon".
+ */
+export function isHinaPianoWeaponObject(obj: THREE.Object3D): boolean {
+  if (
+    obj.name === 'CH0230_Weapon' ||
+    obj.name === 'CH0230_Weapon_1' ||
+    obj.name.startsWith('CH0230_Weapon') ||
+    obj.name === 'Bip001_Weapon' ||
+    obj.name === 'Bip001_Weapon_02' ||
+    obj.name.startsWith('bone_Weapon')
+  ) {
+    return true;
+  }
+  if ((obj as THREE.Mesh).isMesh) {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.material) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (mats.some((m) => m && m.name === 'Hina_Original_Weapon')) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Specifically hides the floating machine gun weapon mesh in Hina with Piano:
+ * Sets mesh and material visibility to false while strictly preserving Hina's body,
+ * dress, arms, hands, hair, halo, facial morphs, sheet music, and grand piano/seat.
+ */
+export function enforceHinaPianoWeaponHidden(scene: THREE.Object3D): void {
+  if (!scene) return;
+  scene.traverse((obj) => {
+    if (isHinaPianoWeaponObject(obj)) {
+      obj.visible = false;
+      if ((obj as THREE.Mesh).isMesh && (obj as THREE.Mesh).material) {
+        const mats = Array.isArray((obj as THREE.Mesh).material)
+          ? ((obj as THREE.Mesh).material as THREE.Material[])
+          : [(obj as THREE.Mesh).material as THREE.Material];
+        mats.forEach((m) => {
+          if (m && m.name === 'Hina_Original_Weapon') {
+            m.visible = false;
+          }
+        });
+      }
+    }
+  });
+}
+
+/**
  * Creates a generic, reusable visibility controller for a loaded GLTF scene.
  * Inspects node and animation extras, builds a deterministic mapping,
  * and synchronizes object visibility with active animation selection.
@@ -167,6 +218,8 @@ export function createCharacterVisibilityController(
   scene: THREE.Object3D,
   animations: THREE.AnimationClip[]
 ): CharacterVisibilityController {
+  const isHinaWithPiano = Boolean(scene.getObjectByName('Piano_Switch'));
+
   // 1. Gather all switch identifiers referenced in any animation clip
   const knownAnimationSwitches = new Set<string>();
   animations.forEach((clip) => {
@@ -181,6 +234,13 @@ export function createCharacterVisibilityController(
   const switchMap = new Map<string, Set<THREE.Object3D>>();
 
   scene.traverse((obj) => {
+    // If this is Hina with Piano, ensure the detached weapon is recorded as hidden at baseline
+    if (isHinaWithPiano && isHinaPianoWeaponObject(obj)) {
+      obj.visible = false;
+      baselineVisibility.set(obj, false);
+      return;
+    }
+
     const switchIds = extractSwitchIdsFromObject(obj.userData, knownAnimationSwitches);
 
     // Also check if object name itself matches any known switch identifier
@@ -213,6 +273,9 @@ export function createCharacterVisibilityController(
     for (const [obj, baseline] of baselineVisibility) {
       obj.visible = baseline;
     }
+    if (isHinaWithPiano) {
+      enforceHinaPianoWeaponHidden(scene);
+    }
   };
 
   const applyAnimationVisibility = (clipOrName: THREE.AnimationClip | string | null | undefined) => {
@@ -225,7 +288,10 @@ export function createCharacterVisibilityController(
     if (!clip) return;
 
     const { hide, show } = extractVisibilityDirectives(clip);
-    if (hide.length === 0 && show.length === 0) return;
+    if (hide.length === 0 && show.length === 0) {
+      if (isHinaWithPiano) enforceHinaPianoWeaponHidden(scene);
+      return;
+    }
 
     // Apply visibility state deterministically per object:
     // 1. Check if any associated switch is in 'show' -> visible = true
@@ -252,10 +318,17 @@ export function createCharacterVisibilityController(
         }
       });
     }
+
+    if (isHinaWithPiano) {
+      enforceHinaPianoWeaponHidden(scene);
+    }
   };
 
   const dispose = () => {
     resetToBaseline();
+    if (isHinaWithPiano) {
+      enforceHinaPianoWeaponHidden(scene);
+    }
     baselineVisibility.clear();
     objectToSwitches.clear();
     switchMap.clear();
