@@ -335,7 +335,7 @@ function createGrassBladeGeometry(): THREE.BufferGeometry {
 // 1. PROCEDURAL SKY DOME (EXACTLY PRESERVED)
 // ============================================================================
 
-const ProceduralSkyDome: React.FC = () => {
+export const ProceduralSkyDome: React.FC = () => {
   const skyTexture = useMemo(() => createProceduralSkyTexture(), []);
 
   return (
@@ -354,7 +354,7 @@ const ProceduralSkyDome: React.FC = () => {
 // TWINKLING STARFIELD (EXACTLY PRESERVED)
 // ============================================================================
 
-const TwinklingStarfield: React.FC = () => {
+export const TwinklingStarfield: React.FC = () => {
   const pointsRef = useRef<THREE.Points>(null);
   const starTexture = useMemo(() => createStarDotTexture(), []);
   const starCount = 650;
@@ -422,7 +422,7 @@ const TwinklingStarfield: React.FC = () => {
 // SHOOTING METEORS (EXACTLY PRESERVED)
 // ============================================================================
 
-const ShootingMeteors: React.FC = () => {
+export const ShootingMeteors: React.FC = () => {
   const lineRef = useRef<THREE.LineSegments>(null);
   const meteorCount = 3;
 
@@ -518,8 +518,8 @@ const ShootingMeteors: React.FC = () => {
 // undulations in the distance.
 // ============================================================================
 
-const NaturalGrassMeadow: React.FC<{ characterPosition: THREE.Vector3 }> = ({
-  characterPosition,
+export const NaturalGrassMeadow: React.FC<{ characterPosition?: THREE.Vector3 }> = ({
+  characterPosition = new THREE.Vector3(0, 0, 0),
 }) => {
   const grassTexture = useMemo(() => createGrassTurfTexture(), []);
   const shadowTexture = useMemo(() => createSoftContactShadowTexture(), []);
@@ -822,7 +822,7 @@ const GrassTuftsField: React.FC = () => {
 // Floating bioluminescent warm golden-green orbs drifting across the meadow
 // ============================================================================
 
-const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false }) => {
+export const MeadowFireflies: React.FC<{ isPlaying?: boolean }> = ({ isPlaying = false }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const fireflyCount = 80;
   const glowTexture = useMemo(() => createFireflyGlowTexture(), []);

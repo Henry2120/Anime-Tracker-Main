@@ -26,6 +26,7 @@ import {
 import manifestData from '../../data/blueArchiveManifest.json';
 import { LoadedCharacterInstance } from './types';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
+import { getCharacterRole } from '../../data/characterRoles';
 
 interface CharacterBrowserDrawerProps {
   theme: AppTheme;
@@ -103,7 +104,13 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
   const filteredCharacters = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return allAvailableCharacters.filter((c) => {
-      const matchesQuery = !query || c.name.toLowerCase().includes(query) || c.filename.toLowerCase().includes(query);
+      const role = getCharacterRole(c);
+      const roleTag = role ? role.roleTag.toLowerCase() : '';
+      const matchesQuery =
+        !query ||
+        c.name.toLowerCase().includes(query) ||
+        c.filename.toLowerCase().includes(query) ||
+        roleTag.includes(query);
       const matchesLetter = alphabetFilter === 'ALL' || c.name.toUpperCase().startsWith(alphabetFilter);
       return matchesQuery && matchesLetter;
     });
@@ -255,6 +262,7 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
               filteredCharacters.map((char) => {
                 const loaded = isCharacterLoaded(char.id);
                 const isCurrentLoading = loadingCharacter?.id === char.id;
+                const role = getCharacterRole(char);
 
                 return (
                   <div
@@ -273,10 +281,12 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
                         <span className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7] truncate">
                           {char.name}
                         </span>
-                        {char.filename === 'Hina_Dress_with_Piano.glb' && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-400/40 text-[9px] font-bold shrink-0 flex items-center gap-1">
-                            <Flame className="h-2.5 w-2.5 text-cyan-400 fill-cyan-400" />
-                            <span>Cut-in Scene</span>
+                        {role && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-md border text-[9.5px] font-bold shrink-0 flex items-center gap-1 shadow-2xs ${role.colorClass}`}
+                            title={`Assigned Role: ${role.roleTag} (${role.category})`}
+                          >
+                            <span>[{role.roleTag}]</span>
                           </span>
                         )}
                         {loaded && (
@@ -368,13 +378,21 @@ export const CharacterBrowserDrawer: React.FC<CharacterBrowserDrawerProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-[#7567C7] text-white text-[10px] font-bold flex items-center justify-center">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-5 h-5 rounded-full bg-[#7567C7] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
                           {index + 1}
                         </span>
                         <span className="font-bold text-xs text-[#25242A] dark:text-white">
                           {char.manifestEntry.name}
                         </span>
+                        {(() => {
+                          const r = getCharacterRole(char.manifestEntry);
+                          return r ? (
+                            <span className={`px-1.5 py-0.5 rounded-md border text-[9px] font-bold shrink-0 ${r.colorClass}`}>
+                              [{r.roleTag}]
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
 
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>

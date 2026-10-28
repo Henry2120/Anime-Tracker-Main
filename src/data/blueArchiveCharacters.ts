@@ -1838,6 +1838,30 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Nodoka_Trumpet.glb"
   },
   {
+    "id": "akari-new-year-shamisen-303",
+    "name": "Akari (New Year) with Shamisen",
+    "filename": "Akari_New_Year_Shamisen.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Akari_New_Year_Shamisen.glb"
+  },
+  {
+    "id": "kikyou-swimsuit-special-304",
+    "name": "Kikyou (Swimsuit) (Special)",
+    "filename": "Kikyou (Swimsuit) (Special).glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Kikyou%20(Swimsuit)%20(Special).glb"
+  },
+  {
+    "id": "maki-camping-flute-305",
+    "name": "Maki (Camping) with Flute",
+    "filename": "Maki_Camping_Flute.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Maki_Camping_Flute.glb"
+  },
+  {
+    "id": "reisa-magical-special-306",
+    "name": "Reisa (Magical) (Special)",
+    "filename": "Reisa (Magical) (Special).glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Reisa%20(Magical)%20(Special).glb"
+  },
+  {
     "id": "cellist-performer",
     "name": "Cellist",
     "filename": "cellist.glb",
@@ -1851,7 +1875,7 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
   }
 ];
 
-export const BLUE_ARCHIVE_CHARACTER_COUNT = 306;
+export const BLUE_ARCHIVE_CHARACTER_COUNT = 310;
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);

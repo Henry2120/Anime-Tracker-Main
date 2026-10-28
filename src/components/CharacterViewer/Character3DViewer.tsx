@@ -24,6 +24,7 @@ import {
   Sparkles,
   Activity,
   Box,
+  Compass,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import {
@@ -38,9 +39,19 @@ import { CharacterBrowserDrawer } from './CharacterBrowserDrawer';
 import { CharacterViewerToolbar } from './CharacterViewerToolbar';
 import { getConcertSlotTransform } from './concertConfig';
 import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
-import { NightBeachScene, MeadowEnvironmentLayers, DEFAULT_MEADOW_LAYERS } from './NightBeachScene';
+import {
+  NightBeachScene,
+  MeadowEnvironmentLayers,
+  DEFAULT_MEADOW_LAYERS,
+} from './NightBeachScene';
 import { SceneDebuggerPanel, SceneDebuggerData } from './SceneDebuggerPanel';
 import { InstrumentAnalysisView } from './InstrumentAnalysisView';
+import { EnvironmentPreviewPanel } from './EnvironmentPreviewPanel';
+import { CompositeEnvironment } from './scenery/CompositeEnvironment';
+import {
+  SceneryConfig,
+  DEFAULT_SCENERY_CONFIG,
+} from './scenery/sceneryTypes';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -367,8 +378,29 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const [isDebuggerOpen, setIsDebuggerOpen] = useState(false);
   const [runtimeErrors, setRuntimeErrors] = useState<{ timestamp: string; subsystem: string; message: string }[]>([]);
 
-  // Standalone Feature Tabs: 'viewer' (3D Viewer) vs 'analysis' (Instrument Analysis)
-  const [activeTab, setActiveTab] = useState<'viewer' | 'analysis'>('viewer');
+  // Standalone Feature Tabs: 'viewer' (3D Viewer) vs 'analysis' (Instrument Analysis) vs 'environment' (Environment Preview)
+  const [activeTab, setActiveTab] = useState<'viewer' | 'analysis' | 'environment'>('viewer');
+
+  // Independent Custom Scenery Configuration & Preview States
+  const [previewSceneryConfig, setPreviewSceneryConfig] = useState<SceneryConfig>(DEFAULT_SCENERY_CONFIG);
+  const [appliedSceneryConfig, setAppliedSceneryConfig] = useState<SceneryConfig>(DEFAULT_SCENERY_CONFIG);
+  const [isCustomSceneryActive, setIsCustomSceneryActive] = useState<boolean>(false);
+
+  const handleApplyEnvironment = useCallback(() => {
+    setAppliedSceneryConfig({ ...previewSceneryConfig });
+    setIsCustomSceneryActive(true);
+  }, [previewSceneryConfig]);
+
+  const handleResetEnvironment = useCallback(() => {
+    setPreviewSceneryConfig(DEFAULT_SCENERY_CONFIG);
+    setAppliedSceneryConfig(DEFAULT_SCENERY_CONFIG);
+    setIsCustomSceneryActive(false);
+  }, []);
+
+  const handleEnterViewportPreview = useCallback(() => {
+    setIsCustomSceneryActive(true);
+    setActiveTab('viewer');
+  }, []);
 
   // Independent Meadow Environment Layers (all default to ON = true)
   const [meadowLayers, setMeadowLayers] = useState<MeadowEnvironmentLayers>(DEFAULT_MEADOW_LAYERS);
@@ -443,6 +475,14 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   // 3. The special environment manual switch is enabled.
   // When any condition becomes false, disable the meadow and restore the normal viewer environment immediately.
   const isSpecialSceneActive = isDressHinaAlone && isPlaying && specialEnvironmentEnabled;
+
+  const activeCustomConfig = useMemo(() => {
+    return isCustomSceneryActive ? previewSceneryConfig : appliedSceneryConfig;
+  }, [isCustomSceneryActive, previewSceneryConfig, appliedSceneryConfig]);
+
+  const isCustomEnvActive = useMemo(() => {
+    return isCustomSceneryActive && Object.values(activeCustomConfig).some(Boolean);
+  }, [isCustomSceneryActive, activeCustomConfig]);
 
   const loadedCharactersRef = useRef(loadedCharacters);
   useEffect(() => {
@@ -742,6 +782,19 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               <Activity className="h-3.5 w-3.5 text-emerald-500" />
               <span>Instrument Analysis</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('environment')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'environment'
+                  ? 'bg-[#7567C7] text-white shadow-sm'
+                  : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
+              }`}
+            >
+              <Compass className="h-3.5 w-3.5 text-purple-400" />
+              <span>Environment Preview</span>
+            </button>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 text-xs text-[#77747D] dark:text-[#9E9AA6]">
@@ -749,9 +802,13 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
               <span className="font-semibold">
                 {loadedCharacters.length} Performer{loadedCharacters.length !== 1 ? 's' : ''} on Stage
               </span>
-            ) : (
+            ) : activeTab === 'analysis' ? (
               <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                 Isolated Track Analysis Interface
+              </span>
+            ) : (
+              <span className="font-semibold text-purple-600 dark:text-purple-400">
+                Independent Stage Scenery Customizer
               </span>
             )}
           </div>
@@ -761,6 +818,20 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       {/* Standalone Instrument Analysis Tab Panel */}
       {activeTab === 'analysis' && !isMini && (
         <InstrumentAnalysisView theme={theme} />
+      )}
+
+      {/* Standalone Environment Preview Tab Panel */}
+      {activeTab === 'environment' && !isMini && (
+        <EnvironmentPreviewPanel
+          theme={theme}
+          previewConfig={previewSceneryConfig}
+          appliedConfig={appliedSceneryConfig}
+          isPreviewActive={isCustomSceneryActive}
+          onUpdatePreviewConfig={setPreviewSceneryConfig}
+          onApplyEnvironment={handleApplyEnvironment}
+          onResetEnvironment={handleResetEnvironment}
+          onEnterViewportPreview={handleEnterViewportPreview}
+        />
       )}
 
       {/* 3D Viewer Stage Container (Kept in DOM so WebGL canvas & performers persist seamlessly) */}
@@ -968,8 +1039,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           style={{ width: '100%', height: '100%', display: 'block' }}
         >
           <Suspense fallback={null}>
-            {/* White Background Consistency for standard viewer modes */}
-            {!isSpecialSceneActive && (
+            {/* White Background Consistency for standard viewer modes when no custom sky/environment */}
+            {!isSpecialSceneActive && !isCustomEnvActive && (
               <color
                 attach="background"
                 args={[
@@ -981,12 +1052,18 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                     ? '#FDF6F8'
                     : environment === 'sunset'
                     ? '#2A1D2D'
-                    : '#FFFFFF'
+                    : '#FFFFFF',
                 ]}
               />
             )}
 
-            {isSpecialSceneActive ? (
+            {isCustomEnvActive ? (
+              <CompositeEnvironment
+                config={activeCustomConfig}
+                isPlaying={isPlaying}
+                characterPosition={loadedCharacters[0]?.position}
+              />
+            ) : isSpecialSceneActive ? (
               <NightBeachScene
                 characterPosition={loadedCharacters[0]?.position}
                 character={loadedCharacters[0]}
@@ -1045,6 +1122,43 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             />
           </Suspense>
         </Canvas>
+
+        {/* Floating Custom Scenery Preview Overlay Chip */}
+        {isCustomEnvActive && activeTab === 'viewer' && !isMini && (
+          <div className="absolute top-4 right-4 z-20 px-3.5 py-2 rounded-2xl bg-white/95 dark:bg-[#1A1828]/95 backdrop-blur-xl border border-purple-500/30 shadow-xl flex items-center gap-2.5 text-xs animate-in fade-in">
+            <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-bold">
+              <Compass className="h-3.5 w-3.5 text-purple-500" />
+              <span>Environment Preview</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/15 font-mono">
+                {Object.values(activeCustomConfig).filter(Boolean).length} Active
+              </span>
+            </div>
+            <div className="h-3.5 w-px bg-black/10 dark:bg-white/10" />
+            <button
+              type="button"
+              onClick={handleApplyEnvironment}
+              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+              title="Apply previewed environment to stage"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('environment')}
+              className="text-[11px] font-bold text-[#7567C7] dark:text-[#A898F8] hover:underline cursor-pointer"
+            >
+              Customize
+            </button>
+            <button
+              type="button"
+              onClick={handleResetEnvironment}
+              className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-red-500 transition-colors cursor-pointer"
+              title="Exit preview and restore stage"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* =======================================================================
             EMPTY STAGE STATE OVERLAY (When 0 characters are loaded)

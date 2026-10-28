@@ -2360,7 +2360,7 @@ For each audibly present instrument, provide its lowercase name (e.g. "piano", "
 If this video is not music or instruments cannot be determined, set isMusic to false.`;
 
       const aiResponse = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
