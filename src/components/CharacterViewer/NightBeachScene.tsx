@@ -13,12 +13,12 @@ export interface MeadowEnvironmentLayers {
 }
 
 export const DEFAULT_MEADOW_LAYERS: MeadowEnvironmentLayers = {
-  skyAndStarfield: true,
-  baseGround: true,
-  grassBlades: true,
-  grassTufts: true,
-  fireflies: true,
-  meadowLighting: true,
+  skyAndStarfield: false,
+  baseGround: false,
+  grassBlades: false,
+  grassTufts: false,
+  fireflies: false,
+  meadowLighting: false,
 };
 
 export interface NightBeachSceneProps {

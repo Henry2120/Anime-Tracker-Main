@@ -2187,6 +2187,38 @@ const youtubeAnalysisCache = new Map<string, any>();
 // Curated acoustic instrument analyses for verified concert and anime music performances
 // ----------------------------------------------------
 const VERIFIED_ACOUSTIC_CATALOG: Record<string, any> = {
+  // Lappy - Elegy of the End (featuring Violin, Cello, Piano)
+  'x3G1I_9DPf4': {
+    title: 'Elegy of the End',
+    artist: 'Lappy',
+    bpm: 76,
+    genre: 'Chamber Classical / Anime Soundtrack',
+    description: 'Chamber acoustic arrangement highlighting solo expressive violin, warm cantabile acoustic cello, and dynamic grand piano accompaniment.',
+    detectedInstruments: [
+      { name: 'violin', confidence: 0.98, role: 'lead', notes: 'Expressive lyrical solo violin with cantabile bowing and vibrato' },
+      { name: 'cello', confidence: 0.97, role: 'harmony', notes: 'Warm acoustic cello counter-melodies and deep resonant bass register' },
+      { name: 'piano', confidence: 0.96, role: 'rhythm', notes: 'Acoustic grand piano arpeggios, dynamic chord voicing, and harmonic support' }
+    ],
+    status: 'detected',
+    source: 'verified_catalog'
+  },
+  // Camellia - Flamewall (featuring Violin, Electric Guitar, Drums, Bass, Synthesizer)
+  'aYKN5_b7yVo': {
+    title: 'Flamewall',
+    artist: 'Camellia',
+    bpm: 210,
+    genre: 'Symphonic Speed Metal / Hardcore',
+    description: 'Virtuosic symphonic speed metal arrangement featuring rapid acoustic/electric violin runs, overdriven electric guitar riffing, fast double-bass metal drums, and driving bass synthesizer.',
+    detectedInstruments: [
+      { name: 'violin', confidence: 0.97, role: 'lead', notes: 'Virtuosic rapid spiccato violin arpeggios and orchestral string lines' },
+      { name: 'electric guitar', confidence: 0.96, role: 'lead', notes: 'High-gain overdriven electric guitar riffs and sweep picking' },
+      { name: 'drums', confidence: 0.98, role: 'percussion', notes: 'High-speed metal drum kit, rapid double-bass pedals, and crisp cymbals' },
+      { name: 'bass', confidence: 0.94, role: 'bass', notes: 'Driving sub-bass and distorted bass guitar backing' },
+      { name: 'synthesizer', confidence: 0.92, role: 'harmony', notes: 'Electronic synth leads, arpeggiated pads, and modern EDM sound design' }
+    ],
+    status: 'detected',
+    source: 'verified_catalog'
+  },
   // Prague Cello Quartet - Classical Anime Medley (featuring Cello)
   'qpbX7SbXOtU': {
     title: 'Classical Anime Medley',

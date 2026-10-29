@@ -2,32 +2,27 @@ import React, { useMemo } from 'react';
 import * as THREE from 'three';
 
 /**
- * Procedural Gothic Glass Chapel / Pavilion:
- * - Structural crystalline arches, vaulted ribs, slender Gothic columns.
- * - Polished translucent reflective glass floor with subtle refractive qualities.
- * - Stained glass rose window / ceiling apex motif casting soft prismatic color.
+ * High-Performance Procedural Gothic Glass Chapel / Pavilion:
+ * - Optimized for 60+ FPS: Eliminates expensive physical transmission render passes.
+ * - Uses high-efficiency transparent PBR standard materials with depthWrite: false.
+ * - Removed per-mesh point lights and complex shadow passes to eliminate GPU draw call overhead.
  * - Open frontal aperture so the camera has completely unobstructed view of performers.
  */
 export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
-  // Translucent structural glass material with physical PBR properties
+  // Ultra-efficient translucent crystalline glass material (zero transmission pass overhead)
   const glassMaterial = useMemo(() => {
-    return new THREE.MeshPhysicalMaterial({
-      color: 0xe0f2fe, // Crystal pale sky blue
-      transmission: 0.82, // Highly translucent glass
-      opacity: 0.95,
+    return new THREE.MeshStandardMaterial({
+      color: 0xdbeafe, // Crystal pale sky blue
+      opacity: 0.38,
       transparent: true,
-      roughness: 0.08, // Highly polished specular reflections
-      metalness: 0.1,
-      ior: 1.52, // Standard crown glass index of refraction
-      reflectivity: 0.9,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
+      roughness: 0.06,
+      metalness: 0.12,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
   }, []);
 
-  // Frame / Column Material: Elegant polished platinum / frosted chrome structural ribbing
+  // Frame / Column Material: Polished platinum / chrome structural ribbing
   const frameMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: 0xcfd8dc,
@@ -38,11 +33,11 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
 
   // Stained Glass Accent Material for the high apse / rose window
   const stainedGlassMaterial = useMemo(() => {
-    return new THREE.MeshPhysicalMaterial({
+    return new THREE.MeshStandardMaterial({
       color: 0x93c5fd,
-      emissive: 0x1d4ed8,
+      emissive: 0x2563eb,
       emissiveIntensity: 0.35,
-      transmission: 0.6,
+      opacity: 0.65,
       transparent: true,
       roughness: 0.15,
       side: THREE.DoubleSide,
@@ -50,22 +45,19 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
     });
   }, []);
 
-  // Floor Material: Polished mirror-like crystal glass floor slab
+  // Floor Material: Polished crystal obsidian reflective glass floor slab
   const floorGlassMaterial = useMemo(() => {
-    return new THREE.MeshPhysicalMaterial({
+    return new THREE.MeshStandardMaterial({
       color: 0x0f172a,
-      roughness: 0.05,
-      metalness: 0.4,
-      transmission: 0.35,
+      roughness: 0.06,
+      metalness: 0.5,
+      opacity: 0.85,
       transparent: true,
-      opacity: 0.88,
-      reflectivity: 0.95,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.02,
+      depthWrite: false,
     });
   }, []);
 
-  // Arched rib positions along the nave (flanking the sides, leaving the front wide open)
+  // Arched rib positions along the nave
   const arches = useMemo(() => {
     const list: { z: number; span: number; height: number }[] = [];
     const zOffsets = [-6, -3, 0, 3];
@@ -78,7 +70,7 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
   return (
     <group name="Scenery_GlassChapel" scale={[scale, scale, scale]} position={[0, 0, 0]}>
       {/* 1. Translucent Polished Glass Floor Slab */}
-      <mesh position={[0, -0.02, -1.5]} receiveShadow>
+      <mesh position={[0, -0.02, -1.5]}>
         <cylinderGeometry args={[7.5, 7.8, 0.06, 32]} />
         <primitive object={floorGlassMaterial} attach="material" />
       </mesh>
@@ -93,14 +85,14 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
       {arches.map((arch, i) => (
         <group key={i} position={[0, 0, arch.z]}>
           {/* Left Slender Pillar */}
-          <mesh position={[-arch.span / 2, arch.height / 2, 0]} castShadow receiveShadow>
-            <cylinderGeometry args={[0.07, 0.09, arch.height, 16]} />
+          <mesh position={[-arch.span / 2, arch.height / 2, 0]}>
+            <cylinderGeometry args={[0.07, 0.09, arch.height, 12]} />
             <primitive object={frameMaterial} attach="material" />
           </mesh>
 
           {/* Right Slender Pillar */}
-          <mesh position={[arch.span / 2, arch.height / 2, 0]} castShadow receiveShadow>
-            <cylinderGeometry args={[0.07, 0.09, arch.height, 16]} />
+          <mesh position={[arch.span / 2, arch.height / 2, 0]}>
+            <cylinderGeometry args={[0.07, 0.09, arch.height, 12]} />
             <primitive object={frameMaterial} attach="material" />
           </mesh>
 
@@ -108,9 +100,8 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
           <mesh
             position={[-arch.span / 4, arch.height + 0.6, 0]}
             rotation={[0, 0, -Math.PI / 6]}
-            castShadow
           >
-            <cylinderGeometry args={[0.06, 0.06, arch.span * 0.68, 16]} />
+            <cylinderGeometry args={[0.06, 0.06, arch.span * 0.68, 12]} />
             <primitive object={frameMaterial} attach="material" />
           </mesh>
 
@@ -118,9 +109,8 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
           <mesh
             position={[arch.span / 4, arch.height + 0.6, 0]}
             rotation={[0, 0, Math.PI / 6]}
-            castShadow
           >
-            <cylinderGeometry args={[0.06, 0.06, arch.span * 0.68, 16]} />
+            <cylinderGeometry args={[0.06, 0.06, arch.span * 0.68, 12]} />
             <primitive object={frameMaterial} attach="material" />
           </mesh>
 
@@ -158,13 +148,13 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
 
         {/* Circular Rose Window Ring */}
         <mesh position={[0, 1.8, 0.02]}>
-          <torusGeometry args={[1.4, 0.06, 16, 48]} />
+          <torusGeometry args={[1.4, 0.06, 12, 36]} />
           <primitive object={frameMaterial} attach="material" />
         </mesh>
 
         {/* Stained Glass Rose Center */}
         <mesh position={[0, 1.8, 0.01]}>
-          <circleGeometry args={[1.38, 32]} />
+          <circleGeometry args={[1.38, 24]} />
           <primitive object={stainedGlassMaterial} attach="material" />
         </mesh>
 
@@ -180,22 +170,6 @@ export const GlassChapel: React.FC<{ scale?: number }> = ({ scale = 1.0 }) => {
           </mesh>
         ))}
       </group>
-
-      {/* 4. Soft Celestial Accent Lighting inside Chapel */}
-      <pointLight
-        position={[0, 6.2, -3]}
-        color="#dbeafe"
-        intensity={0.8}
-        distance={18}
-        decay={2}
-      />
-      <pointLight
-        position={[0, 3.5, -7.0]}
-        color="#60a5fa"
-        intensity={0.9}
-        distance={12}
-        decay={2}
-      />
     </group>
   );
 };

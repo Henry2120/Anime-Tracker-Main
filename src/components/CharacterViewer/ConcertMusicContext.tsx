@@ -23,18 +23,23 @@ export interface ConcertTrack {
 
 export const PRESET_CONCERT_TRACKS: ConcertTrack[] = [
   {
+    id: 'x3G1I_9DPf4',
+    title: 'Elegy of the End (Violin/Cello/Piano)',
+    artist: 'Lappy',
+  },
+  {
+    id: 'aYKN5_b7yVo',
+    title: 'Flamewall (Violin/Guitar/Drums)',
+    artist: 'Camellia',
+  },
+  {
     id: 'dUXIymB78YQ',
     title: 'Constant Moderato (Mitsukiyo)',
     artist: 'Blue Archive OST',
   },
   {
-    id: 'kYbgcOC_FkI',
-    title: 'That Band (Ano Bando)',
-    artist: 'Bocchi the Rock!',
-  },
-  {
     id: 'qpbX7SbXOtU',
-    title: 'Classical Anime Medley',
+    title: 'Classical Anime Medley (Cellos)',
     artist: 'Prague Cello Quartet',
   },
   {
@@ -46,6 +51,11 @@ export const PRESET_CONCERT_TRACKS: ConcertTrack[] = [
     id: 'J3cg4tFLm7A',
     title: 'Burning Piano (Max Richter cover)',
     artist: 'Danila Bolshakov',
+  },
+  {
+    id: 'kYbgcOC_FkI',
+    title: 'That Band (Ano Bando)',
+    artist: 'Bocchi the Rock!',
   },
 ];
 

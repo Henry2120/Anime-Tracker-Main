@@ -287,6 +287,7 @@ export const PersistentConcertHost: React.FC<PersistentConcertHostProps> = ({
           <Character3DViewer
             theme={theme}
             presentationMode={isFull ? 'full' : 'mini'}
+            isSuspended={!isFull && !isMini}
             className="flex-1 min-h-0 min-w-0 w-full h-full"
             onReturnToEnsemble={onReturnToAnime}
             onExpand={() => {

@@ -57,6 +57,7 @@ interface Character3DViewerProps {
   theme?: AppTheme;
   className?: string;
   presentationMode?: 'full' | 'mini';
+  isSuspended?: boolean;
   onReturnToEnsemble?: () => void;
   onExpand?: () => void;
   onCloseMini?: () => void;
@@ -358,6 +359,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   theme = 'light',
   className = '',
   presentationMode = 'full',
+  isSuspended = false,
   onReturnToEnsemble,
   onExpand: _onExpand,
   onCloseMini: _onCloseMini,
@@ -386,6 +388,12 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const [appliedSceneryConfig, setAppliedSceneryConfig] = useState<SceneryConfig>(DEFAULT_SCENERY_CONFIG);
   const [isCustomSceneryActive, setIsCustomSceneryActive] = useState<boolean>(false);
 
+  // Independent Meadow Environment Layers (all default to OFF = false)
+  const [meadowLayers, setMeadowLayers] = useState<MeadowEnvironmentLayers>(DEFAULT_MEADOW_LAYERS);
+
+  // Special Hina Piano Environment master toggle (defaults to OFF = false)
+  const [specialEnvironmentEnabled, setSpecialEnvironmentEnabled] = useState<boolean>(false);
+
   const handleApplyEnvironment = useCallback(() => {
     setAppliedSceneryConfig({ ...previewSceneryConfig });
     setIsCustomSceneryActive(true);
@@ -395,18 +403,14 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     setPreviewSceneryConfig(DEFAULT_SCENERY_CONFIG);
     setAppliedSceneryConfig(DEFAULT_SCENERY_CONFIG);
     setIsCustomSceneryActive(false);
+    setSpecialEnvironmentEnabled(false);
+    setMeadowLayers(DEFAULT_MEADOW_LAYERS);
   }, []);
 
   const handleEnterViewportPreview = useCallback(() => {
     setIsCustomSceneryActive(true);
     setActiveTab('viewer');
   }, []);
-
-  // Independent Meadow Environment Layers (all default to ON = true)
-  const [meadowLayers, setMeadowLayers] = useState<MeadowEnvironmentLayers>(DEFAULT_MEADOW_LAYERS);
-
-  // Special Hina Piano Environment master toggle (defaults to ON = true)
-  const [specialEnvironmentEnabled, setSpecialEnvironmentEnabled] = useState<boolean>(true);
 
   const handleUpdateMeadowLayers = useCallback((updated: Partial<MeadowEnvironmentLayers>) => {
     setMeadowLayers((prev) => ({ ...prev, ...updated }));
@@ -419,6 +423,9 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const handleToggleSpecialEnvironment = useCallback(() => {
     setSpecialEnvironmentEnabled((prev) => !prev);
   }, []);
+
+  // WebGL Render loop guard: demand frameloop whenever view is hidden or suspended
+  const isCanvasActive = !isSuspended && (activeTab === 'viewer' || isMini);
 
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
@@ -1035,6 +1042,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden">
         <Canvas
           shadows
+          frameloop={isCanvasActive ? 'always' : 'demand'}
           camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 150 }}
           style={{ width: '100%', height: '100%', display: 'block' }}
         >

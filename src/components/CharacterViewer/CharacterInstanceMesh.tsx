@@ -11,6 +11,7 @@ import { isHinaPianoPerformer } from './useCharacterLoader';
 interface CharacterInstanceMeshProps {
   instance: LoadedCharacterInstance;
   isSelected?: boolean;
+  isHighlighted?: boolean;
   wireframe?: boolean;
   castShadow?: boolean;
   receiveShadow?: boolean;
@@ -19,6 +20,7 @@ interface CharacterInstanceMeshProps {
 export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   instance,
   isSelected = false,
+  isHighlighted = false,
   wireframe = false,
   castShadow = true,
   receiveShadow = true,
@@ -118,6 +120,20 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
           <ringGeometry args={[0.45, 0.5, 32]} />
           <meshBasicMaterial color="#7567C7" transparent opacity={0.6} side={THREE.DoubleSide} />
         </mesh>
+      )}
+
+      {/* Live Audio Detected Instrument Highlight Ring & Aura */}
+      {isHighlighted && (
+        <group position={[0, 0.008, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.55, 0.65, 32]} />
+            <meshBasicMaterial color="#10B981" transparent opacity={0.85} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.54, 32]} />
+            <meshBasicMaterial color="#10B981" transparent opacity={0.16} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
       )}
     </group>
   );

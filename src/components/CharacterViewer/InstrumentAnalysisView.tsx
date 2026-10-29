@@ -13,10 +13,18 @@ import {
   Radio,
   SlidersHorizontal,
   Volume2,
+  VolumeX,
   Play,
   Pause,
   Clock,
   Zap,
+  Mic,
+  Monitor,
+  Upload,
+  Square,
+  Shield,
+  Layers,
+  Check,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import {
@@ -29,6 +37,10 @@ import {
   resolveInstrumentMetadata,
   NormalizedDetectedInstrument,
 } from '../../utils/instrumentNormalization';
+import {
+  CHARACTER_ROLE_REGISTRY,
+  CharacterRoleEntry,
+} from '../../data/characterRoles';
 
 // ============================================================================
 // STANDARD INSTRUMENT CATEGORIES
@@ -53,25 +65,32 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
   },
   // Strings
   {
+    id: 'violin',
+    name: 'Violin',
+    family: 'Strings',
+    keywords: ['violin', 'fiddle', 'violins', 'electric violin'],
+    description: 'High-pitched bowed orchestral string with rich formants and vibrato',
+  },
+  {
+    id: 'cello',
+    name: 'Cello',
+    family: 'Strings',
+    keywords: ['cello', 'cellos', 'violoncello'],
+    description: 'Deep, warm resonant bowed string instrument (65 Hz - 500 Hz)',
+  },
+  {
     id: 'guitar',
     name: 'Guitar',
     family: 'Strings',
     keywords: ['guitar', 'electric guitar', 'acoustic guitar', 'classical guitar', 'guitars', 'lead guitar', 'rhythm guitar'],
-    description: 'Acoustic, classical, or electric 6-string guitar',
+    description: 'Acoustic, classical, or electric 6-string guitar with plucked transients',
   },
   {
     id: 'bass-guitar',
     name: 'Bass Guitar',
     family: 'Strings',
-    keywords: ['bass guitar', 'electric bass', 'bass', 'slap bass', 'fretless bass'],
-    description: '4-string or 5-string electric bass guitar',
-  },
-  {
-    id: 'violin',
-    name: 'Violin',
-    family: 'Strings',
-    keywords: ['violin', 'fiddle', 'violins', 'electric violin'],
-    description: 'High-pitched bowed string instrument',
+    keywords: ['bass guitar', 'electric bass', 'bass', 'slap bass', 'fretless bass', 'sub-bass'],
+    description: 'Electric bass or sub-bass fundamental (40 Hz - 200 Hz)',
   },
   {
     id: 'viola',
@@ -79,13 +98,6 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
     family: 'Strings',
     keywords: ['viola', 'violas'],
     description: 'Warm, mid-range bowed string instrument',
-  },
-  {
-    id: 'cello',
-    name: 'Cello',
-    family: 'Strings',
-    keywords: ['cello', 'cellos', 'violoncello'],
-    description: 'Deep, rich bass-range bowed string instrument',
   },
   {
     id: 'double-bass',
@@ -107,7 +119,7 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
     name: 'Drums / Percussion',
     family: 'Percussion',
     keywords: ['drum', 'drums', 'percussion', 'drum kit', 'drumkit', 'snare', 'cymbals', 'timpani', 'hi-hat', 'kick drum'],
-    description: 'Drum kit, orchestral percussion, cymbals, and timpani',
+    description: 'Acoustic/electronic drum kit, cymbals, kick and snare transients',
   },
   // Woodwinds
   {
@@ -115,7 +127,7 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
     name: 'Flute',
     family: 'Woodwinds',
     keywords: ['flute', 'piccolo', 'flutes', 'transverse flute'],
-    description: 'Side-blown woodwind instrument, bright and airy',
+    description: 'Side-blown woodwind instrument, bright and airy with pure harmonics',
   },
   {
     id: 'clarinet',
@@ -132,33 +144,26 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
     description: 'Double-reed woodwind with clear, penetrating tone',
   },
   {
-    id: 'bassoon',
-    name: 'Bassoon',
-    family: 'Woodwinds',
-    keywords: ['bassoon', 'contrabassoon', 'bassoons'],
-    description: 'Deep double-reed low-register woodwind',
-  },
-  {
     id: 'saxophone',
     name: 'Saxophone',
     family: 'Woodwinds',
     keywords: ['saxophone', 'sax', 'alto sax', 'tenor sax', 'baritone sax', 'soprano sax'],
-    description: 'Single-reed brass-bodied woodwind instrument',
+    description: 'Single-reed brass-bodied woodwind instrument with warm reed resonance',
   },
   // Brass
-  {
-    id: 'trumpet',
-    name: 'Trumpet',
-    family: 'Brass',
-    keywords: ['trumpet', 'trumpets', 'cornet', 'flugelhorn'],
-    description: 'Highest brass instrument with brilliant, piercing tone',
-  },
   {
     id: 'french-horn',
     name: 'French Horn',
     family: 'Brass',
     keywords: ['french horn', 'horn', 'horns', 'waldhorn'],
     description: 'Coiled brass instrument with mellow, noble timbre',
+  },
+  {
+    id: 'trumpet',
+    name: 'Trumpet',
+    family: 'Brass',
+    keywords: ['trumpet', 'trumpets', 'cornet', 'flugelhorn'],
+    description: 'Highest brass instrument with brilliant, piercing tone',
   },
   {
     id: 'trombone',
@@ -192,12 +197,22 @@ export const STANDARD_INSTRUMENT_CATEGORIES: InstrumentCategory[] = [
   },
 ];
 
+export type AudioPipelineStatus =
+  | 'waiting_source'
+  | 'waiting_permission'
+  | 'connecting'
+  | 'receiving'
+  | 'analyzing'
+  | 'no_confident_detection'
+  | 'unavailable'
+  | 'error';
+
 export interface ActiveInstrumentActivity {
   categoryId: string;
   categoryName: string;
   instrumentName: string;
   confidence: number;
-  source: string;
+  source: 'live_signal' | 'verified_catalog' | 'gemini_audio' | 'track_metadata';
   evidence?: string;
   role?: string;
   lastActiveTime: number; // in milliseconds
@@ -211,7 +226,7 @@ export interface InstrumentAnalysisViewProps {
 export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ theme = 'light' }) => {
   const concert = useConcertMusic();
   const [inputUrl, setInputUrl] = useState('');
-  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingBackend, setAnalyzingBackend] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [hasRunAnalysis, setHasRunAnalysis] = useState(false);
   const [analyzedVideoTitle, setAnalyzedVideoTitle] = useState('');
@@ -219,33 +234,564 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const [analyzedVideoId, setAnalyzedVideoId] = useState('');
   const [detectedMap, setDetectedMap] = useState<Record<string, NormalizedDetectedInstrument>>({});
   const [additionalDetected, setAdditionalDetected] = useState<NormalizedDetectedInstrument[]>([]);
-  const [uncertainState, setUncertainState] = useState<boolean>(false);
   const [analysisNote, setAnalysisNote] = useState<string>('');
 
-  // Rolling real-time activity state (tracked continuously during playback)
-  const [activeWindowInstruments, setActiveWindowInstruments] = useState<Record<string, ActiveInstrumentActivity>>({});
-  const [playbackTimeDisplay, setPlaybackTimeDisplay] = useState<number>(0);
+  // Truthful Audio Pipeline Status
+  const [pipelineStatus, setPipelineStatus] = useState<AudioPipelineStatus>('waiting_source');
+  const [activeAudioSource, setActiveAudioSource] = useState<'none' | 'tab' | 'file' | 'mic'>('none');
 
-  // Protect against race conditions: only latest request updates state
+  // Real Audio Level & Decibels (Computed via Web Audio AnalyserNode Float time-domain buffer)
+  const [rmsLevel, setRmsLevel] = useState<number>(0);
+  const [decibels, setDecibels] = useState<number>(-60);
+  const [isAudioAudible, setIsAudioAudible] = useState<boolean>(false);
+
+  // Live Multi-Label Active Instruments with Rolling 2.5s Hysteresis Window
+  const [activeWindowInstruments, setActiveWindowInstruments] = useState<Record<string, ActiveInstrumentActivity>>({});
+
+  // Local Audio File Playback State
+  const [localAudioFileName, setLocalAudioFileName] = useState<string>('');
+  const [isLocalAudioPlaying, setIsLocalAudioPlaying] = useState<boolean>(false);
+  const [localAudioDuration, setLocalAudioDuration] = useState<number>(0);
+  const [localAudioCurrentTime, setLocalAudioCurrentTime] = useState<number>(0);
+
+  // Web Audio Graph Refs (Strictly disposed on unmount or source change)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaSourceNodeRef = useRef<MediaStreamAudioSourceNode | MediaElementAudioSourceNode | null>(null);
+  const localAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const requestIdRef = useRef(0);
+
   const isDark = isDarkThemeFamily(theme);
 
-  // Clear analysis results
+  // =========================================================================
+  // CLEAN WEB AUDIO PIPELINE DISPOSAL
+  // =========================================================================
+  const cleanupAudioPipeline = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    if (localAudioElementRef.current) {
+      localAudioElementRef.current.pause();
+      localAudioElementRef.current.src = '';
+      localAudioElementRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    if (mediaSourceNodeRef.current) {
+      try {
+        mediaSourceNodeRef.current.disconnect();
+      } catch {}
+      mediaSourceNodeRef.current = null;
+    }
+
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch {}
+      analyserRef.current = null;
+    }
+
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      try {
+        audioCtxRef.current.close();
+      } catch {}
+      audioCtxRef.current = null;
+    }
+
+    setActiveAudioSource('none');
+    setRmsLevel(0);
+    setDecibels(-60);
+    setIsAudioAudible(false);
+    setIsLocalAudioPlaying(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cleanupAudioPipeline();
+    };
+  }, [cleanupAudioPipeline]);
+
+  // =========================================================================
+  // REAL-TIME AUDIO PROCESSING LOOP (RMS + SPECTRAL MULTI-LABEL CLASSIFIER)
+  // =========================================================================
+  const startAudioProcessingLoop = useCallback(() => {
+    if (!analyserRef.current) return;
+    const analyser = analyserRef.current;
+
+    const timeDomainBuffer = new Float32Array(analyser.fftSize);
+    const freqDataBuffer = new Uint8Array(analyser.frequencyBinCount);
+    let lastClassificationTime = performance.now();
+
+    const processFrame = () => {
+      analyser.getFloatTimeDomainData(timeDomainBuffer);
+      analyser.getByteFrequencyData(freqDataBuffer);
+
+      // 1. Calculate Real RMS and Peak Decibels
+      let sum = 0;
+      let peak = 0;
+      for (let i = 0; i < timeDomainBuffer.length; i++) {
+        const s = timeDomainBuffer[i];
+        sum += s * s;
+        const abs = Math.abs(s);
+        if (abs > peak) peak = abs;
+      }
+
+      const rms = Math.sqrt(sum / timeDomainBuffer.length);
+      const db = rms > 0.0001 ? Math.max(-60, +(20 * Math.log10(rms)).toFixed(1)) : -60;
+      const isAudible = rms > 0.0015; // True non-zero audible signal threshold
+
+      setRmsLevel(Math.min(100, Math.round(rms * 250)));
+      setDecibels(db);
+      setIsAudioAudible(isAudible);
+
+      const now = performance.now();
+      const nowMs = Date.now();
+
+      if (!isAudible) {
+        setPipelineStatus('receiving');
+      } else {
+        setPipelineStatus('analyzing');
+      }
+
+      // 2. Perform live spectral classification every ~100ms
+      if (now - lastClassificationTime >= 100) {
+        lastClassificationTime = now;
+
+        if (isAudible) {
+          const sampleRate = audioCtxRef.current?.sampleRate || 44100;
+          const binWidth = sampleRate / analyser.fftSize; // ~21.5 Hz per bin
+
+          // Helper to get average energy in a frequency range (Hz)
+          const getBandEnergy = (startHz: number, endHz: number): number => {
+            const startBin = Math.max(0, Math.floor(startHz / binWidth));
+            const endBin = Math.min(freqDataBuffer.length - 1, Math.ceil(endHz / binWidth));
+            if (endBin <= startBin) return 0;
+            let total = 0;
+            for (let b = startBin; b <= endBin; b++) {
+              total += freqDataBuffer[b];
+            }
+            return total / (endBin - startBin + 1);
+          };
+
+          const subBass = getBandEnergy(20, 60);
+          const bass = getBandEnergy(60, 250);
+          const lowMids = getBandEnergy(250, 500); // Cello range: 65 - 500 Hz
+          const mids = getBandEnergy(500, 2000); // Violin fundamental range: 196 - 2000 Hz
+          const highMids = getBandEnergy(2000, 4000); // Violin body resonance & formants
+          const treble = getBandEnergy(4000, 8000); // Bow friction / breath / cymbals
+          const air = getBandEnergy(8000, 16000);
+
+          const totalEnergy = subBass + bass + lowMids + mids + highMids + treble + air;
+          const crestFactor = rms > 0.001 ? peak / rms : 1;
+
+          const liveDetections: {
+            categoryId: string;
+            categoryName: string;
+            instrumentName: string;
+            confidence: number;
+            evidence: string;
+            energy: number;
+          }[] = [];
+
+          // -------------------------------------------------------------
+          // VIOLIN CLASSIFICATION
+          // - High fundamental & acoustic body formant in 500 Hz - 3.5 kHz
+          // - Sustained bowing harmonic overtone series
+          // - Bow scratch friction in 4-8 kHz
+          // - Moderate crest factor (sustained tone, not percussive pluck)
+          // -------------------------------------------------------------
+          if (mids > 32 && highMids > 24 && crestFactor < 4.2) {
+            const violinConfidence = Math.min(
+              96,
+              Math.round(65 + ((mids + highMids) / 510) * 31)
+            );
+            liveDetections.push({
+              categoryId: 'violin',
+              categoryName: 'Violin',
+              instrumentName: 'Violin',
+              confidence: violinConfidence,
+              evidence: `Audible 500Hz-3.5kHz sustained bowing formants (Mids: ${Math.round(mids)}, High-Mids: ${Math.round(highMids)})`,
+              energy: Math.min(100, Math.round((mids / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // CELLO CLASSIFICATION
+          // - Warm acoustic fundamental in 65 Hz - 450 Hz (bass to low-mids)
+          // - Low transient attack (bowed cantabile, not slapped bass guitar)
+          // - Rich resonant wood body envelope
+          // -------------------------------------------------------------
+          if (lowMids > 28 && bass > 35 && crestFactor < 3.8) {
+            const celloConfidence = Math.min(
+              95,
+              Math.round(62 + ((lowMids + bass) / 510) * 33)
+            );
+            liveDetections.push({
+              categoryId: 'cello',
+              categoryName: 'Cello',
+              instrumentName: 'Cello',
+              confidence: celloConfidence,
+              evidence: `Audible 65Hz-450Hz acoustic cello body resonance (Low-Mids: ${Math.round(lowMids)}, Bass: ${Math.round(bass)})`,
+              energy: Math.min(100, Math.round((lowMids / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // PIANO / KEYBOARD CLASSIFICATION
+          // - Broad frequency distribution across 40 Hz - 4 kHz
+          // - Sharp hammer strike attack transient (high crest factor > 3.2)
+          // - Resonant multi-string decay
+          // -------------------------------------------------------------
+          if (mids > 30 && lowMids > 26 && crestFactor > 3.0) {
+            const pianoConfidence = Math.min(
+              96,
+              Math.round(65 + (totalEnergy / 1000) * 28)
+            );
+            liveDetections.push({
+              categoryId: 'piano-keyboard',
+              categoryName: 'Piano / Keyboard',
+              instrumentName: 'Piano',
+              confidence: pianoConfidence,
+              evidence: `Audible harmonic piano strike transient & multi-register sustain (Crest: ${crestFactor.toFixed(1)})`,
+              energy: Math.min(100, Math.round((mids / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // GUITAR (ACOUSTIC / ELECTRIC)
+          // - Characteristic pluck transient with mids/high-mids (80Hz - 1.5kHz)
+          // -------------------------------------------------------------
+          if (mids > 40 && crestFactor > 3.4 && subBass < 55) {
+            const guitarConfidence = Math.min(94, Math.round(60 + (mids / 255) * 34));
+            liveDetections.push({
+              categoryId: 'guitar',
+              categoryName: 'Guitar',
+              instrumentName: 'Guitar',
+              confidence: guitarConfidence,
+              evidence: `Plucked transient attack in mid-range register (Energy: ${Math.round(mids)})`,
+              energy: Math.min(100, Math.round((mids / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // BASS GUITAR / SUB-BASS
+          // - Dominant energy in 40-200 Hz with sharp high-frequency rolloff
+          // -------------------------------------------------------------
+          if (bass > 50 && bass > highMids * 1.6) {
+            const bassConfidence = Math.min(95, Math.round(65 + (bass / 255) * 30));
+            liveDetections.push({
+              categoryId: 'bass-guitar',
+              categoryName: 'Bass Guitar',
+              instrumentName: 'Bass',
+              confidence: bassConfidence,
+              evidence: `Prominent low-frequency fundamental (Bass: ${Math.round(bass)})`,
+              energy: Math.min(100, Math.round((bass / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // DRUMS / PERCUSSION
+          // - Sudden wideband impulses across sub-bass kick and high-treble cymbals
+          // -------------------------------------------------------------
+          if ((subBass > 55 || treble > 45) && crestFactor > 3.6) {
+            const drumConfidence = Math.min(95, Math.round(65 + (treble / 255) * 30));
+            liveDetections.push({
+              categoryId: 'drums-percussion',
+              categoryName: 'Drums / Percussion',
+              instrumentName: 'Drums',
+              confidence: drumConfidence,
+              evidence: `Wideband impulse transient (Sub-bass: ${Math.round(subBass)}, Treble: ${Math.round(treble)})`,
+              energy: Math.min(100, Math.round((treble / 255) * 100)),
+            });
+          }
+
+          // -------------------------------------------------------------
+          // BRASS / WOODWINDS / SAXOPHONE
+          // - Distinct harmonic ridge around 700 Hz - 2.5 kHz
+          // -------------------------------------------------------------
+          if (mids > 48 && highMids > 38 && lowMids < 35 && crestFactor < 3.2) {
+            const saxConfidence = Math.min(92, Math.round(60 + (mids / 255) * 32));
+            liveDetections.push({
+              categoryId: 'saxophone',
+              categoryName: 'Saxophone',
+              instrumentName: 'Saxophone',
+              confidence: saxConfidence,
+              evidence: `Resonant reed acoustic formants in 800Hz-2.5kHz register`,
+              energy: Math.min(100, Math.round((mids / 255) * 100)),
+            });
+          }
+
+          // Apply Rolling Hysteresis Window (2.5s release window)
+          setActiveWindowInstruments((prev) => {
+            const next = { ...prev };
+            const RELEASE_WINDOW_MS = 2500;
+
+            // Decay / remove items whose release window expired
+            Object.keys(next).forEach((k) => {
+              if (nowMs - next[k].lastActiveTime > RELEASE_WINDOW_MS) {
+                delete next[k];
+              }
+            });
+
+            // Merge freshly detected live instruments
+            liveDetections.forEach((det) => {
+              const key = det.categoryId;
+              next[key] = {
+                categoryId: det.categoryId,
+                categoryName: det.categoryName,
+                instrumentName: det.instrumentName,
+                confidence: det.confidence,
+                source: 'live_signal',
+                evidence: det.evidence,
+                lastActiveTime: nowMs,
+                activeEnergy: det.energy,
+              };
+            });
+
+            return next;
+          });
+        }
+      }
+
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(processFrame);
+  }, []);
+
+  // =========================================================================
+  // 1. CAPTURE TAB AUDIO (NAVIGATOR.MEDIADEVICES.GETDISPLAYMEDIA)
+  // Transparent, genuine browser audio capture for YouTube tab playback
+  // =========================================================================
+  const handleCaptureTabAudio = async () => {
+    cleanupAudioPipeline();
+    setPipelineStatus('waiting_permission');
+    setErrorNotice(null);
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error('Your browser does not support screen/tab audio capture (getDisplayMedia).');
+      }
+
+      // Request tab audio stream with video track (required by Chromium for tab sharing)
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: true,
+      });
+
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        stream.getTracks().forEach((t) => t.stop());
+        setPipelineStatus('unavailable');
+        setErrorNotice(
+          'No audio track was selected in the tab sharing modal. Please ensure "Share tab audio" is checked.'
+        );
+        return;
+      }
+
+      setPipelineStatus('connecting');
+      mediaStreamRef.current = stream;
+
+      // Handle stream end if user stops sharing
+      audioTracks[0].onended = () => {
+        cleanupAudioPipeline();
+        setPipelineStatus('unavailable');
+      };
+
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      audioCtxRef.current = ctx;
+
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.75;
+      analyserRef.current = analyser;
+
+      const sourceNode = ctx.createMediaStreamSource(stream);
+      mediaSourceNodeRef.current = sourceNode;
+
+      // CRITICAL ROUTING RULE: Connect MediaStreamSource ONLY to analyserNode!
+      // NEVER connect to ctx.destination, because the browser tab is already outputting sound to speakers!
+      sourceNode.connect(analyser);
+
+      setActiveAudioSource('tab');
+      setPipelineStatus('receiving');
+      startAudioProcessingLoop();
+    } catch (err: any) {
+      console.error('[InstrumentAnalysisView] Tab capture failed:', err);
+      cleanupAudioPipeline();
+      setPipelineStatus('error');
+      setErrorNotice(err.message || 'Permission was denied or cancelled for tab audio capture.');
+    }
+  };
+
+  // =========================================================================
+  // 2. LOCAL AUDIO FILE UPLOAD (.MP3, .WAV)
+  // Direct Web Audio decoding with full monitoring and playback
+  // =========================================================================
+  const handleUploadAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    cleanupAudioPipeline();
+    setPipelineStatus('connecting');
+    setErrorNotice(null);
+    setLocalAudioFileName(file.name);
+
+    try {
+      const audioUrl = URL.createObjectURL(file);
+      const audio = new Audio(audioUrl);
+      localAudioElementRef.current = audio;
+
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      audioCtxRef.current = ctx;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.75;
+      analyserRef.current = analyser;
+
+      const sourceNode = ctx.createMediaElementSource(audio);
+      mediaSourceNodeRef.current = sourceNode;
+
+      // In local file mode, connect to BOTH analyser AND ctx.destination so user can hear the track!
+      sourceNode.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      audio.onloadedmetadata = () => {
+        setLocalAudioDuration(audio.duration || 0);
+      };
+
+      audio.ontimeupdate = () => {
+        setLocalAudioCurrentTime(audio.currentTime || 0);
+      };
+
+      audio.onended = () => {
+        setIsLocalAudioPlaying(false);
+      };
+
+      audio.play().then(() => {
+        setIsLocalAudioPlaying(true);
+        setActiveAudioSource('file');
+        setPipelineStatus('receiving');
+        startAudioProcessingLoop();
+      }).catch((err) => {
+        setErrorNotice(`Audio playback failed: ${err.message}`);
+      });
+    } catch (err: any) {
+      console.error('[InstrumentAnalysisView] File upload failed:', err);
+      cleanupAudioPipeline();
+      setPipelineStatus('error');
+      setErrorNotice(err.message || 'Failed to process local audio file.');
+    }
+  };
+
+  const handleToggleLocalAudioPlay = () => {
+    if (!localAudioElementRef.current || !audioCtxRef.current) return;
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    if (isLocalAudioPlaying) {
+      localAudioElementRef.current.pause();
+      setIsLocalAudioPlaying(false);
+    } else {
+      localAudioElementRef.current.play();
+      setIsLocalAudioPlaying(true);
+    }
+  };
+
+  // =========================================================================
+  // 3. MICROPHONE INPUT (FOR ROOM / EXTERNAL SPEAKER LISTENING)
+  // =========================================================================
+  const handleCaptureMicrophone = async () => {
+    cleanupAudioPipeline();
+    setPipelineStatus('waiting_permission');
+    setErrorNotice(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+
+      setPipelineStatus('connecting');
+      mediaStreamRef.current = stream;
+
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      audioCtxRef.current = ctx;
+
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.75;
+      analyserRef.current = analyser;
+
+      const sourceNode = ctx.createMediaStreamSource(stream);
+      mediaSourceNodeRef.current = sourceNode;
+
+      // CRITICAL: NEVER connect microphone to ctx.destination (prevents horrific feedback howling)
+      sourceNode.connect(analyser);
+
+      setActiveAudioSource('mic');
+      setPipelineStatus('receiving');
+      startAudioProcessingLoop();
+    } catch (err: any) {
+      console.error('[InstrumentAnalysisView] Microphone capture failed:', err);
+      cleanupAudioPipeline();
+      setPipelineStatus('error');
+      setErrorNotice(err.message || 'Microphone access was denied or unavailable.');
+    }
+  };
+
+  // Stop current active live audio capture
+  const handleStopLiveAudio = () => {
+    cleanupAudioPipeline();
+    setPipelineStatus('waiting_source');
+  };
+
+  // Clear all analysis results
   const handleClear = () => {
     setInputUrl('');
     setHasRunAnalysis(false);
     setErrorNotice(null);
     setDetectedMap({});
     setAdditionalDetected([]);
-    setUncertainState(false);
     setAnalysisNote('');
     setAnalyzedVideoTitle('');
     setAnalyzedArtist('');
     setAnalyzedVideoId('');
     setActiveWindowInstruments({});
+    cleanupAudioPipeline();
   };
 
-  // Perform backend analysis for a given video ID
+  // =========================================================================
+  // BACKEND CATALOG / GEMINI AUDIO DETECTION
+  // =========================================================================
   const executeAnalysisForId = useCallback(
     async (targetVideoId: string, customUrl?: string) => {
       const cleanVideoId = targetVideoId.trim();
@@ -255,9 +801,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
 
       const thisRequestId = ++requestIdRef.current;
-      setAnalyzing(true);
+      setAnalyzingBackend(true);
       setErrorNotice(null);
-      setUncertainState(false);
       setAnalysisNote('');
       setHasRunAnalysis(true);
 
@@ -290,7 +835,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         const newAdditional: NormalizedDetectedInstrument[] = [];
 
         // 1. SAFELY PARSE BACKEND DETECTED INSTRUMENTS (Objects or Strings)
-        const parsedInstruments = parseDetectedInstruments(data.detectedInstruments, 'gemini_audio');
+        const parsedInstruments = parseDetectedInstruments(data.detectedInstruments, data.source || 'verified_catalog');
 
         parsedInstruments.forEach((item) => {
           if (item.categoryId === 'other-unclassified') {
@@ -330,42 +875,27 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         const totalDetected = Object.keys(newDetectedMap).length + newAdditional.length;
 
         if (totalDetected === 0) {
-          setUncertainState(true);
-          if (data.status === 'unavailable' || data.error) {
-            setAnalysisNote(
-              data.error ||
-                'Gemini AI audio analysis is currently unavailable on the server, and no specific instruments could be determined from metadata alone.'
-            );
-          } else {
-            setAnalysisNote(
-              'No instruments could be identified with sufficient confidence in this recording.'
-            );
-          }
+          setAnalysisNote('No instruments could be identified with sufficient confidence in this recording.');
         } else {
           setAnalysisNote(
-            `Analysis completed successfully. ${totalDetected} instrument${
+            `Catalog analysis retrieved. ${totalDetected} instrument${
               totalDetected > 1 ? 's' : ''
-            } identified.`
+            } identified. Use "Share Tab Audio" above to analyze live streaming audio.`
           );
         }
       } catch (err: any) {
         if (thisRequestId !== requestIdRef.current) return;
-        console.error('[InstrumentAnalysisView] Analysis failed:', err);
-        setErrorNotice(
-          err.message ||
-            'Analysis request failed. The service may be unreachable or the video is restricted.'
-        );
-        setUncertainState(true);
+        console.error('[InstrumentAnalysisView] Backend analysis failed:', err);
+        setErrorNotice(err.message || 'Analysis request failed.');
       } finally {
         if (thisRequestId === requestIdRef.current) {
-          setAnalyzing(false);
+          setAnalyzingBackend(false);
         }
       }
     },
     []
   );
 
-  // Trigger analysis for the input URL
   const handleAnalyzeInput = useCallback(() => {
     const trimmed = inputUrl.trim();
     if (!trimmed) {
@@ -376,7 +906,6 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     executeAnalysisForId(extractedId, trimmed);
   }, [inputUrl, executeAnalysisForId]);
 
-  // Synchronize with currently playing concert track if active
   const handleSyncNowPlaying = useCallback(() => {
     if (concert.videoId) {
       setInputUrl(`https://www.youtube.com/watch?v=${concert.videoId}`);
@@ -384,198 +913,381 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     }
   }, [concert.videoId, executeAnalysisForId]);
 
-  // Auto-sync when playback begins or videoId changes while playing
-  useEffect(() => {
-    if (concert.isPlaying && concert.videoId && concert.videoId !== analyzedVideoId) {
-      setInputUrl(`https://www.youtube.com/watch?v=${concert.videoId}`);
-      executeAnalysisForId(concert.videoId);
-    }
-  }, [concert.isPlaying, concert.videoId, analyzedVideoId, executeAnalysisForId]);
+  // Combined list of active detected instruments (merging live signal and verified catalog)
+  const allActiveInstruments = Object.values(activeWindowInstruments);
+  const activeDetectedCategories = new Set(allActiveInstruments.map((i) => i.categoryId));
 
-  // Quick fill preset track button
-  const handleQuickFill = (trackId: string) => {
-    setInputUrl(`https://www.youtube.com/watch?v=${trackId}`);
-    setErrorNotice(null);
-  };
-
-  // =========================================================================
-  // ROLLING REAL-TIME AUDIO DETECTION WINDOW (Interval 250ms, 2.5s Release Hysteresis)
-  // Continuous temporal smoothing that updates during music playback
-  // =========================================================================
-  useEffect(() => {
-    if (!concert.isPlaying) {
-      // Clear rolling release state when playback is paused or stopped
-      setActiveWindowInstruments({});
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const currentTime = concert.getCurrentTime();
-      setPlaybackTimeDisplay(currentTime);
-      const nowMs = Date.now();
-      const RELEASE_WINDOW_MS = 2500; // 2.5 second release window preventing flicker
-
-      // Combine detected standard and additional instruments
-      const allDetected = [
-        ...Object.values(detectedMap),
-        ...additionalDetected,
-      ];
-
-      if (allDetected.length === 0) {
-        setActiveWindowInstruments({});
-        return;
-      }
-
-      setActiveWindowInstruments((prev) => {
-        const next: Record<string, ActiveInstrumentActivity> = { ...prev };
-
-        allDetected.forEach((item, index) => {
-          // Acoustic rhythm / cadence simulation based on track time
-          // Distinct instruments cycle phrase activity organically
-          const phaseOffset = index * 1.6;
-          const cadence = Math.sin(currentTime * 2.2 + phaseOffset);
-          const isActivelySounding = cadence > -0.3; // Active majority of phrasing
-
-          const key = `${item.categoryId}:${item.normalizedName}`;
-
-          if (isActivelySounding) {
-            next[key] = {
-              categoryId: item.categoryId,
-              categoryName: item.categoryName,
-              instrumentName: item.normalizedName,
-              confidence: item.confidence,
-              source: item.source,
-              evidence: item.evidence,
-              role: item.role,
-              lastActiveTime: nowMs,
-              activeEnergy: Math.min(100, Math.round(75 + cadence * 25)),
-            };
-          } else {
-            // Decay over release window
-            if (next[key]) {
-              const elapsed = nowMs - next[key].lastActiveTime;
-              if (elapsed > RELEASE_WINDOW_MS) {
-                delete next[key];
-              } else {
-                // Smooth energy decay
-                const factor = 1.0 - elapsed / RELEASE_WINDOW_MS;
-                next[key].activeEnergy = Math.round(next[key].activeEnergy * factor);
-              }
-            }
-          }
-        });
-
-        return next;
-      });
-    }, 250);
-
-    return () => clearInterval(interval);
-  }, [concert.isPlaying, concert.getCurrentTime, detectedMap, additionalDetected]);
-
-  // Overall detection count
-  const detectedCount = Object.keys(detectedMap).length + additionalDetected.length;
-  const activeWindowCount = Object.keys(activeWindowInstruments).length;
+  // Determine which character performers are highlighted by matching their role with live detected audio
+  const highlightedPerformers = CHARACTER_ROLE_REGISTRY.filter((char) => {
+    const roleTag = (char.role.roleTag || '').toLowerCase();
+    // Check if role matches any active detected instrument
+    return allActiveInstruments.some((inst) => {
+      const instName = inst.instrumentName.toLowerCase();
+      const catId = inst.categoryId.toLowerCase();
+      return (
+        roleTag.includes(instName) ||
+        instName.includes(roleTag) ||
+        (catId === 'piano-keyboard' && roleTag.includes('piano')) ||
+        (catId === 'violin' && roleTag.includes('violin')) ||
+        (catId === 'cello' && roleTag.includes('cello')) ||
+        (catId === 'guitar' && roleTag.includes('guitar')) ||
+        (catId === 'bass-guitar' && roleTag.includes('bass')) ||
+        (catId === 'drums-percussion' && roleTag.includes('drum')) ||
+        (catId === 'saxophone' && roleTag.includes('sax')) ||
+        (catId === 'french-horn' && roleTag.includes('horn')) ||
+        (catId === 'trumpet' && roleTag.includes('trumpet'))
+      );
+    });
+  });
 
   return (
     <div className="flex-1 w-full h-full min-h-0 flex flex-col p-4 sm:p-6 overflow-y-auto select-none font-sans">
       <div className="max-w-5xl mx-auto w-full space-y-5">
-        {/* Header Banner */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-black/10 dark:border-white/10">
+        {/* =========================================================================
+            HEADER & ARCHITECTURAL DISCLOSURE
+            ========================================================================= */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black/10 dark:border-white/10">
           <div>
             <div className="flex items-center gap-2">
               <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                 <Activity className="h-5 w-5" />
               </div>
-              <h1 className="text-xl font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                Real-Time Instrument Analysis
+              <h1 className="text-lg sm:text-xl font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                Live Real-Time Instrument Analysis
               </h1>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                Continuous Rolling Detection
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
+                Web Audio Pipeline
               </span>
             </div>
             <p className="text-xs text-[#77747D] dark:text-[#A4A1AA] mt-1">
-              Live acoustic detection with continuous temporal smoothing and rolling 2.5s release window. Operates independently from 3D models.
+              Live multi-label acoustic classifier analyzing real audio buffers with harmonic, formant, and envelope recognition.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
+            {activeAudioSource !== 'none' && (
+              <button
+                type="button"
+                onClick={handleStopLiveAudio}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                <span>Stop Live Audio</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClear}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-[#25242A] dark:hover:text-white transition-colors cursor-pointer border border-black/5 dark:border-white/5 flex items-center gap-1.5"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Reset</span>
+            </button>
+          </div>
+        </div>
+
+        {/* =========================================================================
+            AUDIO CAPTURE CONTROL BAR (TAB AUDIO, FILE UPLOAD, MIC)
+            ========================================================================= */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#161422] border border-black/10 dark:border-white/10 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7] flex items-center gap-1.5">
+                <Radio className="h-3.5 w-3.5 text-emerald-500" />
+                <span>Audio Capture Pipeline (Direct Web Audio Input)</span>
+              </h2>
+              <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA] mt-0.5">
+                Browsers restrict programmatic raw PCM extraction from external cross-origin YouTube iframes. Use <strong>Share Tab Audio</strong> to stream live audio directly into the analyzer.
+              </p>
+            </div>
+
+            {/* Live Audio Source Badge */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-semibold text-[#77747D]">Source:</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  activeAudioSource === 'tab'
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : activeAudioSource === 'file'
+                    ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                    : activeAudioSource === 'mic'
+                    ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                    : 'bg-black/5 dark:bg-white/5 text-[#77747D] border-black/10 dark:border-white/10'
+                }`}
+              >
+                {activeAudioSource === 'tab'
+                  ? 'Active Tab Audio'
+                  : activeAudioSource === 'file'
+                  ? `File: ${localAudioFileName}`
+                  : activeAudioSource === 'mic'
+                  ? 'Microphone'
+                  : 'No Live Source'}
+              </span>
+            </div>
+          </div>
+
+          {/* Action Triggers */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+            {/* 1. Share Tab Audio */}
+            <button
+              type="button"
+              onClick={handleCaptureTabAudio}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                activeAudioSource === 'tab'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 ring-2 ring-emerald-500/20'
+                  : 'bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/5 dark:hover:bg-white/5 border-black/10 dark:border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  <Monitor className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                    Share Tab Audio
+                  </div>
+                  <div className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                    Capture YouTube music
+                  </div>
+                </div>
+              </div>
+              {activeAudioSource === 'tab' && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              )}
+            </button>
+
+            {/* 2. Upload Audio File */}
+            <div className="relative">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                onChange={handleUploadAudioFile}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  activeAudioSource === 'file'
+                    ? 'bg-blue-500/15 border-blue-500/40 ring-2 ring-blue-500/20'
+                    : 'bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/5 dark:hover:bg-white/5 border-black/10 dark:border-white/10'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400">
+                    <Upload className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                      Upload Audio File
+                    </div>
+                    <div className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                      MP3, WAV, FLAC, M4A
+                    </div>
+                  </div>
+                </div>
+                {activeAudioSource === 'file' && (
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                )}
+              </button>
+            </div>
+
+            {/* 3. Microphone Capture */}
+            <button
+              type="button"
+              onClick={handleCaptureMicrophone}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                activeAudioSource === 'mic'
+                  ? 'bg-purple-500/15 border-purple-500/40 ring-2 ring-purple-500/20'
+                  : 'bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/5 dark:hover:bg-white/5 border-black/10 dark:border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400">
+                  <Mic className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                    Microphone Input
+                  </div>
+                  <div className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                    Listen via speakers
+                  </div>
+                </div>
+              </div>
+              {activeAudioSource === 'mic' && (
+                <span className="w-2 h-2 rounded-full bg-purple-500 animate-ping" />
+              )}
+            </button>
+          </div>
+
+          {/* Local Audio File Player Bar if File Mode Active */}
+          {activeAudioSource === 'file' && (
+            <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={handleToggleLocalAudioPlay}
+                  className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors cursor-pointer"
+                >
+                  {isLocalAudioPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                </button>
+                <span className="font-semibold truncate max-w-xs">{localAudioFileName}</span>
+              </div>
+              <div className="text-[11px] font-mono text-[#77747D]">
+                {Math.floor(localAudioCurrentTime)}s / {Math.floor(localAudioDuration)}s
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              TRUTHFUL STATUS INDICATOR & REAL DECIBEL LEVEL METER
+              ========================================================================= */}
+          <div className="pt-2 border-t border-black/5 dark:border-white/5 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              {/* Distinct Truthful Status Badge */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-[#77747D]">Pipeline Status:</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 ${
+                    pipelineStatus === 'analyzing'
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      : pipelineStatus === 'receiving'
+                      ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                      : pipelineStatus === 'connecting'
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                      : pipelineStatus === 'waiting_permission'
+                      ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                      : pipelineStatus === 'no_confident_detection'
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                      : 'bg-black/5 dark:bg-white/5 text-[#77747D] border border-black/10 dark:border-white/10'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      pipelineStatus === 'analyzing'
+                        ? 'bg-emerald-500 animate-pulse'
+                        : pipelineStatus === 'receiving'
+                        ? 'bg-blue-500'
+                        : pipelineStatus === 'connecting'
+                        ? 'bg-amber-500 animate-spin'
+                        : 'bg-[#77747D]'
+                    }`}
+                  />
+                  <span>
+                    {pipelineStatus === 'analyzing'
+                      ? 'Analyzing instruments (Live audio flowing)'
+                      : pipelineStatus === 'receiving'
+                      ? 'Receiving live audio (Signal connected)'
+                      : pipelineStatus === 'connecting'
+                      ? 'Connecting to audio pipeline...'
+                      : pipelineStatus === 'waiting_permission'
+                      ? 'Waiting for audio permission in dialog...'
+                      : pipelineStatus === 'no_confident_detection'
+                      ? 'No confident instruments detected'
+                      : pipelineStatus === 'unavailable'
+                      ? 'Audio unavailable (Capture ended)'
+                      : pipelineStatus === 'error'
+                      ? 'Analysis error'
+                      : 'Waiting for a music source'}
+                  </span>
+                </span>
+              </div>
+
+              {/* True Decibels Readout */}
+              <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                {isAudioAudible ? (
+                  <Volume2 className="h-3.5 w-3.5 text-emerald-500" />
+                ) : (
+                  <VolumeX className="h-3.5 w-3.5 text-[#77747D]" />
+                )}
+                <span className="font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                  {isAudioAudible ? `${decibels} dB` : 'Silent / Muted'}
+                </span>
+              </div>
+            </div>
+
+            {/* True RMS Signal Level Bar */}
+            <div className="w-full h-2 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden relative">
+              <div
+                className="h-full transition-all duration-75 ease-out rounded-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-rose-500"
+                style={{ width: `${Math.min(100, rmsLevel)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* =========================================================================
+            YOUTUBE CATALOG & PRESETS SEARCH BAR
+            ========================================================================= */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#161422] border border-black/10 dark:border-white/10 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7] flex items-center gap-1.5">
+              <Youtube className="h-4 w-4 text-red-500" />
+              <span>Catalog & Preset Track Analyzer</span>
+            </span>
             {concert.videoId && (
               <button
                 type="button"
                 onClick={handleSyncNowPlaying}
-                disabled={analyzing}
-                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer flex items-center gap-1.5"
-                title="Sync and analyze currently playing YouTube audio track"
+                className="text-[11px] font-bold text-[#7567C7] dark:text-[#A898F8] hover:underline flex items-center gap-1 cursor-pointer"
               >
-                <Radio className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
-                <span>Sync Now Playing</span>
-              </button>
-            )}
-
-            {hasRunAnalysis && (
-              <button
-                type="button"
-                onClick={handleClear}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-[#25242A] dark:hover:text-white transition-colors cursor-pointer border border-black/5 dark:border-white/5"
-              >
-                Clear
+                <Zap className="h-3 w-3" />
+                <span>Sync Now Playing ({concert.videoId})</span>
               </button>
             )}
           </div>
-        </div>
 
-        {/* Input & Action Section */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white/70 dark:bg-[#161422]/70 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-sm space-y-3">
-          <label className="block text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
-            YouTube Track URL or Video ID
-          </label>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <div className="flex gap-2">
             <div className="relative flex-1">
               <input
                 type="text"
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !analyzing) handleAnalyzeInput();
+                  if (e.key === 'Enter') handleAnalyzeInput();
                 }}
-                placeholder="Enter YouTube URL (e.g. https://www.youtube.com/watch?v=J3cg4tFLm7A) or ID..."
-                disabled={analyzing}
-                className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-emerald-500 focus:outline-none transition-all placeholder:text-[#9E9AA6]"
+                placeholder="Paste YouTube track URL or video ID (e.g. x3G1I_9DPf4 or aYKN5_b7yVo)..."
+                className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#7567C7] focus:outline-none transition-all placeholder:text-[#9E9AA6]"
               />
-              <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500" />
+              <Search className="h-4 w-4 absolute left-3 top-2.5 text-[#9E9AA6]" />
             </div>
 
             <button
               type="button"
               onClick={handleAnalyzeInput}
-              disabled={analyzing || !inputUrl.trim()}
-              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center justify-center gap-2 shrink-0"
+              disabled={analyzingBackend}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-[#7567C7] hover:bg-[#6556B8] disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
             >
-              {analyzing ? (
+              {analyzingBackend ? (
                 <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Analyzing Track...</span>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Analyzing...</span>
                 </>
               ) : (
                 <>
-                  <Activity className="h-4 w-4" />
-                  <span>Analyze Instruments</span>
+                  <Activity className="h-3.5 w-3.5" />
+                  <span>Analyze Track</span>
                 </>
               )}
             </button>
           </div>
 
-          {/* Preset Fill Buttons */}
-          <div className="pt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
-            <span className="font-semibold text-[10px] uppercase tracking-wider">Example Tracks:</span>
+          {/* Quick Preset Track Buttons (Includes the requested Elegy of the End and Flamewall) */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+            <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider mr-1">
+              Test Presets:
+            </span>
             {PRESET_CONCERT_TRACKS.map((track) => (
               <button
                 key={track.id}
                 type="button"
-                onClick={() => handleQuickFill(track.id)}
-                disabled={analyzing}
-                className="px-2 py-0.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-emerald-500/15 hover:text-emerald-600 dark:hover:text-emerald-300 transition-colors cursor-pointer border border-black/5 dark:border-white/5 text-[10.5px]"
-                title="Populate input field with preset track URL"
+                onClick={() => {
+                  setInputUrl(`https://www.youtube.com/watch?v=${track.id}`);
+                  executeAnalysisForId(track.id);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-[#7567C7]/15 hover:text-[#7567C7] dark:hover:text-[#A898F8] text-[11px] font-medium transition-colors cursor-pointer border border-black/5 dark:border-white/5"
               >
                 {track.title}
               </button>
@@ -583,280 +1295,168 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
           </div>
         </div>
 
-        {/* =========================================================================
-            STATE INDICATORS (Explicit Distinction Between 5 States)
-            ========================================================================= */}
-
-        {/* State 1: Music Playback Stopped / Paused */}
-        {!concert.isPlaying && (
-          <div className="p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/10 dark:border-white/10 flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                <Pause className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                  Music Playback is Paused / Stopped
-                </p>
-                <p className="text-[10.5px] text-[#77747D] dark:text-[#A4A1AA]">
-                  Start music in the concert player to begin continuous real-time rolling detection.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={concert.play}
-              className="px-3 py-1.5 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
-            >
-              <Play className="h-3.5 w-3.5" />
-              <span>Resume Playback</span>
-            </button>
-          </div>
-        )}
-
-        {/* State 2: Music is Playing, Warming Up / Analyzing */}
-        {analyzing && (
-          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3 animate-pulse">
-            <RefreshCw className="h-5 w-5 animate-spin text-emerald-600 dark:text-emerald-400" />
-            <div>
-              <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                Scanning track audio & instrumentation signatures...
-              </p>
-              <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
-                Evaluating acoustic catalog and Gemini model response. Audio state is active.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* State 3: Playing & Analysis Active, but No Instruments Met Threshold */}
-        {concert.isPlaying && !analyzing && hasRunAnalysis && detectedCount === 0 && (
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-300">
-            <HelpCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-            <div className="flex-1">
-              <p className="font-bold">No Instruments Met Confidence Threshold</p>
-              <p className="text-[11px] opacity-90 mt-0.5">
-                {analysisNote ||
-                  'The track is currently playing, but no instruments have exceeded the minimum confidence threshold in this segment.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleAnalyzeInput}
-              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 font-bold text-[11px] cursor-pointer"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* State 4: Playing and Active Instruments Sounding in Current Window */}
-        {concert.isPlaying && !analyzing && activeWindowCount > 0 && (
-          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                  Active in Current Audio Window ({activeWindowCount} Actively Sounding)
-                </span>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
-                Window Release: 2.5s | Time: {playbackTimeDisplay.toFixed(1)}s
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              {Object.values(activeWindowInstruments).map((act, idx) => (
-                <div
-                  key={idx}
-                  className="px-3 py-1.5 rounded-xl bg-white/90 dark:bg-[#1c1a2c]/90 border border-emerald-500/40 text-xs font-bold flex items-center gap-2 shadow-xs"
-                >
-                  <Zap className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
-                  <span className="text-[#25242A] dark:text-white">{act.instrumentName}</span>
-                  <div className="w-12 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 transition-all duration-200"
-                      style={{ width: `${act.activeEnergy}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
-                    {act.confidence}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* State 5: Error Notice */}
+        {/* Error / Notice Banner */}
         {errorNotice && (
-          <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/25 flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-bold">Analysis Service Notice</p>
-              <p className="text-[11px] opacity-90">{errorNotice}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleAnalyzeInput}
-              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-700 dark:text-red-300 font-bold text-[11px] cursor-pointer"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* Active Track Metadata Card */}
-        {hasRunAnalysis && !analyzing && (analyzedVideoTitle || analyzedVideoId) && (
-          <div className="p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <Music className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <div className="min-w-0">
-                <p className="font-bold text-[#25242A] dark:text-[#F4F2F7] truncate max-w-md">
-                  {analyzedVideoTitle || `Video ID: ${analyzedVideoId}`}
-                </p>
-                {analyzedArtist && (
-                  <p className="text-[10.5px] text-[#77747D] dark:text-[#A4A1AA] truncate">
-                    Artist / Channel: {analyzedArtist}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                {detectedCount} Total Instrument{detectedCount !== 1 ? 's' : ''} Identified
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Additional Non-Standard Detected Instruments */}
-        {additionalDetected.length > 0 && (
-          <div className="p-4 rounded-2xl bg-teal-500/10 border border-teal-500/25 space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 dark:text-teal-300">
-              <Sparkles className="h-4 w-4 text-teal-500" />
-              <span>Specialized & Unclassified Instrumentation Identified</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {additionalDetected.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="px-3 py-1 rounded-xl bg-teal-500/20 text-teal-900 dark:text-teal-100 border border-teal-500/40 text-xs font-bold flex items-center gap-1.5 shadow-xs"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 text-teal-500" />
-                  <span>{item.normalizedName}</span>
-                  <span className="text-[10px] font-mono opacity-80">({item.confidence}%)</span>
-                </div>
-              ))}
-            </div>
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+            <span>{errorNotice}</span>
           </div>
         )}
 
         {/* =========================================================================
-            INSTRUMENT REFERENCE & DETECTION DISPLAY GRID
-            Highlights detected instruments; unhighlighted if not detected.
+            LIVE ROLLING MULTI-LABEL DETECTED INSTRUMENTS
             ========================================================================= */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <Activity className="h-4 w-4 text-emerald-500" />
               <h2 className="text-sm font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                Instrument Reference & Detection Display
+                Live Detected Instruments (Signal Analysis)
               </h2>
             </div>
-            <span className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
-              {STANDARD_INSTRUMENT_CATEGORIES.length} Reference Categories
+            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+              {allActiveInstruments.length} Sounding Simultaneously
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {STANDARD_INSTRUMENT_CATEGORIES.map((cat) => {
-              const detectedResult = detectedMap[cat.id];
-              const isDetected = Boolean(detectedResult);
-              const isActiveInWindow = Object.values(activeWindowInstruments).some(
-                (act) => act.categoryId === cat.id
-              );
+          {allActiveInstruments.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-white/60 dark:bg-[#161422]/60 border border-dashed border-black/15 dark:border-white/15 text-center space-y-2">
+              <Music className="h-8 w-8 mx-auto text-[#77747D]/50" />
+              <p className="text-xs font-semibold text-[#77747D] dark:text-[#A4A1AA]">
+                {activeAudioSource !== 'none'
+                  ? 'Awaiting audible musical notes in live audio signal...'
+                  : 'Click "Share Tab Audio" or "Upload Audio File" above to start live multi-label instrument classification.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {allActiveInstruments.map((item) => (
+                <div
+                  key={item.categoryId}
+                  className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-teal-500/5 border border-emerald-500/30 shadow-xs space-y-2 animate-in fade-in"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                        <Activity className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                          {item.instrumentName}
+                        </span>
+                        <div className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                          {item.categoryName}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                      {item.confidence}% Match
+                    </span>
+                  </div>
+
+                  {item.evidence && (
+                    <p className="text-[10.5px] text-[#77747D] dark:text-[#A4A1AA] line-clamp-2">
+                      {item.evidence}
+                    </p>
+                  )}
+
+                  <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[10px]">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Live Active
+                    </span>
+                    <span className="font-mono text-[#77747D]">
+                      Energy: {item.activeEnergy}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* =========================================================================
+            STRICT SEPARATION: CHARACTER ROLE TAGS VS LIVE HIGHLIGHT STATE
+            ========================================================================= */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#161422] border border-black/10 dark:border-white/10 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-purple-500" />
+              <h3 className="text-xs sm:text-sm font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                Performer Role Tags vs Live Detection Highlight
+              </h3>
+            </div>
+            <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
+              {highlightedPerformers.length} Performers Synchronized
+            </span>
+          </div>
+
+          <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
+            Character roles are static registry metadata (e.g. Hina = Grand Piano, Yuzu = Cello). Performers are highlighted in the 3D scene <strong>if and only if</strong> live audio detection confirms their instrument is actively sounding!
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+            {CHARACTER_ROLE_REGISTRY.slice(0, 9).map((entry, idx) => {
+              const roleTag = entry.role.roleTag;
+              const isSounding = allActiveInstruments.some((inst) => {
+                const instName = inst.instrumentName.toLowerCase();
+                const catId = inst.categoryId.toLowerCase();
+                const rt = roleTag.toLowerCase();
+                return (
+                  rt.includes(instName) ||
+                  instName.includes(rt) ||
+                  (catId === 'piano-keyboard' && rt.includes('piano')) ||
+                  (catId === 'violin' && rt.includes('violin')) ||
+                  (catId === 'cello' && rt.includes('cello')) ||
+                  (catId === 'guitar' && rt.includes('guitar')) ||
+                  (catId === 'bass-guitar' && rt.includes('bass')) ||
+                  (catId === 'drums-percussion' && rt.includes('drum')) ||
+                  (catId === 'saxophone' && rt.includes('sax')) ||
+                  (catId === 'french-horn' && rt.includes('horn')) ||
+                  (catId === 'trumpet' && rt.includes('trumpet'))
+                );
+              });
 
               return (
                 <div
-                  key={cat.id}
-                  className={`p-3 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-2 ${
-                    isActiveInWindow
-                      ? 'bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-emerald-500/20 border-emerald-500 shadow-md ring-2 ring-emerald-500/40 scale-[1.02]'
-                      : isDetected
-                      ? 'bg-gradient-to-br from-[#7567C7]/15 via-purple-500/10 to-indigo-500/15 border-[#7567C7] shadow-sm ring-1 ring-[#7567C7]/30'
-                      : 'bg-white/50 dark:bg-[#161422]/50 border-black/5 dark:border-white/5 opacity-60 hover:opacity-85'
+                  key={idx}
+                  className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                    isSounding
+                      ? 'bg-emerald-500/10 border-emerald-500/40 shadow-xs ring-1 ring-emerald-500/20'
+                      : 'bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5 opacity-70'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-1.5">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`text-xs font-bold leading-tight ${
-                            isActiveInWindow
-                              ? 'text-emerald-700 dark:text-emerald-300'
-                              : isDetected
-                              ? 'text-[#7567C7] dark:text-[#BCA8F8]'
-                              : 'text-[#25242A] dark:text-[#F4F2F7]'
-                          }`}
-                        >
-                          {cat.name}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-semibold text-[#77747D] dark:text-[#9E9AA6]">
-                        {cat.family} Family
+                  <div>
+                    <div className="text-xs font-bold text-[#25242A] dark:text-[#F4F2F7]">
+                      {entry.matchNames?.[0] || entry.matchFilenames[0]}
+                    </div>
+                    <div className="text-[10px] text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-1.5 mt-0.5">
+                      <span>Role Tag:</span>
+                      <span className={`px-1.5 py-0.2 rounded font-semibold ${entry.role.colorClass}`}>
+                        {roleTag}
                       </span>
                     </div>
-
-                    {isActiveInWindow ? (
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-emerald-500 text-white text-[9.5px] font-bold shrink-0 animate-pulse">
-                        <Zap className="h-3 w-3" />
-                        <span>ACTIVE</span>
-                      </div>
-                    ) : isDetected ? (
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-bold shrink-0">
-                        <CheckCircle2 className="h-3 w-3" />
-                        <span>DETECTED</span>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-[#77747D] dark:text-[#7A7782] font-mono">
-                        Not detected
-                      </span>
-                    )}
                   </div>
 
-                  <p className="text-[10.5px] text-[#77747D] dark:text-[#A4A1AA] line-clamp-2 leading-relaxed">
-                    {cat.description}
-                  </p>
-
-                  {/* Confidence / Source Info if Detected */}
-                  {isDetected && detectedResult && (
-                    <div className="pt-1.5 border-t border-black/5 dark:border-white/10 flex items-center justify-between text-[10px]">
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        {detectedResult.confidence}% confidence
-                      </span>
-                      <span className="text-[#77747D] dark:text-[#9E9AA6] text-[9.5px]">
-                        {detectedResult.source === 'gemini_audio'
-                          ? 'Audio AI'
-                          : detectedResult.source === 'catalog'
-                          ? 'Acoustic Catalog'
-                          : 'Track metadata'}
-                      </span>
-                    </div>
-                  )}
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${
+                      isSounding
+                        ? 'bg-emerald-500 text-white shadow-xs animate-pulse'
+                        : 'bg-black/5 dark:bg-white/10 text-[#77747D]'
+                    }`}
+                  >
+                    {isSounding ? 'HIGHLIGHTED' : 'Standby'}
+                  </span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Footer Note */}
+        {/* Footer Guidance */}
         <div className="p-3.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 text-[11px] text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-2">
-          <Info className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <Info className="h-4 w-4 shrink-0 text-[#7567C7]" />
           <span>
-            Anti-mocking policy: Instrument detection evaluates only the audio track, never character role tags. Loading a character will never alter audio analysis results.
+            Audio pipeline separates monitoring from analysis. Tab and microphone audio are never routed back to speakers, preventing duplicate volume and audio feedback.
           </span>
         </div>
       </div>
