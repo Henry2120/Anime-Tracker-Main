@@ -96,6 +96,7 @@ export interface ConcertMusicContextValue {
   setPresentationMode: (mode: ConcertPresentationMode) => void;
   closeMiniConcert: () => void;
   getCurrentTime: () => number;
+  seekTo: (seconds: number) => void;
 }
 
 const ConcertMusicContext = createContext<ConcertMusicContextValue | null>(null);
@@ -297,6 +298,16 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     return 0;
   }, []);
 
+  const seekTo = useCallback((seconds: number) => {
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      try {
+        playerRef.current.seekTo(seconds, true);
+      } catch (e) {
+        console.warn('[YouTube Player] seekTo error:', e);
+      }
+    }
+  }, []);
+
   const value = {
     videoId,
     videoTitle,
@@ -314,6 +325,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     setPresentationMode,
     closeMiniConcert,
     getCurrentTime,
+    seekTo,
   };
 
   return (

@@ -2179,129 +2179,38 @@ app.get("/api/release-calendar", async (req, res) => {
   });
 });
 
-// In-memory cache for analyzed YouTube performances to provide instant responses
-const youtubeAnalysisCache = new Map<string, any>();
-
-// ----------------------------------------------------
-// VERIFIED ACOUSTIC PERFORMANCE CATALOG
-// Curated acoustic instrument analyses for verified concert and anime music performances
-// ----------------------------------------------------
-const VERIFIED_ACOUSTIC_CATALOG: Record<string, any> = {
-  // Lappy - Elegy of the End (featuring Violin, Cello, Piano)
-  'x3G1I_9DPf4': {
-    title: 'Elegy of the End',
-    artist: 'Lappy',
-    bpm: 76,
-    genre: 'Chamber Classical / Anime Soundtrack',
-    description: 'Chamber acoustic arrangement highlighting solo expressive violin, warm cantabile acoustic cello, and dynamic grand piano accompaniment.',
-    detectedInstruments: [
-      { name: 'violin', confidence: 0.98, role: 'lead', notes: 'Expressive lyrical solo violin with cantabile bowing and vibrato' },
-      { name: 'cello', confidence: 0.97, role: 'harmony', notes: 'Warm acoustic cello counter-melodies and deep resonant bass register' },
-      { name: 'piano', confidence: 0.96, role: 'rhythm', notes: 'Acoustic grand piano arpeggios, dynamic chord voicing, and harmonic support' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Camellia - Flamewall (featuring Violin, Electric Guitar, Drums, Bass, Synthesizer)
-  'aYKN5_b7yVo': {
-    title: 'Flamewall',
-    artist: 'Camellia',
-    bpm: 210,
-    genre: 'Symphonic Speed Metal / Hardcore',
-    description: 'Virtuosic symphonic speed metal arrangement featuring rapid acoustic/electric violin runs, overdriven electric guitar riffing, fast double-bass metal drums, and driving bass synthesizer.',
-    detectedInstruments: [
-      { name: 'violin', confidence: 0.97, role: 'lead', notes: 'Virtuosic rapid spiccato violin arpeggios and orchestral string lines' },
-      { name: 'electric guitar', confidence: 0.96, role: 'lead', notes: 'High-gain overdriven electric guitar riffs and sweep picking' },
-      { name: 'drums', confidence: 0.98, role: 'percussion', notes: 'High-speed metal drum kit, rapid double-bass pedals, and crisp cymbals' },
-      { name: 'bass', confidence: 0.94, role: 'bass', notes: 'Driving sub-bass and distorted bass guitar backing' },
-      { name: 'synthesizer', confidence: 0.92, role: 'harmony', notes: 'Electronic synth leads, arpeggiated pads, and modern EDM sound design' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Prague Cello Quartet - Classical Anime Medley (featuring Cello)
-  'qpbX7SbXOtU': {
-    title: 'Classical Anime Medley',
-    artist: 'Prague Cello Quartet',
-    bpm: 124,
-    genre: 'Chamber Strings / Anime Medley',
-    description: 'Chamber quartet arrangement performed by four cellos featuring acoustic cello bowing, melodic cantabile passages, and rhythmic pizzicato.',
-    detectedInstruments: [
-      { name: 'cello', confidence: 0.99, role: 'ensemble', notes: 'Lead and accompaniment acoustic cellos' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Lindsey Stirling - Carol of the Bells (featuring Violin)
-  'Igg7AxN5QPc': {
-    title: 'Carol of the Bells (Violin EDM)',
-    artist: 'Lindsey Stirling',
-    bpm: 148,
-    genre: 'Classical Crossover / Violin EDM',
-    description: 'High-energy classical crossover arrangement driven by virtuoso acoustic and electric violin bowing paired with electronic percussion and synth orchestration.',
-    detectedInstruments: [
-      { name: 'violin', confidence: 0.99, role: 'lead', notes: 'Lead virtuoso violin melodies with spiccato and detaché bowing' },
-      { name: 'drums', confidence: 0.88, role: 'percussion', notes: 'Electronic drum kit and synthesized percussion' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Danila Bolshakov - Burning Piano (Max Richter cover) (featuring Piano)
-  'J3cg4tFLm7A': {
-    title: 'Burning Piano (Max Richter cover)',
-    artist: 'Danila Bolshakov',
-    bpm: 72,
-    genre: 'Neo-Classical / Piano Solo',
-    description: 'Evocative solo acoustic grand piano performance of Max Richter\'s composition, highlighting delicate touch, arpeggiated figures, and rich resonant sustain.',
-    detectedInstruments: [
-      { name: 'piano', confidence: 0.99, role: 'solo', notes: 'Solo acoustic grand piano with expressive dynamic phrasing' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Bocchi the Rock! - That Band / Ano Bando (featuring Electric Guitar, Bass, Drums, Vocals)
-  'kYbgcOC_FkI': {
-    title: 'That Band (Ano Bando)',
-    artist: 'Bocchi the Rock! (Kessoku Band)',
-    bpm: 188,
-    genre: 'J-Rock / Anime Rock Band',
-    description: 'Dynamic 4-piece rock ensemble performance featuring prominent overdriven lead electric guitar, distorted rhythm guitar, driving bassline, acoustic drum kit, and rock vocals.',
-    detectedInstruments: [
-      { name: 'electric guitar', confidence: 0.98, role: 'lead', notes: 'Overdriven lead guitar solos and syncopated rhythm riffs' },
-      { name: 'bass', confidence: 0.96, role: 'bass', notes: 'Driving punchy electric bassline' },
-      { name: 'drums', confidence: 0.97, role: 'percussion', notes: 'Energetic acoustic drum kit with crash cymbals and kick-snare patterns' },
-      { name: 'vocals', confidence: 0.94, role: 'lead', notes: 'Expressive lead vocal performance' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  },
-  // Mitsukiyo - Constant Moderato (Blue Archive OST) (featuring Piano, Bass, Drums)
-  'dUXIymB78YQ': {
-    title: 'Constant Moderato (Mitsukiyo)',
-    artist: 'Blue Archive OST',
-    bpm: 128,
-    genre: 'Future Bass / Anime Soundtrack',
-    description: 'Iconic Blue Archive theme featuring bright acoustic piano motifs, energetic synthesizer chords, sub-bass, and crisp future-bass drum groove.',
-    detectedInstruments: [
-      { name: 'piano', confidence: 0.95, role: 'lead', notes: 'Bright upbeat piano chords and signature hook melody' },
-      { name: 'bass', confidence: 0.90, role: 'bass', notes: 'Synthesized melodic sub-bass' },
-      { name: 'drums', confidence: 0.92, role: 'percussion', notes: 'Crisp future-bass electronic drum beat' }
-    ],
-    status: 'detected',
-    source: 'verified_catalog'
-  }
-};
 
 // ----------------------------------------------------
 // GEMINI CLIENT INITIALIZATION
 // ----------------------------------------------------
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
+  // Dynamically reload .env / .env.local on every call so newly configured AI Studio Secrets take effect immediately
+  try {
+    dotenv.config({ override: true });
+    dotenv.config({ path: ".env.local", override: true });
+  } catch (dotErr: any) {
+    console.warn("[MUSIC LAB] Error loading dotenv:", dotErr?.message);
+  }
+
+  const rawKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.GOOGLE_API_KEY;
+
+  let cleanKey: string | null = null;
+  if (typeof rawKey === "string") {
+    const trimmed = rawKey.trim().replace(/^["']|["']$/g, "");
+    if (trimmed !== "" && trimmed !== "MY_GEMINI_API_KEY") {
+      cleanKey = trimmed;
+    }
+  }
+
+  if (!cleanKey) {
     return null;
   }
+
   return new GoogleGenAI({
-    apiKey: apiKey.trim(),
+    apiKey: cleanKey,
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
@@ -2309,6 +2218,9 @@ function getGeminiClient(): GoogleGenAI | null {
     },
   });
 }
+
+// In-memory cache for analyzed YouTube performances to provide instant responses
+const youtubeAnalysisCache = new Map<string, any>();
 
 // ----------------------------------------------------
 // MUSIC LAB YOUTUBE INSTRUMENT DETECTION ENDPOINT
@@ -2345,93 +2257,119 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       console.warn(`[MUSIC LAB] oEmbed lookup skipped: ${oembedErr.message}`);
     }
 
-    const effectiveTitle = oembedTitle || titleHint || "";
+    const effectiveTitle = oembedTitle || titleHint || "YouTube Track";
+    const targetUrl = url || `https://www.youtube.com/watch?v=${cleanVideoId}`;
 
-    // 2. Check verified acoustic performance catalog for known tracks
-    if (VERIFIED_ACOUSTIC_CATALOG[cleanVideoId]) {
-      const catalogEntry = VERIFIED_ACOUSTIC_CATALOG[cleanVideoId];
-      const result = {
-        success: true,
-        status: 'detected',
-        videoId: cleanVideoId,
-        title: oembedTitle || catalogEntry.title,
-        artist: oembedAuthor || catalogEntry.artist,
-        bpm: catalogEntry.bpm,
-        genre: catalogEntry.genre,
-        description: catalogEntry.description,
-        detectedInstruments: catalogEntry.detectedInstruments,
-        source: 'verified_catalog',
-      };
-      youtubeAnalysisCache.set(cleanVideoId, result);
-      console.log(`[MUSIC LAB] Identified instruments for ${cleanVideoId} via verified catalog:`, result.detectedInstruments.map((i: any) => i.name));
-      return res.json(result);
-    }
-
-    // 3. Query Gemini AI for instrument detection on uncataloged tracks
+    // 2. Query Gemini AI for real acoustic instrument analysis
     const ai = getGeminiClient();
     if (!ai) {
       console.warn(`[MUSIC LAB] Gemini API key not configured for analysis of video ${cleanVideoId}`);
       return res.status(200).json({
         success: false,
-        status: 'unavailable',
+        status: 'missing_api_key',
         videoId: cleanVideoId,
-        title: effectiveTitle || "YouTube Video",
+        title: effectiveTitle,
         artist: oembedAuthor || "YouTube Artist",
-        error: "Gemini AI music analysis is unavailable: GEMINI_API_KEY is not configured on the server. Audio cannot be analyzed for uncataloged videos.",
-        detectedInstruments: [],
+        error: "Gemini AI music analysis is unavailable: GEMINI_API_KEY is not configured on the server. Please attach or configure your GEMINI_API_KEY in the Secrets panel in AI Studio settings to enable Gemini audio analysis.",
+        instrumentSegments: [],
+        allDetectedInstruments: [],
       });
     }
 
     try {
-      console.log(`[MUSIC LAB] Querying Gemini AI for video ${cleanVideoId} ("${effectiveTitle}")...`);
-      const prompt = `Analyze the musical performance and recording for YouTube video ID "${cleanVideoId}", titled "${effectiveTitle}" by artist "${oembedAuthor || 'Unknown'}".
-Identify the actual instruments audibly present and performed in this musical track or live arrangement.
-Support any standard musical instruments, such as piano, violin, cello, acoustic guitar, electric guitar, bass, drums, flute, saxophone, trumpet, harp, vocals, synthesizer, etc.
-Do not assume or infer a generic ensemble simply because it is music; report only the instruments that are genuinely characteristic of or audibly performed in this piece.
-For each audibly present instrument, provide its lowercase name (e.g. "piano", "violin", "cello", "electric guitar", "bass", "drums", "vocals"), confidence score (between 0.50 and 1.00), and musical role ("lead", "rhythm", "bass", "percussion", "harmony", "solo").
-If this video is not music or instruments cannot be determined, set isMusic to false.`;
+      console.log(`[MUSIC LAB] Querying Gemini AI (gemini-3.8-flash) for YouTube video ${cleanVideoId} ("${effectiveTitle}")...`);
+
+      const systemInstruction = `You are a professional musicologist, acoustician, and audio engineer.
+Your task is to analyze the audio recording of the supplied public YouTube video and transcribe the audible instruments and vocal sources throughout the track.
+For every instrument and voice sounding in the piece, generate timestamped segments indicating when that instrument enters and exits (startTime and endTime in seconds).
+Cover all musical instrument families:
+- Strings: violin, viola, cello, double bass, harp, classical guitar, acoustic guitar, electric guitar, bass guitar, banjo, mandolin, ukulele, etc.
+- Woodwinds: flute, piccolo, recorder, clarinet, bass clarinet, oboe, English horn, bassoon, contrabassoon, saxophones (soprano, alto, tenor, baritone), etc.
+- Brass: trumpet, cornet, flugelhorn, French horn, trombone, bass trombone, euphonium, tuba, etc.
+- Keyboards: piano, grand piano, electric piano, organ, pipe organ, harpsichord, synthesizer, accordion, etc.
+- Percussion: drum kit, snare drum, bass drum, toms, cymbals, hi-hat, tambourine, triangle, timpani, xylophone, marimba, vibraphone, glockenspiel, etc.
+- Traditional & World: shamisen, koto, erhu, pipa, guzheng, shakuhachi, sitar, tabla, steelpan, etc.
+- Voice & Electronic: lead vocals, backing vocals, choir, electronic bass, synth pads, arpeggiators, etc.
+
+Do not fabricate exact timestamps or claim certainty when the audio is ambiguous. Distinguish instruments by listening to the audio performance. Support overlapping instruments sounding simultaneously.`;
+
+      const prompt = `Analyze the musical performance for YouTube video at ${targetUrl} (ID: ${cleanVideoId}, Title: "${effectiveTitle}", Artist: "${oembedAuthor}").
+Provide structured JSON with:
+1. isMusic: boolean
+2. trackTitle: canonical track title
+3. artist: artist or composer name
+4. analysisSummary: comprehensive summary of what is heard
+5. instrumentSegments: array of timestamped segments where each instrument is active, with:
+   - instrumentName: canonical instrument name (e.g. "Violin", "Cello", "Grand Piano", "Electric Guitar", "Drum Kit")
+   - family: "Strings" | "Woodwinds" | "Brass" | "Keyboards" | "Percussion" | "Traditional & World" | "Voice & Electronic" | "Other"
+   - startTime: number (in seconds)
+   - endTime: number (in seconds)
+   - confidence: number (0.0 to 1.0)
+   - audibility: "audible" | "suspected" | "uncertain"
+   - evidence: brief acoustic description of what is heard
+6. allDetectedInstruments: array of distinct instruments present in the piece with { name, family, role, description }`;
 
       const aiResponse = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: prompt,
         config: {
+          systemInstruction,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              isMusic: { type: Type.BOOLEAN, description: "Whether this video is a musical recording" },
-              genre: { type: Type.STRING },
-              bpm: { type: Type.NUMBER },
-              description: { type: Type.STRING },
-              detectedInstruments: {
+              isMusic: { type: Type.BOOLEAN },
+              trackTitle: { type: Type.STRING },
+              artist: { type: Type.STRING },
+              analysisSummary: { type: Type.STRING },
+              instrumentSegments: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    instrumentName: { type: Type.STRING },
+                    family: { type: Type.STRING },
+                    startTime: { type: Type.NUMBER },
+                    endTime: { type: Type.NUMBER },
+                    confidence: { type: Type.NUMBER },
+                    audibility: { type: Type.STRING },
+                    evidence: { type: Type.STRING },
+                  },
+                  required: ["instrumentName", "family", "startTime", "endTime", "confidence", "audibility"],
+                },
+              },
+              allDetectedInstruments: {
                 type: Type.ARRAY,
                 items: {
                   type: Type.OBJECT,
                   properties: {
                     name: { type: Type.STRING },
-                    confidence: { type: Type.NUMBER },
+                    family: { type: Type.STRING },
                     role: { type: Type.STRING },
-                    notes: { type: Type.STRING },
+                    description: { type: Type.STRING },
                   },
-                  required: ["name", "confidence"],
+                  required: ["name", "family"],
                 },
               },
             },
-            required: ["isMusic", "detectedInstruments"],
+            required: ["isMusic", "instrumentSegments", "allDetectedInstruments"],
           },
         },
       });
 
-      const parsed = JSON.parse(aiResponse.text || "{}");
-      if (!parsed.isMusic || !Array.isArray(parsed.detectedInstruments) || parsed.detectedInstruments.length === 0) {
+      const rawText = aiResponse.text || "{}";
+      const parsed = JSON.parse(rawText);
+
+      if (!parsed.isMusic && (!parsed.instrumentSegments || parsed.instrumentSegments.length === 0)) {
         return res.status(200).json({
           success: false,
           status: 'unsupported',
           videoId: cleanVideoId,
-          title: effectiveTitle || "YouTube Video",
+          title: effectiveTitle,
           artist: oembedAuthor || "YouTube Artist",
           error: "No musical instruments could be audibly detected in this recording.",
-          detectedInstruments: [],
+          instrumentSegments: [],
+          allDetectedInstruments: [],
         });
       }
 
@@ -2439,17 +2377,16 @@ If this video is not music or instruments cannot be determined, set isMusic to f
         success: true,
         status: 'detected',
         videoId: cleanVideoId,
-        title: effectiveTitle || parsed.title || "YouTube Performance",
-        artist: oembedAuthor || parsed.artist || "YouTube Artist",
-        bpm: parsed.bpm || 120,
-        genre: parsed.genre || "Music",
-        description: parsed.description || "Identified musical instruments.",
-        detectedInstruments: parsed.detectedInstruments,
-        source: 'gemini',
+        title: parsed.trackTitle || effectiveTitle,
+        artist: parsed.artist || oembedAuthor || "Artist",
+        analysisSummary: parsed.analysisSummary || "Acoustic instrument timeline analysis completed.",
+        instrumentSegments: parsed.instrumentSegments || [],
+        allDetectedInstruments: parsed.allDetectedInstruments || [],
+        source: 'gemini_audio',
       };
 
       youtubeAnalysisCache.set(cleanVideoId, result);
-      console.log(`[MUSIC LAB] Gemini identified instruments for ${cleanVideoId}:`, result.detectedInstruments.map((i: any) => i.name));
+      console.log(`[MUSIC LAB] Gemini successfully analyzed ${cleanVideoId}: ${result.instrumentSegments.length} segments, ${result.allDetectedInstruments.length} instruments.`);
       return res.json(result);
     } catch (aiErr: any) {
       console.error(`[MUSIC LAB] Gemini analysis error for ${cleanVideoId}:`, aiErr);
@@ -2457,10 +2394,11 @@ If this video is not music or instruments cannot be determined, set isMusic to f
         success: false,
         status: 'error',
         videoId: cleanVideoId,
-        title: effectiveTitle || "YouTube Video",
+        title: effectiveTitle,
         artist: oembedAuthor || "YouTube Artist",
-        error: `Gemini AI analysis failed: ${aiErr.message || "Unknown error"}`,
-        detectedInstruments: [],
+        error: `Gemini AI analysis failed: ${aiErr.message || "Unknown error occurred"}. Please ensure the YouTube video is publicly accessible and your GEMINI_API_KEY has active quota.`,
+        instrumentSegments: [],
+        allDetectedInstruments: [],
       });
     }
   } catch (err: any) {
