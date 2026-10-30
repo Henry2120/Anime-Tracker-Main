@@ -19,6 +19,7 @@ import {
   Volume2,
   ExternalLink,
   Zap,
+  ShieldCheck,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { extractYouTubeVideoId, PRESET_CONCERT_TRACKS } from './ConcertMusicContext';
@@ -29,6 +30,7 @@ import {
   MASTER_INSTRUMENT_CATALOG,
   normalizeInstrument,
   parseTimelineSegments,
+  isSegmentActiveAtTime,
 } from '../../utils/instrumentNormalization';
 
 export interface InstrumentAnalysisViewProps {
@@ -160,6 +162,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // UI Filter / View States
   const [selectedFamilyFilter, setSelectedFamilyFilter] = useState<string>('all');
   const [collapsedFamilies, setCollapsedFamilies] = useState<Record<string, boolean>>({});
+  // Evidence-based confidence threshold (default 90% / 0.90)
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(90);
 
   const ytPlayerRef = useRef<any>(null);
   const timePollingIntervalRef = useRef<any>(null);
@@ -338,7 +342,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setAnalysisError(null);
     setAnalysisSummary('');
 
-    // Clear previous results to avoid stale data
+    // Clear previous results immediately to avoid stale data from previous tracks
     setTimelineSegments([]);
     setAllDetectedInstruments([]);
 
@@ -355,6 +359,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         body: JSON.stringify({
           videoId: cleanId,
           url: customUrl || `https://www.youtube.com/watch?v=${cleanId}`,
+          duration: playerDuration > 0 ? playerDuration : undefined,
         }),
       });
 
@@ -379,8 +384,12 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       setVideoArtist(data.artist || '');
       setAnalysisSummary(data.analysisSummary || '');
 
-      // Parse structured timeline segments
-      const parsedSegments = parseTimelineSegments(data.instrumentSegments);
+      // Parse structured timeline segments with duration bounding and gap preservation
+      const parsedSegments = parseTimelineSegments(data.instrumentSegments, {
+        maxDuration: playerDuration > 0 ? playerDuration : undefined,
+        minConfidencePercent: 70, // Server ingestion threshold
+        gapMergeThreshold: 1.2,   // Merges overlapping windows while strictly preserving rests >= 1.2s
+      });
       setTimelineSegments(parsedSegments);
 
       // Parse detected instruments list
@@ -408,7 +417,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         setIsAnalyzing(false);
       }
     }
-  }, [activeVideoId]);
+  }, [activeVideoId, playerDuration]);
 
   // Initial analysis on first mount
   useEffect(() => {
@@ -428,18 +437,23 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const handleSelectPreset = (trackId: string, trackTitle: string) => {
     const url = `https://www.youtube.com/watch?v=${trackId}`;
     setInputUrl(url);
+    // Invalidate stale data immediately before new analysis
+    setTimelineSegments([]);
+    setAllDetectedInstruments([]);
+    setPlayerCurrentTime(0);
     executeTrackAnalysis(trackId, url);
   };
 
   // =========================================================================
   // REAL-TIME ACTIVE INSTRUMENTS COMPUTATION (TIMESTAMP SYNCHRONIZATION)
+  // Evaluates strictly against evidence-based confidence threshold (default 90%)
   // Recalculates immediately whenever playerCurrentTime changes
   // =========================================================================
   const activeSegments = useMemo(() => {
-    return timelineSegments.filter(
-      (seg) => seg.startTime <= playerCurrentTime && playerCurrentTime <= seg.endTime
+    return timelineSegments.filter((seg) =>
+      isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold)
     );
-  }, [timelineSegments, playerCurrentTime]);
+  }, [timelineSegments, playerCurrentTime, confidenceThreshold]);
 
   const activeInstrumentNamesSet = useMemo(() => {
     return new Set(activeSegments.map((s) => s.instrumentName.toLowerCase()));
@@ -577,32 +591,68 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </button>
           </div>
 
-          {/* Quick Preset Test Tracks */}
-          <div className="flex items-center gap-1.5 flex-wrap pt-1">
-            <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider mr-1">
-              Test Presets:
-            </span>
-            {PRESET_CONCERT_TRACKS.map((track) => (
-              <button
-                key={track.id}
-                type="button"
-                onClick={() => handleSelectPreset(track.id, track.title)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
-                  activeVideoId === track.id
-                    ? 'bg-[#7567C7]/15 text-[#7567C7] border-[#7567C7]/30 font-bold'
-                    : 'bg-black/5 dark:bg-white/5 hover:bg-[#7567C7]/10 text-[#77747D] dark:text-[#A4A1AA] border-black/5 dark:border-white/5'
-                }`}
-              >
-                {track.title}
-              </button>
-            ))}
+          {/* Quick Preset Test Tracks & Confidence Threshold */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-black/5 dark:border-white/5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider mr-1">
+                Test Presets:
+              </span>
+              {PRESET_CONCERT_TRACKS.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  onClick={() => handleSelectPreset(track.id, track.title)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
+                    activeVideoId === track.id
+                      ? 'bg-[#7567C7]/15 text-[#7567C7] border-[#7567C7]/30 font-bold'
+                      : 'bg-black/5 dark:bg-white/5 hover:bg-[#7567C7]/10 text-[#77747D] dark:text-[#A4A1AA] border-black/5 dark:border-white/5'
+                  }`}
+                >
+                  {track.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider flex items-center gap-1">
+                <ShieldCheck className="h-3.5 w-3.5 text-[#7567C7]" />
+                <span>Confidence Threshold:</span>
+              </span>
+              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border border-black/5 dark:border-white/5">
+                {[85, 90, 95].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setConfidenceThreshold(val)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                      confidenceThreshold === val
+                        ? 'bg-[#7567C7] text-white shadow-xs'
+                        : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+                    }`}
+                    title={`Highlight instruments only when acoustic evidence confidence is at least ${val}%`}
+                  >
+                    ≥{val}%{val === 90 ? ' (Default)' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Error Notice */}
           {analysisError && (
-            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2.5">
-              <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-              <span>{analysisError}</span>
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                <span className="break-words">{analysisError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleAnalyzeClick}
+                disabled={isAnalyzing}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 font-bold text-[11px] transition-all cursor-pointer shrink-0 self-end sm:self-center"
+              >
+                Retry Analysis
+              </button>
             </div>
           )}
         </div>
@@ -717,7 +767,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               {timelineSegments.map((seg) => {
                 const leftPct = (seg.startTime / effectiveDuration) * 100;
                 const widthPct = Math.max(1.5, ((seg.endTime - seg.startTime) / effectiveDuration) * 100);
-                const isActive = seg.startTime <= playerCurrentTime && playerCurrentTime <= seg.endTime;
+                const isActive = isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold);
                 const familyCfg = FAMILY_CONFIG[seg.family] || FAMILY_CONFIG.Other;
 
                 return (
@@ -733,9 +783,9 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                       backgroundColor: familyCfg.color,
                     }}
                     className={`absolute top-2 h-8 rounded-md transition-all cursor-pointer opacity-85 hover:opacity-100 flex items-center px-1.5 overflow-hidden ${
-                      isActive ? 'ring-2 ring-white shadow-md z-10 opacity-100 scale-y-105' : ''
+                      isActive ? 'ring-2 ring-emerald-400 shadow-md z-10 opacity-100 scale-y-105' : ''
                     }`}
-                    title={`${seg.instrumentName} (${formatTime(seg.startTime)} - ${formatTime(seg.endTime)})`}
+                    title={`${seg.instrumentName} (${formatTime(seg.startTime)} - ${formatTime(seg.endTime)}) • ${seg.confidence}% conf`}
                   >
                     <span className="text-[9.5px] font-bold text-white truncate drop-shadow-sm select-none">
                       {seg.instrumentName}
@@ -778,7 +828,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             ) : (
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
                 {timelineSegments.map((seg) => {
-                  const isActive = seg.startTime <= playerCurrentTime && playerCurrentTime <= seg.endTime;
+                  const isActive = isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold);
                   const familyCfg = FAMILY_CONFIG[seg.family] || FAMILY_CONFIG.Other;
 
                   return (
@@ -831,12 +881,16 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             isActive
                               ? 'bg-emerald-500 text-white animate-pulse'
-                              : seg.audibility === 'audible'
+                              : seg.confidence >= confidenceThreshold
                               ? 'bg-black/5 dark:bg-white/10 text-[#77747D]'
-                              : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                           }`}
                         >
-                          {isActive ? '● SOUNDING NOW' : seg.audibility === 'audible' ? 'Audible' : 'Suspected'}
+                          {isActive
+                            ? '● SOUNDING NOW'
+                            : seg.confidence >= confidenceThreshold
+                            ? 'Audible (Resting)'
+                            : 'Low Confidence'}
                         </span>
                       </div>
                     </div>
@@ -966,8 +1020,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                           <div
                             key={inst.id}
                             onClick={() => {
-                              if (isDetectedInTrack && instSegments[0]) {
-                                handleSeek(instSegments[0].startTime);
+                              if (isDetectedInTrack && instSegments.length > 0) {
+                                const nextSeg =
+                                  instSegments.find((s) => s.startTime > playerCurrentTime + 0.1) ||
+                                  instSegments[0];
+                                handleSeek(nextSeg.startTime);
                               }
                             }}
                             className={`p-2.5 rounded-xl border text-xs transition-all flex flex-col justify-between gap-1.5 ${
@@ -978,9 +1035,14 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                                 : 'bg-black/[0.02] dark:bg-white/[0.02] border-black/5 dark:border-white/5 opacity-60'
                             } ${isDetectedInTrack ? 'cursor-pointer' : ''}`}
                             title={
-                              isDetectedInTrack
-                                ? `Click to seek to first appearance (${formatTime(
-                                    instSegments[0].startTime
+                              isSoundingNow
+                                ? `${inst.canonicalName}: Actively sounding at ${formatTime(playerCurrentTime)}`
+                                : isDetectedInTrack
+                                ? `Click to seek to entrance (${formatTime(
+                                    (
+                                      instSegments.find((s) => s.startTime > playerCurrentTime + 0.1) ||
+                                      instSegments[0]
+                                    ).startTime
                                   )})`
                                 : inst.description
                             }
@@ -1001,8 +1063,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                                 {isSoundingNow
                                   ? '● ACTIVE'
                                   : isDetectedInTrack
-                                  ? `${instSegments.length} cues`
-                                  : 'Not detected'}
+                                  ? `${instSegments.length} cue${instSegments.length > 1 ? 's' : ''} (Resting)`
+                                  : 'Not in track'}
                               </span>
                             </div>
 

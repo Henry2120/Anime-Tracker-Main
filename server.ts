@@ -7,6 +7,11 @@ import fs from "fs";
 import { DatabaseSync } from "node:sqlite";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import {
+  validateAndMergeTimelineSegments,
+  normalizeInstrument,
+  InstrumentTimelineSegment,
+} from "./src/utils/instrumentNormalization.js";
 
 dotenv.config();
 
@@ -2227,15 +2232,15 @@ const youtubeAnalysisCache = new Map<string, any>();
 // ----------------------------------------------------
 app.post("/api/music/analyze-youtube", async (req, res) => {
   try {
-    const { videoId, url, titleHint } = req.body || {};
+    const { videoId, url, titleHint, duration, forceRefresh } = req.body || {};
     if (!videoId || typeof videoId !== "string") {
       return res.status(400).json({ success: false, status: 'error', error: "Missing YouTube video ID" });
     }
 
     const cleanVideoId = videoId.trim();
 
-    // Check in-memory cache first
-    if (youtubeAnalysisCache.has(cleanVideoId)) {
+    // Check in-memory cache first (unless forceRefresh requested)
+    if (!forceRefresh && youtubeAnalysisCache.has(cleanVideoId)) {
       console.log(`[MUSIC LAB] Serving cached analysis for video ${cleanVideoId}`);
       return res.json({ success: true, ...youtubeAnalysisCache.get(cleanVideoId), cached: true });
     }
@@ -2279,95 +2284,165 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
     try {
       console.log(`[MUSIC LAB] Querying Gemini AI (gemini-3.8-flash) for YouTube video ${cleanVideoId} ("${effectiveTitle}")...`);
 
-      const systemInstruction = `You are a professional musicologist, acoustician, and audio engineer.
-Your task is to analyze the audio recording of the supplied public YouTube video and transcribe the audible instruments and vocal sources throughout the track.
-For every instrument and voice sounding in the piece, generate timestamped segments indicating when that instrument enters and exits (startTime and endTime in seconds).
-Cover all musical instrument families:
-- Strings: violin, viola, cello, double bass, harp, classical guitar, acoustic guitar, electric guitar, bass guitar, banjo, mandolin, ukulele, etc.
-- Woodwinds: flute, piccolo, recorder, clarinet, bass clarinet, oboe, English horn, bassoon, contrabassoon, saxophones (soprano, alto, tenor, baritone), etc.
-- Brass: trumpet, cornet, flugelhorn, French horn, trombone, bass trombone, euphonium, tuba, etc.
-- Keyboards: piano, grand piano, electric piano, organ, pipe organ, harpsichord, synthesizer, accordion, etc.
-- Percussion: drum kit, snare drum, bass drum, toms, cymbals, hi-hat, tambourine, triangle, timpani, xylophone, marimba, vibraphone, glockenspiel, etc.
-- Traditional & World: shamisen, koto, erhu, pipa, guzheng, shakuhachi, sitar, tabla, steelpan, etc.
-- Voice & Electronic: lead vocals, backing vocals, choir, electronic bass, synth pads, arpeggiators, etc.
+      const systemInstruction = `You are a world-class musicologist, acoustician, and audio transcription engineer.
+Your task is to analyze the musical performance of the supplied YouTube track and transcribe genuine, audible instruments across chronological time intervals.
 
-Do not fabricate exact timestamps or claim certainty when the audio is ambiguous. Distinguish instruments by listening to the audio performance. Support overlapping instruments sounding simultaneously.`;
+CRITICAL EVIDENCE-BASED TRANSCRIPTION ARCHITECTURE:
 
-      const prompt = `Analyze the musical performance for YouTube video at ${targetUrl} (ID: ${cleanVideoId}, Title: "${effectiveTitle}", Artist: "${oembedAuthor}").
-Provide structured JSON with:
-1. isMusic: boolean
-2. trackTitle: canonical track title
-3. artist: artist or composer name
-4. analysisSummary: comprehensive summary of what is heard
-5. instrumentSegments: array of timestamped segments where each instrument is active, with:
-   - instrumentName: canonical instrument name (e.g. "Violin", "Cello", "Grand Piano", "Electric Guitar", "Drum Kit")
-   - family: "Strings" | "Woodwinds" | "Brass" | "Keyboards" | "Percussion" | "Traditional & World" | "Voice & Electronic" | "Other"
-   - startTime: number (in seconds)
-   - endTime: number (in seconds)
-   - confidence: number (0.0 to 1.0)
-   - audibility: "audible" | "suspected" | "uncertain"
-   - evidence: brief acoustic description of what is heard
-6. allDetectedInstruments: array of distinct instruments present in the piece with { name, family, role, description }`;
+1. SHORT OVERLAPPING WINDOW ANALYSIS & LEADING INSTRUMENT IDENTIFICATION:
+   - Divide the performance into short, sequential, overlapping time windows (e.g. 15-25 seconds each across the entire track).
+   - In EACH window, identify:
+     a) The LEADING instrument (the primary melodic, solo, or vocal-substitute voice carrying the main musical line).
+     b) Independently evaluate each harmonic and rhythm section instrument (rhythm guitars, bass, keyboards, drums, auxiliary instruments).
+     c) Explicitly audit quiet or masked instruments playing underneath louder layers.
+   - Do NOT assume any instrument is active merely because it was present earlier or is the lead instrument. Only include it during the intervals where active playing is supported by acoustic evidence.
+   - Preserve silence gaps and musical rests (e.g. intro solos, breakdown verses, drum-less bridges).
 
-      const aiResponse = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              isMusic: { type: Type.BOOLEAN },
-              trackTitle: { type: Type.STRING },
-              artist: { type: Type.STRING },
-              analysisSummary: { type: Type.STRING },
-              instrumentSegments: {
-                type: Type.ARRAY,
-                items: {
+2. DISAMBIGUATE COMPETING ACOUSTIC HYPOTHESES (CRITICAL TIMBRE RULES):
+   - SOLO VIOLIN VS LEAD ELECTRIC GUITAR:
+     In symphonic metal, melodic rock, anime themes, instrumental rock, and classical crossover (e.g. Lappy, Lindsey Stirling, Wagakki Band, Falcom Sound Team, Hiroyuki Sawano):
+     * The principal singing, soaring melody is frequently played by a SOLO VIOLIN (acoustic or electric violin), NOT a lead electric guitar.
+     * Violin acoustic characteristics: rapid bow friction and string-crossing attacks, continuous cantabile singing vibrato sustained through notes, high soprano register (> C5), expressive acoustic rosin/wood resonance.
+     * Electric guitar characteristics: magnetic pick attacks, fret clicks, distinct string bending with fret-hand vibrato, and amplifier overdrive/fuzz. In these arrangements, the electric guitars are usually executing distorted rhythm power chords, palm-muted chugs, and harmonic chord layers beneath the violin.
+     * NEVER confuse a soaring solo violin melody with an electric guitar lead! Attribute the solo melody to 'Violin' and distorted chordal backing to 'Electric Guitar'.
+   - VIOLIN VS VIOLA VS CELLO:
+     * High soprano cantabile vibrato = 'Violin'. Mellow woody alto/tenor register = 'Viola'. Rich, resonant tenor/baritone bowing fundament = 'Cello'.
+     * If individual solo lines cannot be isolated within a blended orchestral string section, classify as 'Strings (Ensemble)'.
+   - PIANO VS SYNTHESIZER:
+     * Mechanical felt hammer transients and natural soundboard acoustic decay = 'Acoustic Grand Piano' / 'Piano'. Filter sweeps, pulse waves, electronic oscillators, and synth pads = 'Synthesizer'.
+   - BASS GUITAR VS SYNTH BASS VS LOW STRINGS:
+     * Distinct metallic string pluck transient, finger/pick attack, and fret buzz = 'Bass Guitar'. Sub-oscillator electronic rumble without string plucking = 'Electronic Bass' / 'Synthesizer'. Contrabass bowing = 'Double Bass'.
+   - DRUM KIT VS ELECTRONIC BEATS:
+     * Natural drum skin resonance, dynamic acoustic snare rimshots, brass cymbals = 'Drum Kit'. Programmed synthesized 808/909 samples = 'Drum Machine' / 'Synthesizer'.
+
+3. SECOND VERIFICATION PASS FOR QUIET & MASKED INSTRUMENTS:
+   - In the second verification pass, systematically audit each window for quiet instruments that may be partially masked by louder instruments:
+     * E.g., quiet violin counter-melodies, subtle acoustic guitar rhythm strums, soft piano chords doubling roots, sustained string ensemble pads, or delicate keyboard counterpoints.
+     * Do NOT discard an instrument merely because it is quiet if its acoustic timbre is discernibly audible.
+     * Do NOT invent instruments that are absent.
+
+4. CONFIDENCE & EVIDENCE CALIBRATION:
+   - Provide a calibrated confidence score between 0.00 and 1.00 for each segment.
+   - Reserve confidence >= 0.90 for segments where the instrument's acoustic timbre, register, and transients are clearly audible with direct evidence.
+   - State specific acoustic evidence (e.g. "Virtuosic bowed soprano melody with continuous vibrato and rapid sixteenth-note legato passages", "Heavy distorted power chords and palm-muted sixteenth-note chugs").`;
+
+      const prompt = `Analyze the musical performance for YouTube video at ${targetUrl} (ID: ${cleanVideoId}, Title: "${effectiveTitle}", Artist: "${oembedAuthor}"${
+        typeof duration === 'number' && duration > 0 ? `, Duration: ~${Math.round(duration)}s` : ''
+      }).
+
+Perform two-phase evidence-based acoustic transcription:
+
+PHASE 1: Chronological Window Analysis across the entire performance:
+- Break the track into sequential windows covering start to finish.
+- For each window, identify the leading instrument, harmonic/rhythm instruments, and resolve competing hypotheses (especially distinguishing solo violin vs electric guitar lead, and checking for quiet masked instruments).
+
+PHASE 2: Second Verification Pass & Final Reconciled Timeline Segments:
+- Audit ambiguous windows and quiet passages.
+- Generate precise, verified timeline segments with:
+  * instrumentName: canonical instrument name (e.g. "Violin", "Cello", "Acoustic Grand Piano", "Electric Guitar", "Bass Guitar", "Drum Kit", "Strings (Ensemble)", "Synthesizer")
+  * family: "Strings" | "Woodwinds" | "Brass" | "Keyboards" | "Percussion" | "Traditional & World" | "Voice & Electronic" | "Other"
+  * startTime: entrance second
+  * endTime: exit/pause second (preserve musical silences and rest intervals)
+  * confidence: 0.00 to 1.00 (assign >= 0.90 only when supported by distinct acoustic evidence)
+  * audibility: "audible" | "suspected"
+  * evidence: specific acoustic description (timbre, technique, register, attack)
+- Generate allDetectedInstruments with { name, family, role, description }.
+
+Do NOT make instruments active for the entire track unless they genuinely sound without stopping. Ground all detections strictly in acoustic evidence.`;
+
+      let aiResponse: any = null;
+      const candidateModels = ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
+
+      for (const modelName of candidateModels) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            console.log(`[MUSIC LAB] Attempting analysis using model ${modelName} (attempt ${attempt})...`);
+            aiResponse = await ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config: {
+                systemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
                   type: Type.OBJECT,
                   properties: {
-                    instrumentName: { type: Type.STRING },
-                    family: { type: Type.STRING },
-                    startTime: { type: Type.NUMBER },
-                    endTime: { type: Type.NUMBER },
-                    confidence: { type: Type.NUMBER },
-                    audibility: { type: Type.STRING },
-                    evidence: { type: Type.STRING },
+                    isMusic: { type: Type.BOOLEAN },
+                    trackTitle: { type: Type.STRING },
+                    artist: { type: Type.STRING },
+                    analysisSummary: { type: Type.STRING },
+                    leadingInstrumentDetermination: { type: Type.STRING },
+                    competingHypothesesResolved: { type: Type.STRING },
+                    instrumentSegments: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          instrumentName: { type: Type.STRING },
+                          family: { type: Type.STRING },
+                          startTime: { type: Type.NUMBER },
+                          endTime: { type: Type.NUMBER },
+                          confidence: { type: Type.NUMBER },
+                          audibility: { type: Type.STRING },
+                          evidence: { type: Type.STRING },
+                        },
+                        required: ["instrumentName", "family", "startTime", "endTime", "confidence", "audibility", "evidence"],
+                      },
+                    },
+                    allDetectedInstruments: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          name: { type: Type.STRING },
+                          family: { type: Type.STRING },
+                          role: { type: Type.STRING },
+                          description: { type: Type.STRING },
+                        },
+                        required: ["name", "family"],
+                      },
+                    },
                   },
-                  required: ["instrumentName", "family", "startTime", "endTime", "confidence", "audibility"],
+                  required: ["isMusic", "instrumentSegments", "allDetectedInstruments"],
                 },
               },
-              allDetectedInstruments: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    family: { type: Type.STRING },
-                    role: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                  },
-                  required: ["name", "family"],
-                },
-              },
-            },
-            required: ["isMusic", "instrumentSegments", "allDetectedInstruments"],
-          },
-        },
-      });
+            });
 
-      const rawText = aiResponse.text || "{}";
+            if (aiResponse) {
+              console.log(`[MUSIC LAB] Successfully analyzed audio with ${modelName}`);
+              break;
+            }
+          } catch (attemptErr: any) {
+            console.warn(`[MUSIC LAB] Model ${modelName} attempt ${attempt} warning: ${attemptErr?.message}`);
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1200));
+            }
+          }
+        }
+        if (aiResponse) break;
+      }
+
+      if (!aiResponse) {
+        throw new Error("Acoustic analysis services are temporarily busy. Please retry in a few moments.");
+      }
+
+      const rawText = aiResponse?.text || "{}";
       const parsed = JSON.parse(rawText);
 
-      if (!parsed.isMusic && (!parsed.instrumentSegments || parsed.instrumentSegments.length === 0)) {
+      // Validate, clean, and merge candidate segments
+      const validSegments = validateAndMergeTimelineSegments(parsed.instrumentSegments, {
+        maxDuration: typeof duration === 'number' && duration > 0 ? duration : undefined,
+        minConfidencePercent: 70, // Server-level ingestion threshold
+        gapMergeThreshold: 1.2,   // Merges overlapping analysis windows while preserving gaps >= 1.2s
+      });
+
+      if (!parsed.isMusic || validSegments.length === 0) {
         return res.status(200).json({
           success: false,
           status: 'unsupported',
           videoId: cleanVideoId,
           title: effectiveTitle,
           artist: oembedAuthor || "YouTube Artist",
-          error: "No musical instruments could be audibly detected in this recording.",
+          error: "No musical instruments could be audibly detected with sufficient evidence in this recording.",
           instrumentSegments: [],
           allDetectedInstruments: [],
         });
@@ -2380,13 +2455,15 @@ Provide structured JSON with:
         title: parsed.trackTitle || effectiveTitle,
         artist: parsed.artist || oembedAuthor || "Artist",
         analysisSummary: parsed.analysisSummary || "Acoustic instrument timeline analysis completed.",
-        instrumentSegments: parsed.instrumentSegments || [],
+        leadingInstrumentDetermination: parsed.leadingInstrumentDetermination || "",
+        competingHypothesesResolved: parsed.competingHypothesesResolved || "",
+        instrumentSegments: validSegments,
         allDetectedInstruments: parsed.allDetectedInstruments || [],
         source: 'gemini_audio',
       };
 
       youtubeAnalysisCache.set(cleanVideoId, result);
-      console.log(`[MUSIC LAB] Gemini successfully analyzed ${cleanVideoId}: ${result.instrumentSegments.length} segments, ${result.allDetectedInstruments.length} instruments.`);
+      console.log(`[MUSIC LAB] Gemini successfully analyzed ${cleanVideoId}: ${result.instrumentSegments.length} verified segments, ${result.allDetectedInstruments.length} instruments.`);
       return res.json(result);
     } catch (aiErr: any) {
       console.error(`[MUSIC LAB] Gemini analysis error for ${cleanVideoId}:`, aiErr);

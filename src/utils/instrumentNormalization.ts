@@ -53,7 +53,7 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     id: 'violin',
     canonicalName: 'Violin',
     family: 'Strings',
-    aliases: ['violin', 'fiddle', 'violins', 'electric violin', 'first violin', 'second violin'],
+    aliases: ['violin', 'fiddle', 'violins', 'electric violin', 'first violin', 'second violin', 'solo violin', 'lead violin'],
     description: 'Bowed high-register orchestral string with expressive vibrato and brilliance',
   },
   {
@@ -132,6 +132,23 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     family: 'Strings',
     aliases: ['ukulele', 'uke', 'soprano ukulele', 'concert ukulele', 'tenor ukulele'],
     description: 'Small four-string plucked Hawaiian lute with cheerful, light timbre',
+  },
+  {
+    id: 'strings-ensemble',
+    canonicalName: 'Strings (Ensemble)',
+    family: 'Strings',
+    aliases: [
+      'strings (ensemble)',
+      'strings ensemble',
+      'string ensemble',
+      'strings',
+      'string section',
+      'orchestral strings',
+      'chamber strings',
+      'symphonic strings',
+      'solo strings',
+    ],
+    description: 'Blended orchestral string ensemble of violins, violas, cellos, and double basses',
   },
 
   // =========================================================================
@@ -663,31 +680,74 @@ export function resolveInstrumentMetadata(item: unknown): NormalizedDetectedInst
 }
 
 /**
- * Parses and validates an array of timeline segments from the backend.
+ * Options for timeline segment validation and merging.
  */
-export function parseTimelineSegments(rawSegments: unknown): InstrumentTimelineSegment[] {
+export interface ValidateSegmentsOptions {
+  maxDuration?: number;
+  minConfidencePercent?: number; // e.g. 70 on server ingestion, 90 for real-time highlighting
+  gapMergeThreshold?: number; // in seconds, default 1.2s to bridge micro-pauses while preserving genuine rests
+}
+
+/**
+ * Validates, normalizes, de-duplicates, and merges timeline segments.
+ * Accurately preserves musical pauses and silence gaps (>= gapMergeThreshold)
+ * while merging overlapping windows for the same instrument.
+ */
+export function validateAndMergeTimelineSegments(
+  rawSegments: unknown,
+  options: ValidateSegmentsOptions = {}
+): InstrumentTimelineSegment[] {
+  const { maxDuration, minConfidencePercent = 70, gapMergeThreshold = 1.2 } = options;
   if (!Array.isArray(rawSegments)) return [];
 
-  const segments: InstrumentTimelineSegment[] = [];
+  // 1. Initial sanitization and taxonomy normalization
+  const validCandidates: {
+    instrumentName: string;
+    family: InstrumentFamily;
+    id: string;
+    startTime: number;
+    endTime: number;
+    confidence: number;
+    audibility: 'audible' | 'suspected' | 'uncertain';
+    evidence?: string;
+  }[] = [];
 
-  rawSegments.forEach((seg, index) => {
-    if (typeof seg !== 'object' || seg === null) return;
-
-    const rawName = extractRawInstrumentName(seg);
+  rawSegments.forEach((item) => {
+    if (typeof item !== 'object' || item === null) return;
+    const rawName = extractRawInstrumentName(item);
     if (!rawName) return;
 
     const normalized = normalizeInstrument(rawName);
-    const startTime = typeof seg.startTime === 'number' && !isNaN(seg.startTime) ? Math.max(0, seg.startTime) : 0;
-    const endTime = typeof seg.endTime === 'number' && !isNaN(seg.endTime) ? Math.max(startTime, seg.endTime) : startTime + 10;
-    const rawConf = typeof seg.confidence === 'number' && !isNaN(seg.confidence) ? seg.confidence : 0.85;
-    const confidence = rawConf <= 1 ? Math.round(rawConf * 100) : Math.min(100, Math.round(rawConf));
-    const audibility = seg.audibility === 'suspected' || seg.audibility === 'uncertain' ? seg.audibility : 'audible';
-    const evidence = typeof seg.evidence === 'string' ? seg.evidence.trim() : undefined;
+    const rawStart = typeof (item as any).startTime === 'number' ? (item as any).startTime : 0;
+    let rawEnd = typeof (item as any).endTime === 'number' ? (item as any).endTime : rawStart + 5;
 
-    segments.push({
-      id: `seg-${index}-${normalized.id}-${Math.round(startTime)}`,
+    // Discard invalid, inverted, or negative timestamps
+    if (isNaN(rawStart) || isNaN(rawEnd) || rawEnd <= rawStart) return;
+    const startTime = Math.max(0, Math.round(rawStart * 10) / 10);
+    let endTime = Math.max(startTime + 0.3, Math.round(rawEnd * 10) / 10);
+
+    // Bound with max duration if known
+    if (typeof maxDuration === 'number' && maxDuration > 0) {
+      if (startTime > maxDuration + 2) return;
+      endTime = Math.min(endTime, maxDuration + 2);
+    }
+
+    // Normalize confidence to 0..100
+    const rawConf = typeof (item as any).confidence === 'number' ? (item as any).confidence : 0.85;
+    const confidence = rawConf <= 1 ? Math.round(rawConf * 100) : Math.min(100, Math.round(rawConf));
+
+    if (confidence < minConfidencePercent) return;
+
+    const audibility = (item as any).audibility === 'suspected' ? 'suspected' : 'audible';
+    const rawEvidence = (item as any).evidence || (item as any).notes;
+    const evidence = typeof rawEvidence === 'string' && rawEvidence.trim().length > 3
+      ? rawEvidence.trim()
+      : undefined;
+
+    validCandidates.push({
       instrumentName: normalized.canonicalName,
       family: normalized.family,
+      id: normalized.id,
       startTime,
       endTime,
       confidence,
@@ -696,5 +756,116 @@ export function parseTimelineSegments(rawSegments: unknown): InstrumentTimelineS
     });
   });
 
-  return segments.sort((a, b) => a.startTime - b.startTime);
+  // 2. Group by canonical instrument name
+  const grouped = new Map<string, typeof validCandidates>();
+  validCandidates.forEach((c) => {
+    if (!grouped.has(c.instrumentName)) {
+      grouped.set(c.instrumentName, []);
+    }
+    grouped.get(c.instrumentName)!.push(c);
+  });
+
+  // 3. For each instrument, merge overlapping or contiguous segments (< gapMergeThreshold gap)
+  const mergedSegments: InstrumentTimelineSegment[] = [];
+  let globalIndex = 0;
+
+  grouped.forEach((list) => {
+    // Sort strictly by startTime asc, then endTime desc
+    list.sort((a, b) => a.startTime - b.startTime || b.endTime - a.endTime);
+
+    const mergedForInst: typeof validCandidates = [];
+    list.forEach((current) => {
+      if (mergedForInst.length === 0) {
+        mergedForInst.push({ ...current });
+        return;
+      }
+
+      const prev = mergedForInst[mergedForInst.length - 1];
+      // Check if current overlaps or is contiguous within gapMergeThreshold
+      if (current.startTime <= prev.endTime + gapMergeThreshold) {
+        // Merge into prev
+        prev.endTime = Math.max(prev.endTime, current.endTime);
+        prev.confidence = Math.max(prev.confidence, current.confidence);
+        if (current.audibility === 'audible') prev.audibility = 'audible';
+        if (current.evidence && !prev.evidence?.includes(current.evidence)) {
+          prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
+        }
+      } else {
+        // Genuine musical silence/rest between intervals! Keep separate.
+        mergedForInst.push({ ...current });
+      }
+    });
+
+    mergedForInst.forEach((seg) => {
+      mergedSegments.push({
+        id: `seg-${globalIndex++}-${seg.id}-${Math.round(seg.startTime)}`,
+        instrumentName: seg.instrumentName,
+        family: seg.family,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        confidence: seg.confidence,
+        audibility: seg.audibility,
+        evidence: seg.evidence,
+      });
+    });
+  });
+
+  // Sort overall output chronologically by startTime
+  return mergedSegments.sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime);
 }
+
+/**
+ * Checks if a timeline segment is actively sounding at the current player playback position.
+ * Implements combined confidence + acoustic evidence verification (provisional 90% / 0.90 threshold):
+ * - Confirms playhead falls strictly within [startTime, endTime].
+ * - Distinguishes active playing from mere presence: rejects empty or boilerplate evidence.
+ * - Suppresses false positives that report high confidence but lack supporting acoustic evidence.
+ * - Recovers quiet but genuine instruments (confidence >= minConfidence - 5) when verified with rich acoustic evidence.
+ */
+export function isSegmentActiveAtTime(
+  seg: InstrumentTimelineSegment,
+  timeInSeconds: number,
+  minConfidencePercent: number = 90
+): boolean {
+  if (timeInSeconds < seg.startTime || timeInSeconds > seg.endTime) {
+    return false;
+  }
+
+  // Check evidence quality: reject missing, single-word, or boilerplate phrases
+  const rawEvidence = typeof seg.evidence === 'string' ? seg.evidence.trim() : '';
+  const hasSubstantialEvidence =
+    rawEvidence.length >= 8 &&
+    !/^(active|playing|detected|present|sound|in track)$/i.test(rawEvidence);
+
+  // If marked 'suspected' or lacks evidence, eliminate false positive
+  if (seg.audibility === 'suspected' && !hasSubstantialEvidence) {
+    return false;
+  }
+
+  // 1. Standard high-confidence branch (>= minConfidencePercent, e.g. 90%)
+  if (seg.confidence >= minConfidencePercent) {
+    // Require substantial evidence or exceptional confidence (>= 96%)
+    return hasSubstantialEvidence || seg.confidence >= 96;
+  }
+
+  // 2. Quiet instrument recovery branch:
+  // If confidence is near threshold (>= minConfidencePercent - 5, e.g. 85%) and audibly confirmed with rich acoustic evidence,
+  // do not suppress quiet, genuine instruments (e.g. background violin counterpoint, soft piano, acoustic guitar)
+  if (seg.confidence >= minConfidencePercent - 5 && seg.audibility === 'audible' && hasSubstantialEvidence) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Parses and validates an array of timeline segments from the backend.
+ * Uses validateAndMergeTimelineSegments for full integrity.
+ */
+export function parseTimelineSegments(
+  rawSegments: unknown,
+  options: ValidateSegmentsOptions = {}
+): InstrumentTimelineSegment[] {
+  return validateAndMergeTimelineSegments(rawSegments, options);
+}
+
