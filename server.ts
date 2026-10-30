@@ -12,6 +12,14 @@ import {
   normalizeInstrument,
   InstrumentTimelineSegment,
 } from "./src/utils/instrumentNormalization.js";
+import {
+  validateAuthoritativeDuration,
+  generateAnalysisWindows,
+  calculateCoverage,
+  reconcileWindowSegments,
+  WindowCoverageRecord,
+  AnalysisWindow,
+} from "./src/utils/audioCoverageRecovery.js";
 
 dotenv.config();
 
@@ -2224,8 +2232,241 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-// In-memory cache for analyzed YouTube performances to provide instant responses
+// In-memory cache for analyzed YouTube performances (versioned to prevent returning outdated analysis)
+const ANALYSIS_CACHE_VERSION = "v4-coverage-verified";
 const youtubeAnalysisCache = new Map<string, any>();
+const windowAnalysisCache = new Map<string, WindowCoverageRecord>();
+const activeAnalysisJobs = new Map<string, Promise<any>>();
+const videoDurationCache = new Map<string, number>();
+
+// Helper function to format seconds as M:SS
+function formatSecondsLabel(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
+// Queries Gemini media directly to obtain the authoritative video duration
+async function getOrFetchAuthoritativeDuration(
+  ai: any,
+  cleanVideoId: string,
+  targetUrl: string,
+  clientDuration?: number
+): Promise<{ duration: number; isAuthoritative: boolean }> {
+  const validClientDur = validateAuthoritativeDuration(clientDuration);
+
+  // Check cache first
+  if (videoDurationCache.has(cleanVideoId)) {
+    const cachedDur = videoDurationCache.get(cleanVideoId)!;
+    return { duration: cachedDur, isAuthoritative: true };
+  }
+
+  // Query Gemini media to discover or verify the exact media duration
+  try {
+    const mediaPart = {
+      fileData: {
+        fileUri: targetUrl,
+        mimeType: "video/mp4",
+      },
+    };
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: [
+        mediaPart,
+        {
+          text: `What is the exact total duration in seconds of this YouTube video (${targetUrl})? Return JSON: {"totalDurationSeconds": number}.`,
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            totalDurationSeconds: { type: Type.NUMBER },
+          },
+          required: ["totalDurationSeconds"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    const mediaDur = typeof parsed.totalDurationSeconds === "number" && parsed.totalDurationSeconds > 0
+      ? Math.round(parsed.totalDurationSeconds * 10) / 10
+      : null;
+
+    if (mediaDur && mediaDur > 0) {
+      videoDurationCache.set(cleanVideoId, mediaDur);
+      // If client sent a duration that is significantly different (> 8s off), it was stale from a previous track
+      if (validClientDur && Math.abs(validClientDur - mediaDur) > 8) {
+        console.warn(`[MUSIC LAB] Detected stale client duration (${validClientDur}s) for ${cleanVideoId}. Using authoritative media duration: ${mediaDur}s.`);
+        return { duration: mediaDur, isAuthoritative: true };
+      }
+      return { duration: validClientDur || mediaDur, isAuthoritative: true };
+    }
+  } catch (err: any) {
+    console.warn(`[MUSIC LAB] Media duration check warning for ${cleanVideoId}: ${err?.message}`);
+  }
+
+  // Fallback to client duration if verified
+  if (validClientDur) {
+    videoDurationCache.set(cleanVideoId, validClientDur);
+    return { duration: validClientDur, isAuthoritative: true };
+  }
+
+  return { duration: 210, isAuthoritative: false };
+}
+
+// Analyzes a single window with bounded retries and exponential backoff
+async function analyzeWindowWithRetry(
+  ai: any,
+  cleanVideoId: string,
+  targetUrl: string,
+  win: AnalysisWindow,
+  effectiveTitle: string
+): Promise<WindowCoverageRecord> {
+  const maxRetries = 2;
+  let retriesRun = 0;
+  let lastError: string | null = null;
+
+  const systemInstruction = `You are an expert musicologist, acoustic engineer, and audio transcription specialist.
+Your task is to analyze the audio/video media of the provided YouTube video exclusively within a specified chronological time interval.
+
+STRICT AUDITORY GUIDELINES FOR THIS TIME WINDOW:
+1. FOCUS EXCLUSIVELY ON THE REQUESTED TIME WINDOW:
+   - Listen only to the audio between ${win.startTime}s (${formatSecondsLabel(win.startTime)}) and ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
+   - Transcribe ONLY instruments that are audibly sounding within this interval.
+   - Do NOT transcribe instruments playing before ${win.startTime}s or after ${win.endTime}s.
+   - Timestamps must be in seconds relative to video start (00:00), strictly bounded between ${win.startTime} and ${win.endTime}.
+
+2. GENUINE AUDIO EVIDENCE & ACCURATE RECOGNITION:
+   - Ground detections strictly in the audible sound stream. Do not infer based on song title or artist style.
+   - Pay close attention to intro acoustic, orchestral, or melodic instruments (such as Violin, Strings sections, Flute, Piano, or Synthesizer leads).
+   - Disambiguate bowed strings (Violin / Strings section with bow friction and cantabile vibrato) from electric guitar or electronic synths.
+   - Never omit short solo phrases (e.g. 0-3s intro solos) or quiet introductory instruments that precede heavier drums and electric guitars.
+   - If no instruments sound in this interval (e.g. musical silence, speech, or quiet pause), return an empty instrumentSegments array and set isSilence to true.
+
+3. ACCURATE RESTS:
+   - Terminate an instrument segment immediately when it pauses or rests for more than 1 second.`;
+
+  const promptText = `Analyze the audio/video media of the YouTube video (${targetUrl}).
+Focus exclusively on the time window from ${win.startTime}s (${formatSecondsLabel(win.startTime)}) to ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
+
+Requirements:
+1. Transcribe all instruments audibly sounding between ${win.startTime}s and ${win.endTime}s. Include leading melodies, solo phrases, introductory strings/acoustic parts, and rhythmic backing.
+2. Ensure each segment's startTime and endTime fall strictly within [${win.startTime}, ${win.endTime}].
+3. If this section is silent or contains no audible musical instruments, return an empty array for instrumentSegments and set isSilence to true.`;
+
+  const mediaPart = {
+    fileData: {
+      fileUri: targetUrl,
+      mimeType: "video/mp4",
+    },
+  };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      retriesRun++;
+      const backoffMs = 1000 * Math.pow(2, attempt - 1);
+      console.log(`[MUSIC LAB] Window ${win.id} retry ${attempt}/${maxRetries} after ${backoffMs}ms backoff...`);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+
+    try {
+      console.log(`[MUSIC LAB] Analyzing window ${win.id} [${win.startTime}s - ${win.endTime}s] (attempt ${attempt + 1})...`);
+      const aiResponse = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents: [mediaPart, { text: promptText }],
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              isMusic: { type: Type.BOOLEAN },
+              isSilence: { type: Type.BOOLEAN },
+              windowSummary: { type: Type.STRING },
+              instrumentSegments: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    instrumentName: { type: Type.STRING },
+                    family: { type: Type.STRING },
+                    startTime: { type: Type.NUMBER },
+                    endTime: { type: Type.NUMBER },
+                    evidence: { type: Type.STRING },
+                  },
+                  required: ["instrumentName", "family", "startTime", "endTime"],
+                },
+              },
+            },
+            required: ["isMusic", "instrumentSegments"],
+          },
+        },
+      });
+
+      const rawText = aiResponse?.text || "{}";
+      const parsed = JSON.parse(rawText);
+
+      // Validate segments structurally and clamp to window boundaries (with 1.0s tolerance)
+      const rawSegments = Array.isArray(parsed.instrumentSegments) ? parsed.instrumentSegments : [];
+      const clampedSegments = rawSegments
+        .map((s: any) => {
+          const start = typeof s.startTime === "number" ? Math.max(win.startTime, s.startTime) : win.startTime;
+          const end = typeof s.endTime === "number" ? Math.min(win.endTime, s.endTime) : win.endTime;
+          return {
+            ...s,
+            startTime: start,
+            endTime: end,
+          };
+        })
+        .filter((s: any) => s.endTime > s.startTime);
+
+      const validSegments = validateAndMergeTimelineSegments(clampedSegments, {
+        gapMergeThreshold: 1.0,
+      });
+
+      console.log(`[MUSIC LAB] Window ${win.id} successfully analyzed: ${validSegments.length} segments found.`);
+      return {
+        windowId: win.id,
+        index: win.index,
+        requestedStart: win.startTime,
+        requestedEnd: win.endTime,
+        processedStart: win.startTime,
+        processedEnd: win.endTime,
+        status: "success",
+        retryCount: retriesRun,
+        error: null,
+        isSilence: parsed.isSilence === true || validSegments.length === 0,
+        segments: validSegments,
+      };
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+      console.warn(`[MUSIC LAB] Window ${win.id} attempt ${attempt + 1} failed: ${lastError}`);
+      // Permanent errors (such as 403 permission denied) should not be retried indefinitely
+      if (lastError?.includes("PERMISSION_DENIED") || lastError?.includes("API_KEY_INVALID")) {
+        break;
+      }
+    }
+  }
+
+  // All retries failed for this window
+  console.error(`[MUSIC LAB] Window ${win.id} permanently failed after ${retriesRun} retries. Error: ${lastError}`);
+  return {
+    windowId: win.id,
+    index: win.index,
+    requestedStart: win.startTime,
+    requestedEnd: win.endTime,
+    processedStart: 0,
+    processedEnd: 0,
+    status: "failed",
+    retryCount: retriesRun,
+    error: lastError,
+    isSilence: false,
+    segments: [],
+  };
+}
 
 // ----------------------------------------------------
 // MUSIC LAB YOUTUBE INSTRUMENT DETECTION ENDPOINT
@@ -2239,244 +2480,188 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
 
     const cleanVideoId = videoId.trim();
 
-    // Check in-memory cache first (unless forceRefresh requested)
+    // Check in-memory cache first (unless forceRefresh requested).
+    // Invalidate old versions so they are never returned.
     if (!forceRefresh && youtubeAnalysisCache.has(cleanVideoId)) {
-      console.log(`[MUSIC LAB] Serving cached analysis for video ${cleanVideoId}`);
-      return res.json({ success: true, ...youtubeAnalysisCache.get(cleanVideoId), cached: true });
-    }
-
-    // 1. Fetch public oEmbed metadata for accurate video title and artist/channel name
-    let oembedTitle = "";
-    let oembedAuthor = "";
-    try {
-      const oembedRes = await fetch(
-        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(cleanVideoId)}&format=json`,
-        { headers: { "User-Agent": "AniVerse-MusicLab/1.0" } }
-      );
-      if (oembedRes.ok) {
-        const oembedData: any = await oembedRes.json();
-        oembedTitle = oembedData.title || "";
-        oembedAuthor = oembedData.author_name || "";
+      const cached = youtubeAnalysisCache.get(cleanVideoId);
+      if (cached && cached.cacheVersion === ANALYSIS_CACHE_VERSION && cached.source === 'gemini_media_audio') {
+        console.log(`[MUSIC LAB] Serving cached verified analysis for video ${cleanVideoId}`);
+        return res.json({ success: true, ...cached, cached: true });
       }
-    } catch (oembedErr: any) {
-      console.warn(`[MUSIC LAB] oEmbed lookup skipped: ${oembedErr.message}`);
+      youtubeAnalysisCache.delete(cleanVideoId);
     }
 
-    const effectiveTitle = oembedTitle || titleHint || "YouTube Track";
-    const targetUrl = url || `https://www.youtube.com/watch?v=${cleanVideoId}`;
-
-    // 2. Query Gemini AI for real acoustic instrument analysis
-    const ai = getGeminiClient();
-    if (!ai) {
-      console.warn(`[MUSIC LAB] Gemini API key not configured for analysis of video ${cleanVideoId}`);
-      return res.status(200).json({
-        success: false,
-        status: 'missing_api_key',
-        videoId: cleanVideoId,
-        title: effectiveTitle,
-        artist: oembedAuthor || "YouTube Artist",
-        error: "Gemini AI music analysis is unavailable: GEMINI_API_KEY is not configured on the server. Please attach or configure your GEMINI_API_KEY in the Secrets panel in AI Studio settings to enable Gemini audio analysis.",
-        instrumentSegments: [],
-        allDetectedInstruments: [],
-      });
-    }
-
-    try {
-      console.log(`[MUSIC LAB] Querying Gemini AI (gemini-3.8-flash) for YouTube video ${cleanVideoId} ("${effectiveTitle}")...`);
-
-      const systemInstruction = `You are a world-class musicologist, acoustician, and audio transcription engineer.
-Your task is to analyze the musical performance of the supplied YouTube track and transcribe genuine, audible instruments across chronological time intervals.
-
-CRITICAL EVIDENCE-BASED TRANSCRIPTION ARCHITECTURE:
-
-1. SHORT OVERLAPPING WINDOW ANALYSIS & LEADING INSTRUMENT IDENTIFICATION:
-   - Divide the performance into short, sequential, overlapping time windows (e.g. 15-25 seconds each across the entire track).
-   - In EACH window, identify:
-     a) The LEADING instrument (the primary melodic, solo, or vocal-substitute voice carrying the main musical line).
-     b) Independently evaluate each harmonic and rhythm section instrument (rhythm guitars, bass, keyboards, drums, auxiliary instruments).
-     c) Explicitly audit quiet or masked instruments playing underneath louder layers.
-   - Do NOT assume any instrument is active merely because it was present earlier or is the lead instrument. Only include it during the intervals where active playing is supported by acoustic evidence.
-   - Preserve silence gaps and musical rests (e.g. intro solos, breakdown verses, drum-less bridges).
-
-2. DISAMBIGUATE COMPETING ACOUSTIC HYPOTHESES (CRITICAL TIMBRE RULES):
-   - SOLO VIOLIN VS LEAD ELECTRIC GUITAR:
-     In symphonic metal, melodic rock, anime themes, instrumental rock, and classical crossover (e.g. Lappy, Lindsey Stirling, Wagakki Band, Falcom Sound Team, Hiroyuki Sawano):
-     * The principal singing, soaring melody is frequently played by a SOLO VIOLIN (acoustic or electric violin), NOT a lead electric guitar.
-     * Violin acoustic characteristics: rapid bow friction and string-crossing attacks, continuous cantabile singing vibrato sustained through notes, high soprano register (> C5), expressive acoustic rosin/wood resonance.
-     * Electric guitar characteristics: magnetic pick attacks, fret clicks, distinct string bending with fret-hand vibrato, and amplifier overdrive/fuzz. In these arrangements, the electric guitars are usually executing distorted rhythm power chords, palm-muted chugs, and harmonic chord layers beneath the violin.
-     * NEVER confuse a soaring solo violin melody with an electric guitar lead! Attribute the solo melody to 'Violin' and distorted chordal backing to 'Electric Guitar'.
-   - VIOLIN VS VIOLA VS CELLO:
-     * High soprano cantabile vibrato = 'Violin'. Mellow woody alto/tenor register = 'Viola'. Rich, resonant tenor/baritone bowing fundament = 'Cello'.
-     * If individual solo lines cannot be isolated within a blended orchestral string section, classify as 'Strings (Ensemble)'.
-   - PIANO VS SYNTHESIZER:
-     * Mechanical felt hammer transients and natural soundboard acoustic decay = 'Acoustic Grand Piano' / 'Piano'. Filter sweeps, pulse waves, electronic oscillators, and synth pads = 'Synthesizer'.
-   - BASS GUITAR VS SYNTH BASS VS LOW STRINGS:
-     * Distinct metallic string pluck transient, finger/pick attack, and fret buzz = 'Bass Guitar'. Sub-oscillator electronic rumble without string plucking = 'Electronic Bass' / 'Synthesizer'. Contrabass bowing = 'Double Bass'.
-   - DRUM KIT VS ELECTRONIC BEATS:
-     * Natural drum skin resonance, dynamic acoustic snare rimshots, brass cymbals = 'Drum Kit'. Programmed synthesized 808/909 samples = 'Drum Machine' / 'Synthesizer'.
-
-3. SECOND VERIFICATION PASS FOR QUIET & MASKED INSTRUMENTS:
-   - In the second verification pass, systematically audit each window for quiet instruments that may be partially masked by louder instruments:
-     * E.g., quiet violin counter-melodies, subtle acoustic guitar rhythm strums, soft piano chords doubling roots, sustained string ensemble pads, or delicate keyboard counterpoints.
-     * Do NOT discard an instrument merely because it is quiet if its acoustic timbre is discernibly audible.
-     * Do NOT invent instruments that are absent.
-
-4. CONFIDENCE & EVIDENCE CALIBRATION:
-   - Provide a calibrated confidence score between 0.00 and 1.00 for each segment.
-   - Reserve confidence >= 0.90 for segments where the instrument's acoustic timbre, register, and transients are clearly audible with direct evidence.
-   - State specific acoustic evidence (e.g. "Virtuosic bowed soprano melody with continuous vibrato and rapid sixteenth-note legato passages", "Heavy distorted power chords and palm-muted sixteenth-note chugs").`;
-
-      const prompt = `Analyze the musical performance for YouTube video at ${targetUrl} (ID: ${cleanVideoId}, Title: "${effectiveTitle}", Artist: "${oembedAuthor}"${
-        typeof duration === 'number' && duration > 0 ? `, Duration: ~${Math.round(duration)}s` : ''
-      }).
-
-Perform two-phase evidence-based acoustic transcription:
-
-PHASE 1: Chronological Window Analysis across the entire performance:
-- Break the track into sequential windows covering start to finish.
-- For each window, identify the leading instrument, harmonic/rhythm instruments, and resolve competing hypotheses (especially distinguishing solo violin vs electric guitar lead, and checking for quiet masked instruments).
-
-PHASE 2: Second Verification Pass & Final Reconciled Timeline Segments:
-- Audit ambiguous windows and quiet passages.
-- Generate precise, verified timeline segments with:
-  * instrumentName: canonical instrument name (e.g. "Violin", "Cello", "Acoustic Grand Piano", "Electric Guitar", "Bass Guitar", "Drum Kit", "Strings (Ensemble)", "Synthesizer")
-  * family: "Strings" | "Woodwinds" | "Brass" | "Keyboards" | "Percussion" | "Traditional & World" | "Voice & Electronic" | "Other"
-  * startTime: entrance second
-  * endTime: exit/pause second (preserve musical silences and rest intervals)
-  * confidence: 0.00 to 1.00 (assign >= 0.90 only when supported by distinct acoustic evidence)
-  * audibility: "audible" | "suspected"
-  * evidence: specific acoustic description (timbre, technique, register, attack)
-- Generate allDetectedInstruments with { name, family, role, description }.
-
-Do NOT make instruments active for the entire track unless they genuinely sound without stopping. Ground all detections strictly in acoustic evidence.`;
-
-      let aiResponse: any = null;
-      const candidateModels = ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
-
-      for (const modelName of candidateModels) {
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            console.log(`[MUSIC LAB] Attempting analysis using model ${modelName} (attempt ${attempt})...`);
-            aiResponse = await ai.models.generateContent({
-              model: modelName,
-              contents: prompt,
-              config: {
-                systemInstruction,
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    isMusic: { type: Type.BOOLEAN },
-                    trackTitle: { type: Type.STRING },
-                    artist: { type: Type.STRING },
-                    analysisSummary: { type: Type.STRING },
-                    leadingInstrumentDetermination: { type: Type.STRING },
-                    competingHypothesesResolved: { type: Type.STRING },
-                    instrumentSegments: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          instrumentName: { type: Type.STRING },
-                          family: { type: Type.STRING },
-                          startTime: { type: Type.NUMBER },
-                          endTime: { type: Type.NUMBER },
-                          confidence: { type: Type.NUMBER },
-                          audibility: { type: Type.STRING },
-                          evidence: { type: Type.STRING },
-                        },
-                        required: ["instrumentName", "family", "startTime", "endTime", "confidence", "audibility", "evidence"],
-                      },
-                    },
-                    allDetectedInstruments: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          name: { type: Type.STRING },
-                          family: { type: Type.STRING },
-                          role: { type: Type.STRING },
-                          description: { type: Type.STRING },
-                        },
-                        required: ["name", "family"],
-                      },
-                    },
-                  },
-                  required: ["isMusic", "instrumentSegments", "allDetectedInstruments"],
-                },
-              },
-            });
-
-            if (aiResponse) {
-              console.log(`[MUSIC LAB] Successfully analyzed audio with ${modelName}`);
-              break;
-            }
-          } catch (attemptErr: any) {
-            console.warn(`[MUSIC LAB] Model ${modelName} attempt ${attempt} warning: ${attemptErr?.message}`);
-            if (attempt < 2) {
-              await new Promise((r) => setTimeout(r, 1200));
-            }
-          }
+    // Invalidate window caches if forceRefresh
+    if (forceRefresh) {
+      youtubeAnalysisCache.delete(cleanVideoId);
+      videoDurationCache.delete(cleanVideoId);
+      for (const key of Array.from(windowAnalysisCache.keys())) {
+        if (key.startsWith(`${cleanVideoId}_`)) {
+          windowAnalysisCache.delete(key);
         }
-        if (aiResponse) break;
+      }
+      console.log(`[MUSIC LAB] Invalidation: Purged cached analysis, duration, and windows for ${cleanVideoId}`);
+    }
+
+    // Prevent concurrent duplicate analysis jobs for the same video
+    if (activeAnalysisJobs.has(cleanVideoId)) {
+      console.log(`[MUSIC LAB] Awaiting existing in-flight analysis job for ${cleanVideoId}...`);
+      const existingJobResult = await activeAnalysisJobs.get(cleanVideoId);
+      return res.json(existingJobResult);
+    }
+
+    // Start execution inside job tracker
+    const analysisPromise = (async () => {
+      // 1. Fetch public oEmbed metadata for accurate video title and artist/channel name
+      let oembedTitle = "";
+      let oembedAuthor = "";
+      try {
+        const oembedRes = await fetch(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(cleanVideoId)}&format=json`,
+          { headers: { "User-Agent": "AniVerse-MusicLab/1.0" } }
+        );
+        if (oembedRes.ok) {
+          const oembedData: any = await oembedRes.json();
+          oembedTitle = oembedData.title || "";
+          oembedAuthor = oembedData.author_name || "";
+        }
+      } catch (oembedErr: any) {
+        console.warn(`[MUSIC LAB] oEmbed lookup skipped: ${oembedErr.message}`);
       }
 
-      if (!aiResponse) {
-        throw new Error("Acoustic analysis services are temporarily busy. Please retry in a few moments.");
-      }
+      const effectiveTitle = oembedTitle || titleHint || "YouTube Track";
+      const targetUrl = url || `https://www.youtube.com/watch?v=${cleanVideoId}`;
 
-      const rawText = aiResponse?.text || "{}";
-      const parsed = JSON.parse(rawText);
-
-      // Validate, clean, and merge candidate segments
-      const validSegments = validateAndMergeTimelineSegments(parsed.instrumentSegments, {
-        maxDuration: typeof duration === 'number' && duration > 0 ? duration : undefined,
-        minConfidencePercent: 70, // Server-level ingestion threshold
-        gapMergeThreshold: 1.2,   // Merges overlapping analysis windows while preserving gaps >= 1.2s
-      });
-
-      if (!parsed.isMusic || validSegments.length === 0) {
-        return res.status(200).json({
+      // 2. Query Gemini AI with server-side API Key
+      const ai = getGeminiClient();
+      if (!ai) {
+        console.warn(`[MUSIC LAB] Gemini API key not configured for analysis of video ${cleanVideoId}`);
+        return {
           success: false,
-          status: 'unsupported',
+          status: 'missing_api_key',
           videoId: cleanVideoId,
           title: effectiveTitle,
           artist: oembedAuthor || "YouTube Artist",
-          error: "No musical instruments could be audibly detected with sufficient evidence in this recording.",
+          error: "Gemini AI music analysis is unavailable: GEMINI_API_KEY is not configured on the server. Please attach or configure your GEMINI_API_KEY in the Secrets panel in AI Studio settings to enable Gemini audio analysis.",
           instrumentSegments: [],
           allDetectedInstruments: [],
-        });
+        };
       }
 
-      const result = {
-        success: true,
-        status: 'detected',
-        videoId: cleanVideoId,
-        title: parsed.trackTitle || effectiveTitle,
-        artist: parsed.artist || oembedAuthor || "Artist",
-        analysisSummary: parsed.analysisSummary || "Acoustic instrument timeline analysis completed.",
-        leadingInstrumentDetermination: parsed.leadingInstrumentDetermination || "",
-        competingHypothesesResolved: parsed.competingHypothesesResolved || "",
-        instrumentSegments: validSegments,
-        allDetectedInstruments: parsed.allDetectedInstruments || [],
-        source: 'gemini_audio',
-      };
+      // 3. Establish authoritative video duration (discovering media length and rejecting stale client durations)
+      const { duration: authoritativeDuration, isAuthoritative: isDurationAuthoritative } =
+        await getOrFetchAuthoritativeDuration(ai, cleanVideoId, targetUrl, duration);
+      const effectiveDuration = authoritativeDuration;
 
-      youtubeAnalysisCache.set(cleanVideoId, result);
-      console.log(`[MUSIC LAB] Gemini successfully analyzed ${cleanVideoId}: ${result.instrumentSegments.length} verified segments, ${result.allDetectedInstruments.length} instruments.`);
-      return res.json(result);
-    } catch (aiErr: any) {
-      console.error(`[MUSIC LAB] Gemini analysis error for ${cleanVideoId}:`, aiErr);
-      return res.status(200).json({
-        success: false,
-        status: 'error',
+      console.log(`[MUSIC LAB] Authoritative duration for ${cleanVideoId}: ${authoritativeDuration}s (authoritative: ${isDurationAuthoritative})`);
+
+      // 4. Divide the recording into explicit deterministic analysis windows
+      // Configured at 45s window with 5s overlap for reliable model analysis and optimal API efficiency
+      const scheduledWindows = generateAnalysisWindows(effectiveDuration, {
+        windowSize: 45,
+        overlap: 5,
+      });
+
+      console.log(`[MUSIC LAB] Scheduled ${scheduledWindows.length} analysis windows for ${cleanVideoId} (0s to ${effectiveDuration}s).`);
+
+      // 5. Analyze each window independently (reusing cached windows if available)
+      const windowRecords: WindowCoverageRecord[] = [];
+
+      for (const win of scheduledWindows) {
+        const winCacheKey = `${cleanVideoId}_${ANALYSIS_CACHE_VERSION}_${win.startTime}_${win.endTime}`;
+
+        if (!forceRefresh && windowAnalysisCache.has(winCacheKey)) {
+          const cachedRecord = windowAnalysisCache.get(winCacheKey)!;
+          if (cachedRecord && cachedRecord.status === "success") {
+            console.log(`[MUSIC LAB] Window ${win.id} served from window cache.`);
+            windowRecords.push(cachedRecord);
+            continue;
+          }
+        }
+
+        // Process window with bounded retries and exponential backoff
+        const record = await analyzeWindowWithRetry(ai, cleanVideoId, targetUrl, win, effectiveTitle);
+        windowRecords.push(record);
+
+        if (record.status === "success") {
+          windowAnalysisCache.set(winCacheKey, record);
+        }
+      }
+
+      // 6. Independently calculate coverage
+      const coverageResult = calculateCoverage(
+        isDurationAuthoritative ? authoritativeDuration! : 0,
+        windowRecords
+      );
+
+      // If duration was not established authoritatively, ensure full coverage is not claimed
+      if (!isDurationAuthoritative) {
+        coverageResult.isFullCoverage = false;
+        coverageResult.authoritativeDurationEstablished = false;
+        if (coverageResult.status === "detected") {
+          coverageResult.status = "partial";
+        }
+      }
+
+      // 7. Reconcile overlapping windows into coherent timeline segments
+      const reconciledSegments = reconcileWindowSegments(windowRecords, effectiveDuration);
+
+      // 8. Synchronize allDetectedInstruments strictly from reconciled active segments
+      const segmentInstNames = new Set(reconciledSegments.map((s) => s.instrumentName.toLowerCase()));
+      const filteredDetectedInstruments: Array<{ name: string; family: string; role?: string; description?: string }> = [];
+
+      reconciledSegments.forEach((seg) => {
+        if (!filteredDetectedInstruments.some((i) => i.name.toLowerCase() === seg.instrumentName.toLowerCase())) {
+          filteredDetectedInstruments.push({
+            name: seg.instrumentName,
+            family: seg.family,
+          });
+        }
+      });
+
+      const result = {
+        success: coverageResult.successfulWindows > 0,
+        status: coverageResult.status,
         videoId: cleanVideoId,
         title: effectiveTitle,
-        artist: oembedAuthor || "YouTube Artist",
-        error: `Gemini AI analysis failed: ${aiErr.message || "Unknown error occurred"}. Please ensure the YouTube video is publicly accessible and your GEMINI_API_KEY has active quota.`,
-        instrumentSegments: [],
-        allDetectedInstruments: [],
-      });
+        artist: oembedAuthor || "Artist",
+        analysisSummary: `Acoustic instrument analysis completed: ${coverageResult.successfulWindows}/${coverageResult.totalWindows} windows processed (${coverageResult.coveragePercentage}% coverage).`,
+        coverage: {
+          startSecond: 0,
+          endSecond: effectiveDuration,
+          totalDuration: effectiveDuration,
+          isFullCoverage: coverageResult.isFullCoverage,
+          coveragePercentage: coverageResult.coveragePercentage,
+          analyzedRanges: coverageResult.analyzedRanges,
+          missingRanges: coverageResult.missingRanges,
+          totalWindows: coverageResult.totalWindows,
+          successfulWindows: coverageResult.successfulWindows,
+          failedWindows: coverageResult.failedWindows,
+          retryCount: coverageResult.retryCount,
+          authoritativeDurationEstablished: isDurationAuthoritative,
+        },
+        instrumentSegments: reconciledSegments,
+        allDetectedInstruments: filteredDetectedInstruments,
+        source: "gemini_media_audio",
+        cacheVersion: ANALYSIS_CACHE_VERSION,
+      };
+
+      if (result.success) {
+        youtubeAnalysisCache.set(cleanVideoId, result);
+      }
+
+      console.log(
+        `[MUSIC LAB] Analysis finished for ${cleanVideoId}: ${reconciledSegments.length} segments, ${filteredDetectedInstruments.length} instruments, coverage: ${coverageResult.coveragePercentage}% (${coverageResult.status}).`
+      );
+      return result;
+    })();
+
+    activeAnalysisJobs.set(cleanVideoId, analysisPromise);
+    try {
+      const responseData = await analysisPromise;
+      return res.json(responseData);
+    } finally {
+      activeAnalysisJobs.delete(cleanVideoId);
     }
   } catch (err: any) {
     console.error("[MUSIC LAB] Error in analyze-youtube handler:", err);

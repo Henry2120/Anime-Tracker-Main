@@ -19,7 +19,6 @@ import {
   Volume2,
   ExternalLink,
   Zap,
-  ShieldCheck,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { extractYouTubeVideoId, PRESET_CONCERT_TRACKS } from './ConcertMusicContext';
@@ -144,6 +143,22 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'detected' | 'partial' | 'unsupported' | 'error'>('idle');
+  const [analysisCoverage, setAnalysisCoverage] = useState<{
+    startSecond: number;
+    endSecond: number;
+    totalDuration: number;
+    isFullCoverage: boolean;
+    coveragePercentage?: number;
+    analyzedRanges?: Array<{ start: number; end: number }>;
+    missingRanges?: Array<{ start: number; end: number }>;
+    totalWindows?: number;
+    successfulWindows?: number;
+    failedWindows?: number;
+    retryCount?: number;
+    authoritativeDurationEstablished?: boolean;
+    coverageNotes?: string;
+  } | null>(null);
   const [analysisSummary, setAnalysisSummary] = useState<string>('');
   const [timelineSegments, setTimelineSegments] = useState<InstrumentTimelineSegment[]>([]);
   const [allDetectedInstruments, setAllDetectedInstruments] = useState<{
@@ -162,8 +177,6 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // UI Filter / View States
   const [selectedFamilyFilter, setSelectedFamilyFilter] = useState<string>('all');
   const [collapsedFamilies, setCollapsedFamilies] = useState<Record<string, boolean>>({});
-  // Evidence-based confidence threshold (default 90% / 0.90)
-  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(90);
 
   const ytPlayerRef = useRef<any>(null);
   const timePollingIntervalRef = useRef<any>(null);
@@ -340,16 +353,20 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     const requestId = ++currentRequestIdRef.current;
     setIsAnalyzing(true);
     setAnalysisError(null);
+    setAnalysisStatus('idle');
+    setAnalysisCoverage(null);
     setAnalysisSummary('');
 
     // Clear previous results immediately to avoid stale data from previous tracks
     setTimelineSegments([]);
     setAllDetectedInstruments([]);
 
-    // Update active video player if changed
-    if (cleanId !== activeVideoId) {
+    // Check if switching to a different video
+    const isVideoSwitch = cleanId !== activeVideoId;
+    if (isVideoSwitch) {
       setActiveVideoId(cleanId);
       setPlayerCurrentTime(0);
+      setPlayerDuration(0); // Reset duration immediately so old video duration is never sent!
     }
 
     try {
@@ -359,7 +376,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         body: JSON.stringify({
           videoId: cleanId,
           url: customUrl || `https://www.youtube.com/watch?v=${cleanId}`,
-          duration: playerDuration > 0 ? playerDuration : undefined,
+          // If video switched, omit duration so backend queries true media duration
+          duration: !isVideoSwitch && playerDuration > 0 ? playerDuration : undefined,
         }),
       });
 
@@ -373,6 +391,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       if (requestId !== currentRequestIdRef.current) return;
 
       if (!data.success) {
+        setAnalysisStatus(data.status || 'error');
         setAnalysisError(
           data.error ||
             'Unable to analyze this YouTube video. Please ensure the video is publicly accessible.'
@@ -380,15 +399,24 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         return;
       }
 
+      setAnalysisStatus(data.status || 'detected');
+      if (data.coverage) {
+        setAnalysisCoverage(data.coverage);
+        // Synchronize playerDuration from verified authoritative coverage duration if client was unset
+        if (typeof data.coverage.totalDuration === 'number' && data.coverage.totalDuration > 0) {
+          if (playerDuration <= 0 || isVideoSwitch) {
+            setPlayerDuration(data.coverage.totalDuration);
+          }
+        }
+      }
       setVideoTitle(data.title || `YouTube Track (${cleanId})`);
       setVideoArtist(data.artist || '');
       setAnalysisSummary(data.analysisSummary || '');
 
       // Parse structured timeline segments with duration bounding and gap preservation
       const parsedSegments = parseTimelineSegments(data.instrumentSegments, {
-        maxDuration: playerDuration > 0 ? playerDuration : undefined,
-        minConfidencePercent: 70, // Server ingestion threshold
-        gapMergeThreshold: 1.2,   // Merges overlapping windows while strictly preserving rests >= 1.2s
+        maxDuration: data.coverage?.totalDuration || (playerDuration > 0 ? playerDuration : undefined),
+        gapMergeThreshold: 1.0, // Merges micro-overlaps while strictly preserving rests >= 1.0s
       });
       setTimelineSegments(parsedSegments);
 
@@ -408,6 +436,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     } catch (err: any) {
       if (requestId !== currentRequestIdRef.current) return;
       console.error('[InstrumentAnalysisView] Analysis failed:', err);
+      setAnalysisStatus('error');
       setAnalysisError(
         err.message ||
           'Failed to connect to the analysis service. Please check your internet connection or server status.'
@@ -441,19 +470,20 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setTimelineSegments([]);
     setAllDetectedInstruments([]);
     setPlayerCurrentTime(0);
+    setPlayerDuration(0); // Reset stale duration from previous track!
     executeTrackAnalysis(trackId, url);
   };
 
   // =========================================================================
   // REAL-TIME ACTIVE INSTRUMENTS COMPUTATION (TIMESTAMP SYNCHRONIZATION)
-  // Evaluates strictly against evidence-based confidence threshold (default 90%)
+  // Evaluates strictly against detected timeline intervals [startTime, endTime]
   // Recalculates immediately whenever playerCurrentTime changes
   // =========================================================================
   const activeSegments = useMemo(() => {
     return timelineSegments.filter((seg) =>
-      isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold)
+      isSegmentActiveAtTime(seg, playerCurrentTime)
     );
-  }, [timelineSegments, playerCurrentTime, confidenceThreshold]);
+  }, [timelineSegments, playerCurrentTime]);
 
   const activeInstrumentNamesSet = useMemo(() => {
     return new Set(activeSegments.map((s) => s.instrumentName.toLowerCase()));
@@ -591,7 +621,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </button>
           </div>
 
-          {/* Quick Preset Test Tracks & Confidence Threshold */}
+          {/* Quick Preset Test Tracks */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-black/5 dark:border-white/5">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider mr-1">
@@ -613,30 +643,49 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               ))}
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] font-bold text-[#77747D] uppercase tracking-wider flex items-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5 text-[#7567C7]" />
-                <span>Confidence Threshold:</span>
-              </span>
-              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border border-black/5 dark:border-white/5">
-                {[85, 90, 95].map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setConfidenceThreshold(val)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                      confidenceThreshold === val
-                        ? 'bg-[#7567C7] text-white shadow-xs'
-                        : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-                    }`}
-                    title={`Highlight instruments only when acoustic evidence confidence is at least ${val}%`}
-                  >
-                    ≥{val}%{val === 90 ? ' (Default)' : ''}
-                  </button>
-                ))}
+            {analysisCoverage && (
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                    analysisCoverage.isFullCoverage
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  }`}
+                >
+                  {analysisCoverage.isFullCoverage
+                    ? '✓ 100% Full Track Coverage'
+                    : `Coverage: ${analysisCoverage.coveragePercentage ?? Math.round((analysisCoverage.endSecond / analysisCoverage.totalDuration) * 100)}% (Partial)`}
+                </span>
+                <span className="text-[10px] font-mono text-[#77747D] dark:text-[#A4A1AA] hidden sm:inline">
+                  {formatTime(analysisCoverage.startSecond)} - {formatTime(analysisCoverage.endSecond)}
+                  {analysisCoverage.totalWindows ? ` • ${analysisCoverage.successfulWindows}/${analysisCoverage.totalWindows} windows` : ''}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Partial Analysis Notice */}
+          {analysisStatus === 'partial' && analysisCoverage && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs flex items-start gap-2.5">
+              <Info className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+              <div className="space-y-1">
+                <div>
+                  <strong>Partial Track Coverage ({analysisCoverage.coveragePercentage ?? Math.round((analysisCoverage.endSecond / analysisCoverage.totalDuration) * 100)}%):</strong> Successfully processed {analysisCoverage.successfulWindows ?? '?'}/{analysisCoverage.totalWindows ?? '?'} analysis windows.
+                </div>
+                {analysisCoverage.missingRanges && analysisCoverage.missingRanges.length > 0 && (
+                  <div className="text-[11px] font-mono opacity-90">
+                    Unanalyzed intervals: {analysisCoverage.missingRanges.map((r) => `${formatTime(r.start)} - ${formatTime(r.end)}`).join(', ')}
+                    {analysisCoverage.failedWindows ? ` (${analysisCoverage.failedWindows} window${analysisCoverage.failedWindows > 1 ? 's' : ''} failed after retries)` : ''}.
+                  </div>
+                )}
+                {analysisCoverage.authoritativeDurationEstablished === false && (
+                  <div className="text-[11px] opacity-80">
+                    Authoritative video duration could not be independently confirmed. Playback time is bounded to observed video player length.
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Error Notice */}
           {analysisError && (
@@ -763,11 +812,29 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               }}
               title="Click anywhere to jump to timestamp"
             >
-              {/* Timeline Segments Blocks */}
+              {/* 1. Unanalyzed / Missing Ranges Indicators (distinguishes silence from unanalyzed sections) */}
+              {analysisCoverage?.missingRanges?.map((missing, idx) => {
+                const leftPct = (missing.start / effectiveDuration) * 100;
+                const widthPct = Math.max(1, ((missing.end - missing.start) / effectiveDuration) * 100);
+                return (
+                  <div
+                    key={`missing-range-${idx}`}
+                    style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                    className="absolute top-0 bottom-0 bg-amber-500/15 border-x border-amber-500/40 flex items-center justify-center pointer-events-none z-5 overflow-hidden"
+                    title={`Unanalyzed / Failed section: ${formatTime(missing.start)} - ${formatTime(missing.end)}`}
+                  >
+                    <span className="text-[9px] font-mono font-bold text-amber-700 dark:text-amber-300 opacity-80 uppercase px-1 truncate select-none">
+                      ⚠ Missing ({formatTime(missing.start)}–{formatTime(missing.end)})
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* 2. Timeline Segments Blocks */}
               {timelineSegments.map((seg) => {
                 const leftPct = (seg.startTime / effectiveDuration) * 100;
                 const widthPct = Math.max(1.5, ((seg.endTime - seg.startTime) / effectiveDuration) * 100);
-                const isActive = isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold);
+                const isActive = isSegmentActiveAtTime(seg, playerCurrentTime);
                 const familyCfg = FAMILY_CONFIG[seg.family] || FAMILY_CONFIG.Other;
 
                 return (
@@ -785,7 +852,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                     className={`absolute top-2 h-8 rounded-md transition-all cursor-pointer opacity-85 hover:opacity-100 flex items-center px-1.5 overflow-hidden ${
                       isActive ? 'ring-2 ring-emerald-400 shadow-md z-10 opacity-100 scale-y-105' : ''
                     }`}
-                    title={`${seg.instrumentName} (${formatTime(seg.startTime)} - ${formatTime(seg.endTime)}) • ${seg.confidence}% conf`}
+                    title={`${seg.instrumentName} (${formatTime(seg.startTime)} - ${formatTime(seg.endTime)})`}
                   >
                     <span className="text-[9.5px] font-bold text-white truncate drop-shadow-sm select-none">
                       {seg.instrumentName}
@@ -828,7 +895,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             ) : (
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
                 {timelineSegments.map((seg) => {
-                  const isActive = isSegmentActiveAtTime(seg, playerCurrentTime, confidenceThreshold);
+                  const isActive = isSegmentActiveAtTime(seg, playerCurrentTime);
                   const familyCfg = FAMILY_CONFIG[seg.family] || FAMILY_CONFIG.Other;
 
                   return (
@@ -872,25 +939,21 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                         </div>
                       </div>
 
-                      {/* Status & Confidence Badge */}
+                      {/* Status & Diagnostic Badge */}
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] font-mono text-[#77747D]">
-                          {seg.confidence}%
-                        </span>
+                        {typeof seg.confidence === 'number' && (
+                          <span className="text-[10px] font-mono text-[#77747D]">
+                            {seg.confidence}%
+                          </span>
+                        )}
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             isActive
                               ? 'bg-emerald-500 text-white animate-pulse'
-                              : seg.confidence >= confidenceThreshold
-                              ? 'bg-black/5 dark:bg-white/10 text-[#77747D]'
-                              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                              : 'bg-black/5 dark:bg-white/10 text-[#77747D]'
                           }`}
                         >
-                          {isActive
-                            ? '● SOUNDING NOW'
-                            : seg.confidence >= confidenceThreshold
-                            ? 'Audible (Resting)'
-                            : 'Low Confidence'}
+                          {isActive ? '● SOUNDING NOW' : 'Resting'}
                         </span>
                       </div>
                     </div>

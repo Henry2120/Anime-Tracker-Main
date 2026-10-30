@@ -684,20 +684,21 @@ export function resolveInstrumentMetadata(item: unknown): NormalizedDetectedInst
  */
 export interface ValidateSegmentsOptions {
   maxDuration?: number;
-  minConfidencePercent?: number; // e.g. 70 on server ingestion, 90 for real-time highlighting
-  gapMergeThreshold?: number; // in seconds, default 1.2s to bridge micro-pauses while preserving genuine rests
+  gapMergeThreshold?: number; // in seconds, default 1.0s to bridge micro-pauses while strictly preserving genuine rests
 }
 
 /**
  * Validates, normalizes, de-duplicates, and merges timeline segments.
  * Accurately preserves musical pauses and silence gaps (>= gapMergeThreshold)
  * while merging overlapping windows for the same instrument.
+ * Performs strictly structural validation (numeric timestamps, chronological order, valid bounds).
+ * Does NOT enforce any confidence threshold.
  */
 export function validateAndMergeTimelineSegments(
   rawSegments: unknown,
   options: ValidateSegmentsOptions = {}
 ): InstrumentTimelineSegment[] {
-  const { maxDuration, minConfidencePercent = 70, gapMergeThreshold = 1.2 } = options;
+  const { maxDuration, gapMergeThreshold = 1.0 } = options;
   if (!Array.isArray(rawSegments)) return [];
 
   // 1. Initial sanitization and taxonomy normalization
@@ -707,8 +708,8 @@ export function validateAndMergeTimelineSegments(
     id: string;
     startTime: number;
     endTime: number;
-    confidence: number;
-    audibility: 'audible' | 'suspected' | 'uncertain';
+    confidence?: number;
+    audibility?: 'audible' | 'suspected' | 'uncertain';
     evidence?: string;
   }[] = [];
 
@@ -732,15 +733,16 @@ export function validateAndMergeTimelineSegments(
       endTime = Math.min(endTime, maxDuration + 2);
     }
 
-    // Normalize confidence to 0..100
-    const rawConf = typeof (item as any).confidence === 'number' ? (item as any).confidence : 0.85;
-    const confidence = rawConf <= 1 ? Math.round(rawConf * 100) : Math.min(100, Math.round(rawConf));
-
-    if (confidence < minConfidencePercent) return;
+    // Optional diagnostic confidence metadata (no threshold filtering)
+    let confidence: number | undefined;
+    if (typeof (item as any).confidence === 'number') {
+      const c = (item as any).confidence;
+      confidence = c <= 1 ? Math.round(c * 100) : Math.min(100, Math.round(c));
+    }
 
     const audibility = (item as any).audibility === 'suspected' ? 'suspected' : 'audible';
     const rawEvidence = (item as any).evidence || (item as any).notes;
-    const evidence = typeof rawEvidence === 'string' && rawEvidence.trim().length > 3
+    const evidence = typeof rawEvidence === 'string' && rawEvidence.trim().length > 0
       ? rawEvidence.trim()
       : undefined;
 
@@ -785,7 +787,9 @@ export function validateAndMergeTimelineSegments(
       if (current.startTime <= prev.endTime + gapMergeThreshold) {
         // Merge into prev
         prev.endTime = Math.max(prev.endTime, current.endTime);
-        prev.confidence = Math.max(prev.confidence, current.confidence);
+        if (typeof current.confidence === 'number') {
+          prev.confidence = Math.max(prev.confidence ?? 0, current.confidence);
+        }
         if (current.audibility === 'audible') prev.audibility = 'audible';
         if (current.evidence && !prev.evidence?.includes(current.evidence)) {
           prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
@@ -816,46 +820,18 @@ export function validateAndMergeTimelineSegments(
 
 /**
  * Checks if a timeline segment is actively sounding at the current player playback position.
- * Implements combined confidence + acoustic evidence verification (provisional 90% / 0.90 threshold):
- * - Confirms playhead falls strictly within [startTime, endTime].
- * - Distinguishes active playing from mere presence: rejects empty or boilerplate evidence.
- * - Suppresses false positives that report high confidence but lack supporting acoustic evidence.
- * - Recovers quiet but genuine instruments (confidence >= minConfidence - 5) when verified with rich acoustic evidence.
+ * The timeline intervals are the sole source of truth for active playback highlighting:
+ * Returns true if timeInSeconds falls strictly within [startTime, endTime].
+ * Contains NO confidence thresholding.
  */
 export function isSegmentActiveAtTime(
   seg: InstrumentTimelineSegment,
-  timeInSeconds: number,
-  minConfidencePercent: number = 90
+  timeInSeconds: number
 ): boolean {
-  if (timeInSeconds < seg.startTime || timeInSeconds > seg.endTime) {
+  if (typeof timeInSeconds !== 'number' || isNaN(timeInSeconds)) {
     return false;
   }
-
-  // Check evidence quality: reject missing, single-word, or boilerplate phrases
-  const rawEvidence = typeof seg.evidence === 'string' ? seg.evidence.trim() : '';
-  const hasSubstantialEvidence =
-    rawEvidence.length >= 8 &&
-    !/^(active|playing|detected|present|sound|in track)$/i.test(rawEvidence);
-
-  // If marked 'suspected' or lacks evidence, eliminate false positive
-  if (seg.audibility === 'suspected' && !hasSubstantialEvidence) {
-    return false;
-  }
-
-  // 1. Standard high-confidence branch (>= minConfidencePercent, e.g. 90%)
-  if (seg.confidence >= minConfidencePercent) {
-    // Require substantial evidence or exceptional confidence (>= 96%)
-    return hasSubstantialEvidence || seg.confidence >= 96;
-  }
-
-  // 2. Quiet instrument recovery branch:
-  // If confidence is near threshold (>= minConfidencePercent - 5, e.g. 85%) and audibly confirmed with rich acoustic evidence,
-  // do not suppress quiet, genuine instruments (e.g. background violin counterpoint, soft piano, acoustic guitar)
-  if (seg.confidence >= minConfidencePercent - 5 && seg.audibility === 'audible' && hasSubstantialEvidence) {
-    return true;
-  }
-
-  return false;
+  return timeInSeconds >= seg.startTime && timeInSeconds <= seg.endTime;
 }
 
 /**
