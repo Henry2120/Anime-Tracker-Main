@@ -2329,33 +2329,59 @@ async function analyzeWindowWithRetry(
   let retriesRun = 0;
   let lastError: string | null = null;
 
-  const systemInstruction = `You are an expert musicologist, acoustic engineer, and audio transcription specialist.
-Your task is to analyze the audio/video media of the provided YouTube video exclusively within a specified chronological time interval.
+  const systemInstruction = `You are a world-class, objective acoustic musicologist, audio engineer, and instrument transcription specialist.
+Your task is to analyze the actual audio track of the provided YouTube video exclusively within the specified chronological time interval [${win.startTime}s - ${win.endTime}s].
 
-STRICT AUDITORY GUIDELINES FOR THIS TIME WINDOW:
-1. FOCUS EXCLUSIVELY ON THE REQUESTED TIME WINDOW:
-   - Listen only to the audio between ${win.startTime}s (${formatSecondsLabel(win.startTime)}) and ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
-   - Transcribe ONLY instruments that are audibly sounding within this interval.
-   - Do NOT transcribe instruments playing before ${win.startTime}s or after ${win.endTime}s.
-   - Timestamps must be in seconds relative to video start (00:00), strictly bounded between ${win.startTime} and ${win.endTime}.
+CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
+1. STRICT TIME BOUNDARIES:
+   - Listen exclusively to the audio sounding between ${win.startTime}s (${formatSecondsLabel(win.startTime)}) and ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
+   - Transcribe ONLY instruments actively sounding in this time window.
+   - Timestamps must be in seconds relative to video start (00:00) and strictly bounded between ${win.startTime} and ${win.endTime}.
 
-2. GENUINE AUDIO EVIDENCE & ACCURATE RECOGNITION:
-   - Ground detections strictly in the audible sound stream. Do not infer based on song title or artist style.
-   - Pay close attention to intro acoustic, orchestral, or melodic instruments (such as Violin, Strings sections, Flute, Piano, or Synthesizer leads).
-   - Disambiguate bowed strings (Violin / Strings section with bow friction and cantabile vibrato) from electric guitar or electronic synths.
-   - Never omit short solo phrases (e.g. 0-3s intro solos) or quiet introductory instruments that precede heavier drums and electric guitars.
-   - If no instruments sound in this interval (e.g. musical silence, speech, or quiet pause), return an empty instrumentSegments array and set isSilence to true.
+2. EVIDENCE-BASED AUDITORY RECOGNITION (NO GENRE/IDENTITY ASSUMPTIONS):
+   - Ground every detection in audible acoustic properties. Do NOT infer instruments based on song titles, artists, or typical genre tropes.
+   - Bowed Strings (Violin, Viola, Cello, Double Bass, Strings Ensemble): continuous bow friction / rosin scrape, cantabile vibrato, natural wooden resonance decay. Distinguish from distorted guitars and synthesizers.
+   - Acoustic Guitars (Acoustic / Classical): fingerpicking nail clicks, acoustic chamber resonance, natural nylon/steel string decay. Distinguish from magnetic electric guitars.
+   - Electric Guitars: electromagnetic pick attack, amplifier gain / distortion, overdrive, pitch bends, sustain pedal harmonics.
+   - Pianos & Keyboards:
+     * Acoustic Grand/Upright Piano: felt hammers striking steel strings, soundboard resonance.
+     * Electric Piano (Rhodes/Wurlitzer): bell-like metallic chime, electromechanical tines.
+     * Synthesizer: electronic waveforms, digital filters, arpeggiators, or synth pads.
+   - Bass Voice:
+     * Bass Guitar: metallic finger/pick plucks on 4/5-string electric bass with amplifier low-end.
+     * Double Bass / Upright Bass: acoustic bowed contrabass groan or deep hollow pizzicato thud.
+     * Electronic / Synth Bass: sub-sine 808 glides, acid/sawtooth bass synth oscillators.
+   - Percussion:
+     * Conventional Drum Kit: acoustic kick, snare drum with wire snare buzz, metal hi-hats, toms, cymbals.
+     * Orchestral Percussion: concert timpani, gran cassa (concert bass drum), tubular bells, glockenspiel, orchestral crash cymbals.
+     * Drum Machine / Electronic Drums: quantized 808/909 samples, synthetic beat programming.
+   - Woodwinds & Brass:
+     * Flute, Piccolo, Oboe, Clarinet, Bassoon, Saxophone: reedy / edge-tone breath dynamics.
+     * Trumpet, French Horn, Trombone, Tuba: metallic lip-buzz brass projection.
+   - Vocals & Choirs:
+     * Lead Vocals (solo human voice singing melody/lyrics).
+     * Backing Vocals (vocal harmonies supporting lead).
+     * Choir (large multi-voice polyphonic ensemble singing in soprano/alto/tenor/bass harmony).
+   - Traditional & World:
+     * Shamisen, Koto, Erhu, Guzheng, Pipa, Shakuhachi, Sitar, Tabla, Accordion: identify unique acoustic timbre.
 
-3. ACCURATE RESTS:
-   - Terminate an instrument segment immediately when it pauses or rests for more than 1 second.`;
+3. SENSITIVITY TO TRANSIENT, QUIET, & LAYERED VOICES:
+   - Recognize quiet instruments playing underneath louder instruments (e.g. background strings, acoustic piano chords, soft rhythm guitar, or bass).
+   - Recognize brief appearances: never omit an instrument because it only appears for 1-5 seconds during an intro, transition, drum fill, or solo phrase.
+   - Multiple instruments playing simultaneously must all be transcribed with their respective start and end times.
 
-  const promptText = `Analyze the audio/video media of the YouTube video (${targetUrl}).
+4. ACCURATE RESTS & GAPS:
+   - Terminate an instrument segment immediately when it pauses, rests, or stops sounding for >= 1.0 second. Do not bridge silent rests.
+
+5. NON-MUSICAL & SPEECH AUDIO:
+   - If this interval contains only spoken voice, dialogue, environmental noise, podcast speech, or ambient sound effects without musical instruments: set isMusic to false, set isSilence to true, and return an empty instrumentSegments array.
+   - NEVER classify speech or background noise as musical instruments.`;
+
+  const promptText = `Analyze the audio of the YouTube video (${targetUrl}).
 Focus exclusively on the time window from ${win.startTime}s (${formatSecondsLabel(win.startTime)}) to ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
 
-Requirements:
-1. Transcribe all instruments audibly sounding between ${win.startTime}s and ${win.endTime}s. Include leading melodies, solo phrases, introductory strings/acoustic parts, and rhythmic backing.
-2. Ensure each segment's startTime and endTime fall strictly within [${win.startTime}, ${win.endTime}].
-3. If this section is silent or contains no audible musical instruments, return an empty array for instrumentSegments and set isSilence to true.`;
+Transcribe all audibly sounding instruments in this window with chronological [startTime, endTime] intervals bounded within [${win.startTime}, ${win.endTime}]. Include lead voices, accompaniment, short solo motifs, and underlying acoustic layers.
+If the audio in this window contains no musical instruments (e.g. silence, speech, or noise), return an empty array for instrumentSegments and set isSilence to true.`;
 
   const mediaPart = {
     fileData: {
@@ -2619,13 +2645,17 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
         }
       });
 
+      const isNonMusicalOrSilent = reconciledSegments.length === 0;
+
       const result = {
         success: coverageResult.successfulWindows > 0,
-        status: coverageResult.status,
+        status: isNonMusicalOrSilent ? 'unsupported' : coverageResult.status,
         videoId: cleanVideoId,
         title: effectiveTitle,
         artist: oembedAuthor || "Artist",
-        analysisSummary: `Acoustic instrument analysis completed: ${coverageResult.successfulWindows}/${coverageResult.totalWindows} windows processed (${coverageResult.coveragePercentage}% coverage).`,
+        analysisSummary: isNonMusicalOrSilent
+          ? `Acoustic analysis completed: 100% audio analyzed (${coverageResult.successfulWindows}/${coverageResult.totalWindows} windows). No musical instruments were detected in the recording (contains speech, ambient sound, or silence).`
+          : `Acoustic instrument analysis completed: ${coverageResult.successfulWindows}/${coverageResult.totalWindows} windows processed (${coverageResult.coveragePercentage}% coverage).`,
         coverage: {
           startSecond: 0,
           endSecond: effectiveDuration,

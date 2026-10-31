@@ -224,6 +224,13 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     aliases: ['saxophone', 'sax', 'alto sax', 'tenor sax', 'baritone sax', 'soprano sax', 'alto saxophone', 'tenor saxophone'],
     description: 'Single-reed conical brass-bodied woodwind with soulful, reedy dynamics',
   },
+  {
+    id: 'woodwinds-ensemble',
+    canonicalName: 'Woodwinds (Ensemble)',
+    family: 'Woodwinds',
+    aliases: ['woodwinds (ensemble)', 'woodwind ensemble', 'woodwinds', 'woodwind section', 'orchestral woodwinds'],
+    description: 'Blended orchestral ensemble of flutes, oboes, clarinets, and bassoons',
+  },
 
   // =========================================================================
   // 3. BRASS
@@ -283,6 +290,13 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     family: 'Brass',
     aliases: ['tuba', 'tubas', 'bass tuba', 'contrabass tuba', 'sousaphone'],
     description: 'Deepest and largest orchestral brass instrument anchoring the bass section',
+  },
+  {
+    id: 'brass-ensemble',
+    canonicalName: 'Brass (Ensemble)',
+    family: 'Brass',
+    aliases: ['brass (ensemble)', 'brass ensemble', 'brass section', 'orchestral brass', 'horns section', 'brass horns'],
+    description: 'Blended orchestral ensemble of trumpets, french horns, trombones, and tubas',
   },
 
   // =========================================================================
@@ -439,6 +453,20 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     aliases: ['glockenspiel', 'bells', 'orchestral bells'],
     description: 'Tuned steel plates struck with hard mallets producing high crystalline chimes',
   },
+  {
+    id: 'drum-machine',
+    canonicalName: 'Drum Machine',
+    family: 'Percussion',
+    aliases: ['drum machine', 'electronic drums', '808 drums', 'programmed drums', 'electronic percussion', 'beat machine', 'drum loop', 'trap drums'],
+    description: 'Programmed electronic or synthetic drum patterns, 808/909 samples, and sequenced beats',
+  },
+  {
+    id: 'orchestral-percussion',
+    canonicalName: 'Orchestral Percussion',
+    family: 'Percussion',
+    aliases: ['orchestral percussion', 'auxiliary percussion', 'percussion ensemble', 'classical percussion'],
+    description: 'Concert percussion battery including orchestral cymbals, tam-tam, chimes, and concert bass drum',
+  },
 
   // =========================================================================
   // 6. TRADITIONAL AND WORLD INSTRUMENTS
@@ -505,6 +533,13 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     family: 'Traditional & World',
     aliases: ['steelpan', 'steel drum', 'pan'],
     description: 'Trinidadian acoustic percussion instrument made from 55-gallon industrial oil drums',
+  },
+  {
+    id: 'taiko',
+    canonicalName: 'Taiko',
+    family: 'Traditional & World',
+    aliases: ['taiko', 'wadaiko', 'taiko drums', 'japanese drums'],
+    description: 'Traditional Japanese barrel-shaped wooden drums played with thick bachi sticks',
   },
 
   // =========================================================================

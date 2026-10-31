@@ -12,7 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
+    "@google/genai": "^2.32.0",
     "@pixiv/three-vrm": "^3.5.5",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",

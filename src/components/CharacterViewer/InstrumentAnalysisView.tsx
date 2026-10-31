@@ -687,6 +687,21 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </div>
           )}
 
+          {/* Non-musical / Speech Notice */}
+          {(analysisStatus === 'unsupported' || (analysisCoverage && !isAnalyzing && timelineSegments.length === 0)) && !analysisError && (
+            <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-900 dark:text-purple-200 text-xs flex items-start gap-2.5">
+              <Info className="h-4 w-4 shrink-0 text-purple-500 mt-0.5" />
+              <div className="space-y-1">
+                <div>
+                  <strong>Non-Musical Audio / Spoken Content:</strong> The audio was analyzed with full coverage ({analysisCoverage?.coveragePercentage ?? 100}%), and no musical instruments were detected.
+                </div>
+                <div className="text-[11px] opacity-80">
+                  The recording appears to consist of spoken dialogue, ambient audio, or non-instrumental sound. No artificial instruments have been fabricated.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Notice */}
           {analysisError && (
             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -890,7 +905,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
 
             {timelineSegments.length === 0 ? (
               <div className="p-6 text-center text-xs text-[#77747D] border border-dashed rounded-xl">
-                {isAnalyzing ? 'Transcribing audio timeline...' : 'No timeline segments detected. Click Analyze Track above.'}
+                {isAnalyzing
+                  ? 'Transcribing audio timeline...'
+                  : analysisCoverage
+                  ? 'No musical instruments audibly detected in this recording (speech, ambient sound, or silence).'
+                  : 'No timeline segments detected. Click Analyze Track above.'}
               </div>
             ) : (
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
