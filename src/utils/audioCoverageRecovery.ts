@@ -3,6 +3,12 @@ import {
   validateAndMergeTimelineSegments,
 } from './instrumentNormalization';
 
+export type AudioAssessment =
+  | 'instrumental_music'
+  | 'silence'
+  | 'non_instrument_audio'
+  | 'uncertain';
+
 export interface AnalysisWindow {
   id: string;
   index: number;
@@ -27,7 +33,9 @@ export interface WindowCoverageRecord {
   retryCount: number;
   error?: string | null;
   segments: InstrumentTimelineSegment[];
-  isSilence: boolean; // True if window was successfully analyzed and contained genuine silence / no instruments
+  audioAssessment: AudioAssessment;
+  isSilence: boolean; // Strictly true only if explicitly confirmed silence / rest
+  needsRecovery?: boolean; // True if audioAssessment was instrumental_music/uncertain but 0 segments were returned
 }
 
 export interface CoverageCalculationResult {
@@ -37,6 +45,9 @@ export interface CoverageCalculationResult {
   coveragePercentage: number;
   analyzedRanges: TimeRange[];
   missingRanges: TimeRange[];
+  confirmedSilentRanges: TimeRange[];
+  nonInstrumentRanges: TimeRange[];
+  uncertainRanges: TimeRange[];
   totalWindows: number;
   successfulWindows: number;
   failedWindows: number;
@@ -135,9 +146,138 @@ export function generateAnalysisWindows(
 }
 
 /**
+ * Converts clip-relative timestamps returned by Gemini (starting at 0.0s for the clip)
+ * to absolute video timestamps by adding the window's startTime.
+ * Validates against clip boundaries and total video duration.
+ */
+export function convertClipRelativeSegments(
+  clipSegments: Array<{
+    instrumentName: string;
+    family: string;
+    startTime: number;
+    endTime: number;
+    evidence?: string;
+    confidence?: number;
+    audibility?: string;
+  }>,
+  windowStart: number,
+  clipDuration: number,
+  videoDuration: number
+): InstrumentTimelineSegment[] {
+  const results: InstrumentTimelineSegment[] = [];
+
+  for (const raw of clipSegments) {
+    if (typeof raw.startTime !== 'number' || typeof raw.endTime !== 'number') continue;
+    if (isNaN(raw.startTime) || isNaN(raw.endTime)) continue;
+
+    // Validate clip-relative timestamps: must fall within clip duration [0, clipDuration]
+    const clipStart = Math.max(0, Math.min(clipDuration, raw.startTime));
+    const clipEnd = Math.max(0, Math.min(clipDuration, raw.endTime));
+    if (clipEnd <= clipStart) continue;
+
+    // Convert to absolute video timestamps
+    const absStart = Math.round((windowStart + clipStart) * 10) / 10;
+    const absEnd = Math.round((windowStart + clipEnd) * 10) / 10;
+
+    // Validate resulting absolute timestamps against full video duration
+    const boundedStart = Math.max(0, Math.min(videoDuration, absStart));
+    const boundedEnd = Math.max(0, Math.min(videoDuration, absEnd));
+    if (boundedEnd <= boundedStart) continue;
+
+    results.push({
+      id: `seg-${Math.round(boundedStart * 10)}-${Math.round(boundedEnd * 10)}-${raw.instrumentName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      instrumentName: raw.instrumentName,
+      family: raw.family as any,
+      startTime: boundedStart,
+      endTime: boundedEnd,
+      confidence: typeof raw.confidence === 'number' ? raw.confidence : 90,
+      audibility: (raw.audibility as any) || 'audible',
+      evidence: raw.evidence,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Calculates uncovered gaps across the timeline where no instrument has been detected.
+ * Returns intervals of at least minGapSeconds length.
+ */
+export function findUncoveredGaps(
+  segments: InstrumentTimelineSegment[],
+  totalDuration: number,
+  minGapSeconds: number = 1.5
+): TimeRange[] {
+  if (totalDuration <= 0) return [];
+  if (segments.length === 0) {
+    return [{ start: 0, end: totalDuration }];
+  }
+
+  // Compute union of all detected instrument intervals
+  const sorted = [...segments].sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime);
+  const unionRanges: TimeRange[] = [];
+
+  for (const seg of sorted) {
+    if (unionRanges.length === 0) {
+      unionRanges.push({ start: seg.startTime, end: seg.endTime });
+      continue;
+    }
+    const prev = unionRanges[unionRanges.length - 1];
+    if (seg.startTime <= prev.end + 0.2) {
+      prev.end = Math.max(prev.end, seg.endTime);
+    } else {
+      unionRanges.push({ start: seg.startTime, end: seg.endTime });
+    }
+  }
+
+  const gaps: TimeRange[] = [];
+  let cursor = 0;
+
+  for (const r of unionRanges) {
+    if (r.start - cursor >= minGapSeconds) {
+      gaps.push({
+        start: Math.round(cursor * 10) / 10,
+        end: Math.round(r.start * 10) / 10,
+      });
+    }
+    cursor = Math.max(cursor, r.end);
+  }
+
+  if (totalDuration - cursor >= minGapSeconds) {
+    gaps.push({
+      start: Math.round(cursor * 10) / 10,
+      end: Math.round(totalDuration * 10) / 10,
+    });
+  }
+
+  return gaps;
+}
+
+/**
+ * Checks whether an interval is already substantially covered by confirmed silence ranges.
+ */
+export function isRangeConfirmedSilent(
+  range: TimeRange,
+  confirmedSilentRanges: TimeRange[]
+): boolean {
+  for (const s of confirmedSilentRanges) {
+    const overlapStart = Math.max(range.start, s.start);
+    const overlapEnd = Math.min(range.end, s.end);
+    if (overlapEnd > overlapStart) {
+      const overlapDur = overlapEnd - overlapStart;
+      const rangeDur = range.end - range.start;
+      if (rangeDur > 0 && overlapDur / rangeDur >= 0.75) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Independently calculates coverage based on successfully processed analysis windows,
- * NOT merely on the presence of detected instruments.
- * Genuine silence in an analyzed window counts as successful coverage.
+ * distinguishing audio coverage from instrument detection coverage.
+ * Confirmed silence, non-instrument audio, and uncertain ranges are tracked separately.
  */
 export function calculateCoverage(
   totalDuration: number,
@@ -158,6 +298,9 @@ export function calculateCoverage(
       coveragePercentage: 0,
       analyzedRanges: [],
       missingRanges: totalDuration > 0 ? [{ start: 0, end: totalDuration }] : [],
+      confirmedSilentRanges: [],
+      nonInstrumentRanges: [],
+      uncertainRanges: [],
       totalWindows,
       successfulWindows,
       failedWindows,
@@ -185,7 +328,6 @@ export function calculateCoverage(
     }
 
     const prev = analyzedRanges[analyzedRanges.length - 1];
-    // If overlaps or touches (within 0.5s tolerance)
     if (interval.start <= prev.end + 0.5) {
       prev.end = Math.max(prev.end, interval.end);
     } else {
@@ -193,7 +335,7 @@ export function calculateCoverage(
     }
   }
 
-  // Calculate missing ranges between 0 and totalDuration
+  // Calculate missing window ranges between 0 and totalDuration
   const missingRanges: TimeRange[] = [];
   let cursor = 0;
 
@@ -214,6 +356,21 @@ export function calculateCoverage(
     });
   }
 
+  // Confirmed silent ranges (explicit silence assessments)
+  const confirmedSilentRanges: TimeRange[] = successfulRecords
+    .filter((w) => w.audioAssessment === 'silence' || w.isSilence)
+    .map((w) => ({ start: w.requestedStart, end: w.requestedEnd }));
+
+  // Non-instrument ranges (speech, ambient sound)
+  const nonInstrumentRanges: TimeRange[] = successfulRecords
+    .filter((w) => w.audioAssessment === 'non_instrument_audio')
+    .map((w) => ({ start: w.requestedStart, end: w.requestedEnd }));
+
+  // Uncertain ranges requiring review
+  const uncertainRanges: TimeRange[] = successfulRecords
+    .filter((w) => w.audioAssessment === 'uncertain' || w.needsRecovery)
+    .map((w) => ({ start: w.requestedStart, end: w.requestedEnd }));
+
   // Total analyzed duration in seconds
   const totalAnalyzedSeconds = analyzedRanges.reduce(
     (sum, range) => sum + (range.end - range.start),
@@ -221,13 +378,8 @@ export function calculateCoverage(
   );
 
   const coverageRatio = Math.min(1.0, totalAnalyzedSeconds / totalDuration);
-  const coveragePercentage = Math.round(coverageRatio * 1000) / 10; // e.g. 100.0 or 83.3
+  const coveragePercentage = Math.round(coverageRatio * 1000) / 10;
 
-  // Full coverage requires:
-  // 1. Authoritative duration established
-  // 2. No missing ranges
-  // 3. Every required window succeeded (failedWindows === 0)
-  // 4. Coverage percentage is >= 99.5%
   const isFullCoverage =
     authoritativeDurationEstablished &&
     missingRanges.length === 0 &&
@@ -250,6 +402,9 @@ export function calculateCoverage(
     coveragePercentage,
     analyzedRanges,
     missingRanges,
+    confirmedSilentRanges,
+    nonInstrumentRanges,
+    uncertainRanges,
     totalWindows,
     successfulWindows,
     failedWindows,
@@ -260,7 +415,7 @@ export function calculateCoverage(
 
 /**
  * Reconciles overlapping analysis windows:
- * - Collects all detections from successfully processed windows.
+ * - Collects all detections from successfully processed windows and recovered intervals.
  * - Merges duplicate detections from overlapping window regions for the same instrument.
  * - Accurately preserves musical rests and silence gaps (>= gapMergeThreshold).
  * - Avoids extending segments past real boundaries.
@@ -276,11 +431,11 @@ export function reconcileWindowSegments(
     if (record.status !== 'success') continue;
     if (Array.isArray(record.segments)) {
       for (const seg of record.segments) {
-        // Enforce boundary sanity: segment should fall within the window (with 1.5s tolerance for notes ringing over boundary)
         const segStart = Math.max(0, seg.startTime);
-        const segEnd = typeof totalDuration === 'number' && totalDuration > 0
-          ? Math.min(totalDuration, seg.endTime)
-          : seg.endTime;
+        const segEnd =
+          typeof totalDuration === 'number' && totalDuration > 0
+            ? Math.min(totalDuration, seg.endTime)
+            : seg.endTime;
 
         if (segEnd > segStart) {
           allRawSegments.push({

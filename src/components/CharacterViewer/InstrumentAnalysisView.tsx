@@ -152,6 +152,9 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     coveragePercentage?: number;
     analyzedRanges?: Array<{ start: number; end: number }>;
     missingRanges?: Array<{ start: number; end: number }>;
+    confirmedSilentRanges?: Array<{ start: number; end: number }>;
+    nonInstrumentRanges?: Array<{ start: number; end: number }>;
+    uncertainRanges?: Array<{ start: number; end: number }>;
     totalWindows?: number;
     successfulWindows?: number;
     failedWindows?: number;
@@ -181,6 +184,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const ytPlayerRef = useRef<any>(null);
   const timePollingIntervalRef = useRef<any>(null);
   const currentRequestIdRef = useRef(0);
+  const playerLoadedVideoIdRef = useRef<string | null>(null);
+  const playerDurationsMapRef = useRef<Map<string, number>>(new Map());
 
   // =========================================================================
   // EMBEDDED YOUTUBE PLAYER INITIALIZATION
@@ -201,6 +206,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
 
       try {
+        playerLoadedVideoIdRef.current = videoId;
         ytPlayerRef.current = new window.YT.Player('analysis-embedded-yt-player', {
           height: '100%',
           width: '100%',
@@ -217,8 +223,10 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
           events: {
             onReady: (event: any) => {
               setIsPlayerReady(true);
+              playerLoadedVideoIdRef.current = videoId;
               const dur = event.target.getDuration();
               if (typeof dur === 'number' && dur > 0) {
+                playerDurationsMapRef.current.set(videoId, dur);
                 setPlayerDuration(dur);
               }
             },
@@ -232,7 +240,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 setIsPlayerPlaying(false);
               }
 
-              // Update time immediately on any state change (e.g. pause or seek)
+              // Update time and duration immediately on any state change
               try {
                 const t = event.target.getCurrentTime();
                 if (typeof t === 'number' && !isNaN(t)) {
@@ -240,6 +248,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 }
                 const dur = event.target.getDuration();
                 if (typeof dur === 'number' && dur > 0) {
+                  playerDurationsMapRef.current.set(videoId, dur);
                   setPlayerDuration(dur);
                 }
               } catch {}
@@ -341,112 +350,197 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   };
 
   // =========================================================================
-  // ANALYZE TRACK ACTION (BACKEND GEMINI REQUEST)
+  // ENSURE PLAYER READY & RETRIEVE DURATION FOR CURRENT VIDEO
   // =========================================================================
-  const executeTrackAnalysis = useCallback(async (targetVideoId: string, customUrl?: string) => {
-    const cleanId = targetVideoId.trim();
-    if (!cleanId || cleanId.length < 5) {
-      setAnalysisError('Please enter a valid YouTube video URL or 11-character video ID.');
-      return;
-    }
-
-    const requestId = ++currentRequestIdRef.current;
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-    setAnalysisStatus('idle');
-    setAnalysisCoverage(null);
-    setAnalysisSummary('');
-
-    // Clear previous results immediately to avoid stale data from previous tracks
-    setTimelineSegments([]);
-    setAllDetectedInstruments([]);
-
-    // Check if switching to a different video
-    const isVideoSwitch = cleanId !== activeVideoId;
-    if (isVideoSwitch) {
-      setActiveVideoId(cleanId);
-      setPlayerCurrentTime(0);
-      setPlayerDuration(0); // Reset duration immediately so old video duration is never sent!
-    }
-
-    try {
-      const response = await fetch('/api/music/analyze-youtube', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: cleanId,
-          url: customUrl || `https://www.youtube.com/watch?v=${cleanId}`,
-          // If video switched, omit duration so backend queries true media duration
-          duration: !isVideoSwitch && playerDuration > 0 ? playerDuration : undefined,
-        }),
-      });
-
-      if (requestId !== currentRequestIdRef.current) return;
-
-      if (!response.ok) {
-        throw new Error(`Analysis server returned HTTP status ${response.status}`);
+  const ensurePlayerReadyForVideo = useCallback(
+    async (targetVideoId: string): Promise<number | null> => {
+      // 1. Check cached duration for this exact video ID
+      const cached = playerDurationsMapRef.current.get(targetVideoId);
+      if (typeof cached === 'number' && cached > 0) {
+        return cached;
       }
 
-      const data = await response.json();
-      if (requestId !== currentRequestIdRef.current) return;
+      // 2. If current player already has this video loaded
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.getDuration === 'function') {
+        try {
+          const d = ytPlayerRef.current.getDuration();
+          const url = ytPlayerRef.current.getVideoUrl?.() || '';
+          if (
+            typeof d === 'number' &&
+            d > 0 &&
+            (playerLoadedVideoIdRef.current === targetVideoId || url.includes(targetVideoId))
+          ) {
+            playerDurationsMapRef.current.set(targetVideoId, d);
+            return d;
+          }
+        } catch {}
+      }
 
-      if (!data.success) {
-        setAnalysisStatus(data.status || 'error');
-        setAnalysisError(
-          data.error ||
-            'Unable to analyze this YouTube video. Please ensure the video is publicly accessible.'
-        );
+      // 3. Cue or load video in player
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.cueVideoById === 'function') {
+        try {
+          playerLoadedVideoIdRef.current = targetVideoId;
+          ytPlayerRef.current.cueVideoById(targetVideoId);
+        } catch {
+          initYouTubePlayer(targetVideoId);
+        }
+      } else {
+        initYouTubePlayer(targetVideoId);
+      }
+
+      // 4. Await player's onReady / duration retrieval for this specific video
+      return new Promise<number | null>((resolve) => {
+        const startTime = Date.now();
+        const interval = setInterval(() => {
+          if (ytPlayerRef.current && typeof ytPlayerRef.current.getDuration === 'function') {
+            try {
+              const d = ytPlayerRef.current.getDuration();
+              const url = ytPlayerRef.current.getVideoUrl?.() || '';
+              if (
+                typeof d === 'number' &&
+                d > 0 &&
+                (playerLoadedVideoIdRef.current === targetVideoId || url.includes(targetVideoId))
+              ) {
+                clearInterval(interval);
+                playerDurationsMapRef.current.set(targetVideoId, d);
+                setPlayerDuration(d);
+                return resolve(d);
+              }
+            } catch {}
+          }
+          if (Date.now() - startTime > 3500) {
+            clearInterval(interval);
+            resolve(null);
+          }
+        }, 80);
+      });
+    },
+    [initYouTubePlayer]
+  );
+
+  // =========================================================================
+  // ANALYZE TRACK ACTION (BACKEND GEMINI REQUEST)
+  // =========================================================================
+  const executeTrackAnalysis = useCallback(
+    async (targetVideoId: string, customUrl?: string) => {
+      const cleanId = targetVideoId.trim();
+      if (!cleanId || cleanId.length < 5) {
+        setAnalysisError('Please enter a valid YouTube video URL or 11-character video ID.');
         return;
       }
 
-      setAnalysisStatus(data.status || 'detected');
-      if (data.coverage) {
-        setAnalysisCoverage(data.coverage);
-        // Synchronize playerDuration from verified authoritative coverage duration if client was unset
-        if (typeof data.coverage.totalDuration === 'number' && data.coverage.totalDuration > 0) {
-          if (playerDuration <= 0 || isVideoSwitch) {
-            setPlayerDuration(data.coverage.totalDuration);
+      const requestId = ++currentRequestIdRef.current;
+      setIsAnalyzing(true);
+      setAnalysisError(null);
+      setAnalysisStatus('idle');
+      setAnalysisCoverage(null);
+      setAnalysisSummary('');
+
+      // Clear previous results immediately to avoid stale data from previous tracks
+      setTimelineSegments([]);
+      setAllDetectedInstruments([]);
+
+      // Check if switching to a different video
+      const isVideoSwitch = cleanId !== activeVideoId;
+      if (isVideoSwitch) {
+        setActiveVideoId(cleanId);
+        setPlayerCurrentTime(0);
+      }
+
+      // Wait until new player's onReady event and obtain its duration for cleanId
+      const targetDuration = await ensurePlayerReadyForVideo(cleanId);
+      if (typeof targetDuration === 'number' && targetDuration > 0) {
+        setPlayerDuration(targetDuration);
+      }
+
+      try {
+        const effectiveReqDuration =
+          typeof targetDuration === 'number' && targetDuration > 0
+            ? targetDuration
+            : playerDuration > 0
+            ? playerDuration
+            : undefined;
+
+        const response = await fetch('/api/music/analyze-youtube', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoId: cleanId,
+            url: customUrl || `https://www.youtube.com/watch?v=${cleanId}`,
+            duration: effectiveReqDuration,
+          }),
+        });
+
+        if (requestId !== currentRequestIdRef.current) return;
+
+        if (!response.ok) {
+          throw new Error(`Analysis server returned HTTP status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (requestId !== currentRequestIdRef.current) return;
+
+        if (!data.success) {
+          setAnalysisStatus(data.status || 'error');
+          setAnalysisError(
+            data.error ||
+              'Unable to analyze this YouTube video. Please ensure the video is publicly accessible.'
+          );
+          return;
+        }
+
+        setAnalysisStatus(data.status || 'detected');
+        if (data.coverage) {
+          setAnalysisCoverage(data.coverage);
+          // Only update playerDuration if local duration was unset AND backend duration is verified authoritative
+          if (
+            typeof data.coverage.totalDuration === 'number' &&
+            data.coverage.totalDuration > 0 &&
+            data.coverage.authoritativeDurationEstablished
+          ) {
+            setPlayerDuration((prev) => (prev > 0 ? prev : data.coverage.totalDuration));
           }
         }
-      }
-      setVideoTitle(data.title || `YouTube Track (${cleanId})`);
-      setVideoArtist(data.artist || '');
-      setAnalysisSummary(data.analysisSummary || '');
+        setVideoTitle(data.title || `YouTube Track (${cleanId})`);
+        setVideoArtist(data.artist || '');
+        setAnalysisSummary(data.analysisSummary || '');
 
-      // Parse structured timeline segments with duration bounding and gap preservation
-      const parsedSegments = parseTimelineSegments(data.instrumentSegments, {
-        maxDuration: data.coverage?.totalDuration || (playerDuration > 0 ? playerDuration : undefined),
-        gapMergeThreshold: 1.0, // Merges micro-overlaps while strictly preserving rests >= 1.0s
-      });
-      setTimelineSegments(parsedSegments);
-
-      // Parse detected instruments list
-      if (Array.isArray(data.allDetectedInstruments) && data.allDetectedInstruments.length > 0) {
-        setAllDetectedInstruments(data.allDetectedInstruments);
-      } else {
-        // Derive from timeline segments if not provided separately
-        const uniqueMap = new Map<string, { name: string; family: string }>();
-        parsedSegments.forEach((seg) => {
-          if (!uniqueMap.has(seg.instrumentName)) {
-            uniqueMap.set(seg.instrumentName, { name: seg.instrumentName, family: seg.family });
-          }
+        // Parse structured timeline segments with duration bounding and gap preservation
+        const parsedSegments = parseTimelineSegments(data.instrumentSegments, {
+          maxDuration:
+            data.coverage?.totalDuration || (playerDuration > 0 ? playerDuration : undefined),
+          gapMergeThreshold: 1.0, // Merges micro-overlaps while strictly preserving rests >= 1.0s
         });
-        setAllDetectedInstruments(Array.from(uniqueMap.values()));
+        setTimelineSegments(parsedSegments);
+
+        // Parse detected instruments list
+        if (Array.isArray(data.allDetectedInstruments) && data.allDetectedInstruments.length > 0) {
+          setAllDetectedInstruments(data.allDetectedInstruments);
+        } else {
+          const uniqueMap = new Map<string, { name: string; family: string }>();
+          parsedSegments.forEach((seg) => {
+            if (!uniqueMap.has(seg.instrumentName)) {
+              uniqueMap.set(seg.instrumentName, { name: seg.instrumentName, family: seg.family });
+            }
+          });
+          setAllDetectedInstruments(Array.from(uniqueMap.values()));
+        }
+      } catch (err: any) {
+        if (requestId !== currentRequestIdRef.current) return;
+        console.error('[InstrumentAnalysisView] Analysis failed:', err);
+        setAnalysisStatus('error');
+        setAnalysisError(
+          err.message ||
+            'Failed to connect to the analysis service. Please check your internet connection or server status.'
+        );
+      } finally {
+        if (requestId === currentRequestIdRef.current) {
+          setIsAnalyzing(false);
+        }
       }
-    } catch (err: any) {
-      if (requestId !== currentRequestIdRef.current) return;
-      console.error('[InstrumentAnalysisView] Analysis failed:', err);
-      setAnalysisStatus('error');
-      setAnalysisError(
-        err.message ||
-          'Failed to connect to the analysis service. Please check your internet connection or server status.'
-      );
-    } finally {
-      if (requestId === currentRequestIdRef.current) {
-        setIsAnalyzing(false);
-      }
-    }
-  }, [activeVideoId, playerDuration]);
+    },
+    [activeVideoId, ensurePlayerReadyForVideo, playerDuration]
+  );
 
   // Initial analysis on first mount
   useEffect(() => {
@@ -470,7 +564,6 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setTimelineSegments([]);
     setAllDetectedInstruments([]);
     setPlayerCurrentTime(0);
-    setPlayerDuration(0); // Reset stale duration from previous track!
     executeTrackAnalysis(trackId, url);
   };
 
@@ -845,7 +938,25 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 );
               })}
 
-              {/* 2. Timeline Segments Blocks */}
+              {/* 2. Uncertain / Review Ranges Indicators (distinguishes uncertain audio needing review) */}
+              {analysisCoverage?.uncertainRanges?.map((unc, idx) => {
+                const leftPct = (unc.start / effectiveDuration) * 100;
+                const widthPct = Math.max(1, ((unc.end - unc.start) / effectiveDuration) * 100);
+                return (
+                  <div
+                    key={`uncertain-range-${idx}`}
+                    style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                    className="absolute top-0 bottom-0 bg-purple-500/15 border-x border-purple-500/35 flex items-center justify-center pointer-events-none z-4 overflow-hidden"
+                    title={`Review required section: ${formatTime(unc.start)} - ${formatTime(unc.end)}`}
+                  >
+                    <span className="text-[8.5px] font-mono font-bold text-purple-700 dark:text-purple-300 opacity-80 px-1 truncate select-none">
+                      ? Review ({formatTime(unc.start)}–{formatTime(unc.end)})
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* 3. Timeline Segments Blocks */}
               {timelineSegments.map((seg) => {
                 const leftPct = (seg.startTime / effectiveDuration) * 100;
                 const widthPct = Math.max(1.5, ((seg.endTime - seg.startTime) / effectiveDuration) * 100);

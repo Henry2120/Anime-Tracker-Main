@@ -17,8 +17,13 @@ import {
   generateAnalysisWindows,
   calculateCoverage,
   reconcileWindowSegments,
+  convertClipRelativeSegments,
+  findUncoveredGaps,
+  isRangeConfirmedSilent,
   WindowCoverageRecord,
   AnalysisWindow,
+  AudioAssessment,
+  TimeRange,
 } from "./src/utils/audioCoverageRecovery.js";
 
 dotenv.config();
@@ -2233,7 +2238,7 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 // In-memory cache for analyzed YouTube performances (versioned to prevent returning outdated analysis)
-const ANALYSIS_CACHE_VERSION = "v4-coverage-verified";
+const ANALYSIS_CACHE_VERSION = "v5-accurate-timeline-recovery";
 const youtubeAnalysisCache = new Map<string, any>();
 const windowAnalysisCache = new Map<string, WindowCoverageRecord>();
 const activeAnalysisJobs = new Map<string, Promise<any>>();
@@ -2253,13 +2258,19 @@ async function getOrFetchAuthoritativeDuration(
   cleanVideoId: string,
   targetUrl: string,
   clientDuration?: number
-): Promise<{ duration: number; isAuthoritative: boolean }> {
+): Promise<{ duration: number | null; isAuthoritative: boolean }> {
   const validClientDur = validateAuthoritativeDuration(clientDuration);
 
   // Check cache first
   if (videoDurationCache.has(cleanVideoId)) {
     const cachedDur = videoDurationCache.get(cleanVideoId)!;
     return { duration: cachedDur, isAuthoritative: true };
+  }
+
+  // If client provided a verified duration from the YouTube player for this video
+  if (validClientDur) {
+    videoDurationCache.set(cleanVideoId, validClientDur);
+    return { duration: validClientDur, isAuthoritative: true };
   }
 
   // Query Gemini media to discover or verify the exact media duration
@@ -2291,38 +2302,149 @@ async function getOrFetchAuthoritativeDuration(
     });
 
     const parsed = JSON.parse(response.text || "{}");
-    const mediaDur = typeof parsed.totalDurationSeconds === "number" && parsed.totalDurationSeconds > 0
-      ? Math.round(parsed.totalDurationSeconds * 10) / 10
-      : null;
+    const mediaDur =
+      typeof parsed.totalDurationSeconds === "number" && parsed.totalDurationSeconds > 0
+        ? Math.round(parsed.totalDurationSeconds * 10) / 10
+        : null;
 
     if (mediaDur && mediaDur > 0) {
       videoDurationCache.set(cleanVideoId, mediaDur);
-      // If client sent a duration that is significantly different (> 8s off), it was stale from a previous track
-      if (validClientDur && Math.abs(validClientDur - mediaDur) > 8) {
-        console.warn(`[MUSIC LAB] Detected stale client duration (${validClientDur}s) for ${cleanVideoId}. Using authoritative media duration: ${mediaDur}s.`);
-        return { duration: mediaDur, isAuthoritative: true };
-      }
-      return { duration: validClientDur || mediaDur, isAuthoritative: true };
+      return { duration: mediaDur, isAuthoritative: true };
     }
   } catch (err: any) {
     console.warn(`[MUSIC LAB] Media duration check warning for ${cleanVideoId}: ${err?.message}`);
   }
 
-  // Fallback to client duration if verified
-  if (validClientDur) {
-    videoDurationCache.set(cleanVideoId, validClientDur);
-    return { duration: validClientDur, isAuthoritative: true };
-  }
-
-  return { duration: 210, isAuthoritative: false };
+  // Duration could not be verified from player or Gemini media.
+  // NEVER use 210s or any arbitrary fallback!
+  return { duration: null, isAuthoritative: false };
 }
 
-// Analyzes a single window with bounded retries and exponential backoff
+// Reanalyzes a specific focused interval (for gap recovery or final-section verification pass)
+async function reanalyzeFocusedInterval(
+  ai: any,
+  cleanVideoId: string,
+  targetUrl: string,
+  startSec: number,
+  endSec: number,
+  videoDuration: number,
+  isFinalPass: boolean = false
+): Promise<{
+  audioAssessment: AudioAssessment;
+  segments: InstrumentTimelineSegment[];
+  isSilence: boolean;
+}> {
+  const boundedStart = Math.max(0, Math.min(videoDuration, Math.round(startSec * 10) / 10));
+  const boundedEnd = Math.max(0, Math.min(videoDuration, Math.round(endSec * 10) / 10));
+  const clipDuration = Math.round((boundedEnd - boundedStart) * 10) / 10;
+  if (clipDuration <= 0.5) {
+    return { audioAssessment: "silence", segments: [], isSilence: true };
+  }
+
+  const promptText = isFinalPass
+    ? `Analyze the final ending section of this video strictly from ${boundedStart}s to ${boundedEnd}s (clip length ${clipDuration}s).
+Determine:
+1. audioAssessment:
+   - "instrumental_music": Any musical instruments continue playing, a final sustained chord/note sounds, or an instrument plays before fading out.
+   - "silence": The audio has faded into genuine silence or a final musical rest.
+   - "non_instrument_audio": Only applause, cheering, speech, or room ambience with no instruments.
+   - "uncertain": Cannot reliably classify.
+2. instrumentSegments: Any actively sounding instruments in this final clip.
+   IMPORTANT: Timestamps must be clip-relative [0.0s to ${clipDuration}s] where 0.0s is ${boundedStart}s. Do NOT extend instruments artificially just to touch the end of the video.`
+    : `Analyze this specific interval strictly from ${boundedStart}s to ${boundedEnd}s (clip length ${clipDuration}s) where no instruments were previously reported.
+Determine:
+1. audioAssessment:
+   - "instrumental_music": Musical instruments are audibly sounding during this interval.
+   - "silence": Genuinely silent audio or a genuine musical rest.
+   - "non_instrument_audio": Speech, noise, or non-musical sounds.
+   - "uncertain": Cannot reliably classify.
+2. instrumentSegments: Array of instruments sounding in this clip with clip-relative timestamps [0.0s to ${clipDuration}s].
+   If this is a genuine rest or silence, return an empty array and set audioAssessment to "silence".`;
+
+  try {
+    const aiResponse = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: [
+        {
+          fileData: {
+            fileUri: targetUrl,
+            mimeType: "video/mp4",
+          },
+          videoMetadata: {
+            startOffset: `${boundedStart}s`,
+            endOffset: `${boundedEnd}s`,
+          },
+        },
+        { text: promptText },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            audioAssessment: {
+              type: Type.STRING,
+              enum: ["instrumental_music", "silence", "non_instrument_audio", "uncertain"],
+            },
+            windowSummary: { type: Type.STRING },
+            instrumentSegments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  instrumentName: { type: Type.STRING },
+                  family: { type: Type.STRING },
+                  startTime: { type: Type.NUMBER },
+                  endTime: { type: Type.NUMBER },
+                  evidence: { type: Type.STRING },
+                },
+                required: ["instrumentName", "family", "startTime", "endTime"],
+              },
+            },
+          },
+          required: ["audioAssessment", "instrumentSegments"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(aiResponse?.text || "{}");
+    const assessment: AudioAssessment = parsed.audioAssessment || "uncertain";
+    const rawSegments = Array.isArray(parsed.instrumentSegments) ? parsed.instrumentSegments : [];
+
+    const absSegments = convertClipRelativeSegments(
+      rawSegments,
+      boundedStart,
+      clipDuration,
+      videoDuration
+    );
+
+    const validSegments = validateAndMergeTimelineSegments(absSegments, {
+      maxDuration: videoDuration,
+      gapMergeThreshold: 1.0,
+    });
+
+    return {
+      audioAssessment: assessment,
+      segments: validSegments,
+      isSilence: assessment === "silence",
+    };
+  } catch (err: any) {
+    console.warn(`[MUSIC LAB] Focused reanalysis warning for [${boundedStart}s-${boundedEnd}s]:`, err?.message);
+    return {
+      audioAssessment: "uncertain",
+      segments: [],
+      isSilence: false,
+    };
+  }
+}
+
+// Analyzes a single window with bounded retries, video offset clipping, and clip-relative timestamps
 async function analyzeWindowWithRetry(
   ai: any,
   cleanVideoId: string,
   targetUrl: string,
   win: AnalysisWindow,
+  videoDuration: number,
   effectiveTitle: string
 ): Promise<WindowCoverageRecord> {
   const maxRetries = 2;
@@ -2330,21 +2452,31 @@ async function analyzeWindowWithRetry(
   let lastError: string | null = null;
 
   const systemInstruction = `You are a world-class, objective acoustic musicologist, audio engineer, and instrument transcription specialist.
-Your task is to analyze the actual audio track of the provided YouTube video exclusively within the specified chronological time interval [${win.startTime}s - ${win.endTime}s].
+Your task is to analyze the actual audio track of the provided YouTube video clip strictly between ${win.startTime}s and ${win.endTime}s (duration: ${win.duration}s).
 
 CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
-1. STRICT TIME BOUNDARIES:
-   - Listen exclusively to the audio sounding between ${win.startTime}s (${formatSecondsLabel(win.startTime)}) and ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
-   - Transcribe ONLY instruments actively sounding in this time window.
-   - Timestamps must be in seconds relative to video start (00:00) and strictly bounded between ${win.startTime} and ${win.endTime}.
+1. STRICT TIME BOUNDARIES & CLIP-RELATIVE TIMESTAMPS:
+   - Listen exclusively to the audio sounding in this ${win.duration}-second clip.
+   - All startTime and endTime values MUST be clip-relative seconds starting at 0.0s up to ${win.duration}s.
+   - 0.0s corresponds to the start of this clip (${win.startTime}s in the video).
+   - Do NOT return absolute video timestamps. Return clip-relative timestamps.
 
-2. EVIDENCE-BASED AUDITORY RECOGNITION (NO GENRE/IDENTITY ASSUMPTIONS):
+2. EXPLICIT AUDIO ASSESSMENT (NO SILENCE ASSUMPTION):
+   - You MUST classify audioAssessment as one of:
+     * "instrumental_music": Music containing audibly identifiable instruments.
+     * "silence": Genuinely silent audio, a genuine musical rest, or audio track silence.
+     * "non_instrument_audio": Speech, dialogue, environmental noise, audience cheering, or sound effects without musical instruments.
+     * "uncertain": The audio cannot be reliably determined.
+   - If the clip contains instruments, list them in instrumentSegments.
+   - If the clip is silent or speech-only, instrumentSegments MUST be empty and audioAssessment set accordingly.
+
+3. EVIDENCE-BASED AUDITORY RECOGNITION (NO GENRE/IDENTITY ASSUMPTIONS):
    - Ground every detection in audible acoustic properties. Do NOT infer instruments based on song titles, artists, or typical genre tropes.
-   - Bowed Strings (Violin, Viola, Cello, Double Bass, Strings Ensemble): continuous bow friction / rosin scrape, cantabile vibrato, natural wooden resonance decay. Distinguish from distorted guitars and synthesizers.
-   - Acoustic Guitars (Acoustic / Classical): fingerpicking nail clicks, acoustic chamber resonance, natural nylon/steel string decay. Distinguish from magnetic electric guitars.
+   - Bowed Strings (Violin, Viola, Cello, Double Bass, Strings Ensemble): continuous bow friction, rosin scrape, vibrato, wooden resonance. Distinguish from distorted guitars and synthesizers.
+   - Acoustic Guitars (Acoustic / Classical): fingerpicking nail clicks, chamber resonance, natural nylon/steel string decay. Distinguish from magnetic electric guitars.
    - Electric Guitars: electromagnetic pick attack, amplifier gain / distortion, overdrive, pitch bends, sustain pedal harmonics.
    - Pianos & Keyboards:
-     * Acoustic Grand/Upright Piano: felt hammers striking steel strings, soundboard resonance.
+     * Acoustic Piano: felt hammers striking steel strings, soundboard resonance.
      * Electric Piano (Rhodes/Wurlitzer): bell-like metallic chime, electromechanical tines.
      * Synthesizer: electronic waveforms, digital filters, arpeggiators, or synth pads.
    - Bass Voice:
@@ -2353,7 +2485,7 @@ CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
      * Electronic / Synth Bass: sub-sine 808 glides, acid/sawtooth bass synth oscillators.
    - Percussion:
      * Conventional Drum Kit: acoustic kick, snare drum with wire snare buzz, metal hi-hats, toms, cymbals.
-     * Orchestral Percussion: concert timpani, gran cassa (concert bass drum), tubular bells, glockenspiel, orchestral crash cymbals.
+     * Orchestral Percussion: concert timpani, gran cassa, tubular bells, glockenspiel, orchestral crash cymbals.
      * Drum Machine / Electronic Drums: quantized 808/909 samples, synthetic beat programming.
    - Woodwinds & Brass:
      * Flute, Piccolo, Oboe, Clarinet, Bassoon, Saxophone: reedy / edge-tone breath dynamics.
@@ -2363,30 +2495,31 @@ CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
      * Backing Vocals (vocal harmonies supporting lead).
      * Choir (large multi-voice polyphonic ensemble singing in soprano/alto/tenor/bass harmony).
    - Traditional & World:
-     * Shamisen, Koto, Erhu, Guzheng, Pipa, Shakuhachi, Sitar, Tabla, Accordion: identify unique acoustic timbre.
+     * Shamisen, Koto, Erhu, Guzheng, Pipa, Shakuhachi, Sitar, Tabla, Taiko: identify unique acoustic timbre.
 
-3. SENSITIVITY TO TRANSIENT, QUIET, & LAYERED VOICES:
+4. SENSITIVITY TO TRANSIENT, QUIET, & LAYERED VOICES:
    - Recognize quiet instruments playing underneath louder instruments (e.g. background strings, acoustic piano chords, soft rhythm guitar, or bass).
    - Recognize brief appearances: never omit an instrument because it only appears for 1-5 seconds during an intro, transition, drum fill, or solo phrase.
    - Multiple instruments playing simultaneously must all be transcribed with their respective start and end times.
 
-4. ACCURATE RESTS & GAPS:
-   - Terminate an instrument segment immediately when it pauses, rests, or stops sounding for >= 1.0 second. Do not bridge silent rests.
+5. ACCURATE RESTS & GAPS:
+   - Terminate an instrument segment immediately when it pauses, rests, or stops sounding for >= 1.0 second. Do not bridge silent rests.`;
 
-5. NON-MUSICAL & SPEECH AUDIO:
-   - If this interval contains only spoken voice, dialogue, environmental noise, podcast speech, or ambient sound effects without musical instruments: set isMusic to false, set isSilence to true, and return an empty instrumentSegments array.
-   - NEVER classify speech or background noise as musical instruments.`;
-
-  const promptText = `Analyze the audio of the YouTube video (${targetUrl}).
-Focus exclusively on the time window from ${win.startTime}s (${formatSecondsLabel(win.startTime)}) to ${win.endTime}s (${formatSecondsLabel(win.endTime)}).
-
-Transcribe all audibly sounding instruments in this window with chronological [startTime, endTime] intervals bounded within [${win.startTime}, ${win.endTime}]. Include lead voices, accompaniment, short solo motifs, and underlying acoustic layers.
-If the audio in this window contains no musical instruments (e.g. silence, speech, or noise), return an empty array for instrumentSegments and set isSilence to true.`;
+  const promptText = `Analyze the audio of this clipped video segment (${targetUrl}) from ${win.startTime}s to ${win.endTime}s (clip length ${win.duration}s).
+Determine:
+1. audioAssessment: "instrumental_music" | "silence" | "non_instrument_audio" | "uncertain".
+2. windowSummary: Brief description of the audio in this clip.
+3. instrumentSegments: All audibly sounding instruments in this clip with clip-relative timestamps [startTime, endTime] between 0.0s and ${win.duration}s.
+   Remember: 0.0s is the beginning of this clip.`;
 
   const mediaPart = {
     fileData: {
       fileUri: targetUrl,
       mimeType: "video/mp4",
+    },
+    videoMetadata: {
+      startOffset: `${win.startTime}s`,
+      endOffset: `${win.endTime}s`,
     },
   };
 
@@ -2399,7 +2532,7 @@ If the audio in this window contains no musical instruments (e.g. silence, speec
     }
 
     try {
-      console.log(`[MUSIC LAB] Analyzing window ${win.id} [${win.startTime}s - ${win.endTime}s] (attempt ${attempt + 1})...`);
+      console.log(`[MUSIC LAB] Analyzing window ${win.id} [${win.startTime}s - ${win.endTime}s] (clip: ${win.duration}s)...`);
       const aiResponse = await ai.models.generateContent({
         model: "gemini-3.1-flash-lite",
         contents: [mediaPart, { text: promptText }],
@@ -2409,8 +2542,10 @@ If the audio in this window contains no musical instruments (e.g. silence, speec
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              isMusic: { type: Type.BOOLEAN },
-              isSilence: { type: Type.BOOLEAN },
+              audioAssessment: {
+                type: Type.STRING,
+                enum: ["instrumental_music", "silence", "non_instrument_audio", "uncertain"],
+              },
               windowSummary: { type: Type.STRING },
               instrumentSegments: {
                 type: Type.ARRAY,
@@ -2427,33 +2562,47 @@ If the audio in this window contains no musical instruments (e.g. silence, speec
                 },
               },
             },
-            required: ["isMusic", "instrumentSegments"],
+            required: ["audioAssessment", "instrumentSegments"],
           },
         },
       });
 
       const rawText = aiResponse?.text || "{}";
       const parsed = JSON.parse(rawText);
-
-      // Validate segments structurally and clamp to window boundaries (with 1.0s tolerance)
       const rawSegments = Array.isArray(parsed.instrumentSegments) ? parsed.instrumentSegments : [];
-      const clampedSegments = rawSegments
-        .map((s: any) => {
-          const start = typeof s.startTime === "number" ? Math.max(win.startTime, s.startTime) : win.startTime;
-          const end = typeof s.endTime === "number" ? Math.min(win.endTime, s.endTime) : win.endTime;
-          return {
-            ...s,
-            startTime: start,
-            endTime: end,
-          };
-        })
-        .filter((s: any) => s.endTime > s.startTime);
 
-      const validSegments = validateAndMergeTimelineSegments(clampedSegments, {
+      const assessment: AudioAssessment =
+        parsed.audioAssessment === "instrumental_music" ||
+        parsed.audioAssessment === "silence" ||
+        parsed.audioAssessment === "non_instrument_audio" ||
+        parsed.audioAssessment === "uncertain"
+          ? parsed.audioAssessment
+          : rawSegments.length > 0
+          ? "instrumental_music"
+          : "uncertain";
+
+      // Convert clip-relative timestamps to absolute timestamps
+      const absSegments = convertClipRelativeSegments(
+        rawSegments,
+        win.startTime,
+        win.duration,
+        videoDuration
+      );
+
+      const validSegments = validateAndMergeTimelineSegments(absSegments, {
+        maxDuration: videoDuration,
         gapMergeThreshold: 1.0,
       });
 
-      console.log(`[MUSIC LAB] Window ${win.id} successfully analyzed: ${validSegments.length} segments found.`);
+      const isConfirmedSilence = assessment === "silence";
+      const needsRecovery =
+        (assessment === "instrumental_music" || assessment === "uncertain") &&
+        validSegments.length === 0;
+
+      console.log(
+        `[MUSIC LAB] Window ${win.id} analyzed: assessment="${assessment}", ${validSegments.length} segments found (needsRecovery=${needsRecovery}).`
+      );
+
       return {
         windowId: win.id,
         index: win.index,
@@ -2464,13 +2613,14 @@ If the audio in this window contains no musical instruments (e.g. silence, speec
         status: "success",
         retryCount: retriesRun,
         error: null,
-        isSilence: parsed.isSilence === true || validSegments.length === 0,
+        audioAssessment: assessment,
+        isSilence: isConfirmedSilence,
+        needsRecovery,
         segments: validSegments,
       };
     } catch (err: any) {
       lastError = err?.message || String(err);
       console.warn(`[MUSIC LAB] Window ${win.id} attempt ${attempt + 1} failed: ${lastError}`);
-      // Permanent errors (such as 403 permission denied) should not be retried indefinitely
       if (lastError?.includes("PERMISSION_DENIED") || lastError?.includes("API_KEY_INVALID")) {
         break;
       }
@@ -2489,7 +2639,9 @@ If the audio in this window contains no musical instruments (e.g. silence, speec
     status: "failed",
     retryCount: retriesRun,
     error: lastError,
+    audioAssessment: "uncertain",
     isSilence: false,
+    needsRecovery: true,
     segments: [],
   };
 }
@@ -2574,15 +2726,29 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
         };
       }
 
-      // 3. Establish authoritative video duration (discovering media length and rejecting stale client durations)
+      // 3. Establish authoritative video duration (NO arbitrary 210s fallback!)
       const { duration: authoritativeDuration, isAuthoritative: isDurationAuthoritative } =
         await getOrFetchAuthoritativeDuration(ai, cleanVideoId, targetUrl, duration);
-      const effectiveDuration = authoritativeDuration;
 
-      console.log(`[MUSIC LAB] Authoritative duration for ${cleanVideoId}: ${authoritativeDuration}s (authoritative: ${isDurationAuthoritative})`);
+      if (!authoritativeDuration || !isDurationAuthoritative) {
+        console.warn(`[MUSIC LAB] Duration unavailable for video ${cleanVideoId}`);
+        return {
+          success: false,
+          status: 'duration_unavailable',
+          videoId: cleanVideoId,
+          title: effectiveTitle,
+          artist: oembedAuthor || "Artist",
+          error: "Authoritative video duration could not be established from the YouTube player or media stream. Please ensure the video has loaded in the player before analyzing.",
+          instrumentSegments: [],
+          allDetectedInstruments: [],
+          coverage: null,
+        };
+      }
+
+      const effectiveDuration = authoritativeDuration;
+      console.log(`[MUSIC LAB] Authoritative duration for ${cleanVideoId}: ${effectiveDuration}s`);
 
       // 4. Divide the recording into explicit deterministic analysis windows
-      // Configured at 45s window with 5s overlap for reliable model analysis and optimal API efficiency
       const scheduledWindows = generateAnalysisWindows(effectiveDuration, {
         windowSize: 45,
         overlap: 5,
@@ -2605,8 +2771,7 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
           }
         }
 
-        // Process window with bounded retries and exponential backoff
-        const record = await analyzeWindowWithRetry(ai, cleanVideoId, targetUrl, win, effectiveTitle);
+        const record = await analyzeWindowWithRetry(ai, cleanVideoId, targetUrl, win, effectiveDuration, effectiveTitle);
         windowRecords.push(record);
 
         if (record.status === "success") {
@@ -2614,28 +2779,91 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
         }
       }
 
-      // 6. Independently calculate coverage
-      const coverageResult = calculateCoverage(
-        isDurationAuthoritative ? authoritativeDuration! : 0,
-        windowRecords
-      );
+      // 6. Initial reconciliation
+      let initialSegments = reconcileWindowSegments(windowRecords, effectiveDuration);
 
-      // If duration was not established authoritatively, ensure full coverage is not claimed
-      if (!isDurationAuthoritative) {
-        coverageResult.isFullCoverage = false;
-        coverageResult.authoritativeDurationEstablished = false;
-        if (coverageResult.status === "detected") {
-          coverageResult.status = "partial";
+      // Collect confirmed silent ranges from explicitly confirmed silent windows
+      const confirmedSilentRanges: TimeRange[] = windowRecords
+        .filter((w) => w.audioAssessment === "silence" || w.isSilence)
+        .map((w) => ({ start: w.requestedStart, end: w.requestedEnd }));
+
+      // 7. Targeted Gap Recovery: Identify uncovered intervals >= 1.5s in non-silent sections
+      const uncoveredGaps = findUncoveredGaps(initialSegments, effectiveDuration, 1.5);
+      const candidateGaps = uncoveredGaps
+        .filter((g) => !isRangeConfirmedSilent(g, confirmedSilentRanges))
+        .slice(0, 3); // Cap to top 3 largest candidate gaps
+
+      const recoveredSegmentsPool: InstrumentTimelineSegment[] = [];
+
+      for (const gap of candidateGaps) {
+        console.log(`[MUSIC LAB] Reanalyzing uncovered gap [${gap.start}s - ${gap.end}s]...`);
+        const gapResult = await reanalyzeFocusedInterval(
+          ai,
+          cleanVideoId,
+          targetUrl,
+          gap.start,
+          gap.end,
+          effectiveDuration,
+          false
+        );
+        if (gapResult.segments.length > 0) {
+          console.log(`[MUSIC LAB] Recovered ${gapResult.segments.length} segments in gap [${gap.start}s - ${gap.end}s].`);
+          recoveredSegmentsPool.push(...gapResult.segments);
+        } else if (gapResult.isSilence) {
+          confirmedSilentRanges.push(gap);
         }
       }
 
-      // 7. Reconcile overlapping windows into coherent timeline segments
-      const reconciledSegments = reconcileWindowSegments(windowRecords, effectiveDuration);
+      // 8. Dedicated Final-Section Verification Pass: cover final 15s (or full video if shorter)
+      const finalSectionStart = Math.max(0, effectiveDuration - 15);
+      const finalSectionRange: TimeRange = { start: finalSectionStart, end: effectiveDuration };
+      const finalIsConfirmedSilent = isRangeConfirmedSilent(finalSectionRange, confirmedSilentRanges);
 
-      // 8. Synchronize allDetectedInstruments strictly from reconciled active segments
-      const segmentInstNames = new Set(reconciledSegments.map((s) => s.instrumentName.toLowerCase()));
+      if (!finalIsConfirmedSilent) {
+        console.log(`[MUSIC LAB] Running dedicated final-section verification pass [${finalSectionStart}s - ${effectiveDuration}s]...`);
+        const finalPassResult = await reanalyzeFocusedInterval(
+          ai,
+          cleanVideoId,
+          targetUrl,
+          finalSectionStart,
+          effectiveDuration,
+          effectiveDuration,
+          true
+        );
+        if (finalPassResult.segments.length > 0) {
+          console.log(`[MUSIC LAB] Final-section pass detected ${finalPassResult.segments.length} ending segment(s).`);
+          recoveredSegmentsPool.push(...finalPassResult.segments);
+        } else if (finalPassResult.isSilence) {
+          confirmedSilentRanges.push(finalSectionRange);
+        }
+      }
+
+      // Combine original window segments with any recovered segments
+      const combinedRecords = [...windowRecords];
+      if (recoveredSegmentsPool.length > 0) {
+        combinedRecords.push({
+          windowId: `win-recovered-${cleanVideoId}`,
+          index: 9999,
+          requestedStart: 0,
+          requestedEnd: effectiveDuration,
+          processedStart: 0,
+          processedEnd: effectiveDuration,
+          status: "success",
+          retryCount: 0,
+          audioAssessment: "instrumental_music",
+          isSilence: false,
+          segments: recoveredSegmentsPool,
+        });
+      }
+
+      // 9. Final Reconciliation across all window and recovered segments
+      const reconciledSegments = reconcileWindowSegments(combinedRecords, effectiveDuration);
+
+      // 10. Independently calculate coverage with separate tracking
+      const coverageResult = calculateCoverage(effectiveDuration, windowRecords);
+
+      // 11. Synchronize allDetectedInstruments strictly from reconciled active segments
       const filteredDetectedInstruments: Array<{ name: string; family: string; role?: string; description?: string }> = [];
-
       reconciledSegments.forEach((seg) => {
         if (!filteredDetectedInstruments.some((i) => i.name.toLowerCase() === seg.instrumentName.toLowerCase())) {
           filteredDetectedInstruments.push({
@@ -2646,10 +2874,11 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       });
 
       const isNonMusicalOrSilent = reconciledSegments.length === 0;
+      const finalStatus = isNonMusicalOrSilent ? 'unsupported' : coverageResult.status;
 
       const result = {
         success: coverageResult.successfulWindows > 0,
-        status: isNonMusicalOrSilent ? 'unsupported' : coverageResult.status,
+        status: finalStatus,
         videoId: cleanVideoId,
         title: effectiveTitle,
         artist: oembedAuthor || "Artist",
@@ -2664,6 +2893,9 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
           coveragePercentage: coverageResult.coveragePercentage,
           analyzedRanges: coverageResult.analyzedRanges,
           missingRanges: coverageResult.missingRanges,
+          confirmedSilentRanges: coverageResult.confirmedSilentRanges,
+          nonInstrumentRanges: coverageResult.nonInstrumentRanges,
+          uncertainRanges: coverageResult.uncertainRanges,
           totalWindows: coverageResult.totalWindows,
           successfulWindows: coverageResult.successfulWindows,
           failedWindows: coverageResult.failedWindows,
@@ -2681,7 +2913,7 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       }
 
       console.log(
-        `[MUSIC LAB] Analysis finished for ${cleanVideoId}: ${reconciledSegments.length} segments, ${filteredDetectedInstruments.length} instruments, coverage: ${coverageResult.coveragePercentage}% (${coverageResult.status}).`
+        `[MUSIC LAB] Analysis finished for ${cleanVideoId}: ${reconciledSegments.length} segments, ${filteredDetectedInstruments.length} instruments, coverage: ${coverageResult.coveragePercentage}% (${result.status}).`
       );
       return result;
     })();

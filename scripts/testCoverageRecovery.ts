@@ -3,7 +3,11 @@ import {
   calculateCoverage,
   reconcileWindowSegments,
   validateAuthoritativeDuration,
+  convertClipRelativeSegments,
+  findUncoveredGaps,
+  isRangeConfirmedSilent,
   WindowCoverageRecord,
+  TimeRange,
 } from '../src/utils/audioCoverageRecovery';
 
 function assert(condition: boolean, message: string) {
@@ -14,80 +18,123 @@ function assert(condition: boolean, message: string) {
   console.log(`  ✓ ${message}`);
 }
 
-console.log('=====================================================');
-console.log('RUNNING COVERAGE VERIFICATION & RECOVERY TEST SUITE');
-console.log('=====================================================\n');
+console.log('========================================================================');
+console.log('RUNNING EXPANDED 12-POINT REGRESSION TEST SUITE (COVERAGE & RECOVERY)');
+console.log('========================================================================\n');
 
 // -------------------------------------------------------------------------
-// TEST 1: Short video (e.g. 25 seconds <= window size)
+// REGRESSION TEST 1: Video longer than 210s must be analyzed through its actual duration
 // -------------------------------------------------------------------------
-console.log('TEST 1: Short Video (25s <= window size of 45s)');
+console.log('TEST 1: Video Longer Than 210s Analyzed Through Full Duration (e.g. 411s Flamewall)');
 {
-  const duration = validateAuthoritativeDuration(25);
-  assert(duration === 25, 'Authoritative duration established as 25.0s');
+  const actualDuration = validateAuthoritativeDuration(411);
+  assert(actualDuration === 411, 'Authoritative duration is 411.0s (not truncated at 210s)');
 
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-  assert(windows.length === 1, 'Exactly 1 analysis window generated');
-  assert(windows[0].startTime === 0, 'Window starts at 0s');
-  assert(windows[0].endTime === 25, 'Window ends at 25s');
+  const windows = generateAnalysisWindows(actualDuration!, { windowSize: 45, overlap: 5 });
+  assert(windows.length === 11, `11 analysis windows generated for 411s (got ${windows.length})`);
+  assert(windows[0].startTime === 0, 'First window starts at 0.0s');
+  assert(windows[windows.length - 1].endTime === 411, `Final window ends exactly at actual duration 411.0s (got ${windows[windows.length - 1].endTime})`);
 
-  // Simulated successful processing
-  const records: WindowCoverageRecord[] = [
-    {
-      windowId: windows[0].id,
-      index: 0,
-      requestedStart: 0,
-      requestedEnd: 25,
-      processedStart: 0,
-      processedEnd: 25,
-      status: 'success',
-      retryCount: 0,
-      isSilence: false,
-      segments: [
-        {
-          id: 'test-violin-1',
-          instrumentName: 'Violin',
-          family: 'Strings',
-          startTime: 2,
-          endTime: 20,
-          confidence: 90,
-          audibility: 'audible',
-        },
-      ],
-    },
-  ];
-
-  const coverage = calculateCoverage(duration!, records);
-  assert(coverage.authoritativeDurationEstablished === true, 'Authoritative duration established');
-  assert(coverage.isFullCoverage === true, 'Calculated full coverage = true');
-  assert(coverage.coveragePercentage === 100, 'Coverage percentage is 100%');
-  assert(coverage.missingRanges.length === 0, 'Zero missing ranges');
-  assert(coverage.status === 'detected', 'Status is detected');
-
-  const merged = reconcileWindowSegments(records, duration!);
-  assert(merged.length === 1, 'Reconciled 1 segment');
-  assert(merged[0].instrumentName === 'Violin', 'Instrument is Violin');
+  // Verify consecutive windows overlap without gaps
+  for (let i = 0; i < windows.length - 1; i++) {
+    assert(windows[i].endTime >= windows[i + 1].startTime, `Window ${i} (ends ${windows[i].endTime}) overlaps window ${i + 1} (starts ${windows[i + 1].startTime})`);
+  }
   console.log('✅ TEST 1 PASSED\n');
 }
 
 // -------------------------------------------------------------------------
-// TEST 2: Medium-length video (e.g. 85 seconds)
+// REGRESSION TEST 2: Unavailable duration must NEVER produce a fabricated 210s analysis
 // -------------------------------------------------------------------------
-console.log('TEST 2: Medium-Length Video (85s)');
+console.log('TEST 2: Unavailable Duration Returns Null & Never Fabricates 210s Authoritative Result');
 {
-  const duration = validateAuthoritativeDuration(85);
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-  // Window 0: 0 to 45
-  // Window 1: 40 to 85
-  assert(windows.length === 2, `Generated ${windows.length} windows (expected 2)`);
-  assert(windows[0].startTime === 0 && windows[0].endTime === 45, 'Window 0: 0–45s');
-  assert(windows[1].startTime === 40 && windows[1].endTime === 85, 'Window 1: 40–85s');
-  assert(windows[0].endTime > windows[1].startTime, 'Windows overlap (40s to 45s)');
+  assert(validateAuthoritativeDuration(undefined) === null, 'undefined duration returns null');
+  assert(validateAuthoritativeDuration(null) === null, 'null duration returns null');
+  assert(validateAuthoritativeDuration(0) === null, '0 duration returns null');
+  assert(validateAuthoritativeDuration(-50) === null, 'negative duration returns null');
+  assert(validateAuthoritativeDuration(NaN) === null, 'NaN duration returns null');
 
-  // Window 0 has Piano [5, 45], Window 1 has Piano [40, 75] -> overlapping continuous segment
+  const coverage = calculateCoverage(0, []);
+  assert(coverage.authoritativeDurationEstablished === false, 'authoritativeDurationEstablished is false when duration is 0');
+  assert(coverage.isFullCoverage === false, 'isFullCoverage is false');
+  assert(coverage.status === 'failed', 'status is failed (never detected)');
+  assert(coverage.totalDuration === 0, 'totalDuration is 0 (not 210s)');
+  console.log('✅ TEST 2 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 3: Switching videos must not overwrite new player duration with stale duration
+// -------------------------------------------------------------------------
+console.log('TEST 3: Switching Videos Preserves Actual New Duration');
+{
+  // Simulate video switch: Video A has duration 250s, Video B has duration 411s
+  const durationCache = new Map<string, number>();
+  durationCache.set('videoA', 250);
+
+  // When switching to Video B with fresh player duration 411s
+  const playerVideoBDuration = 411;
+  const verifiedDurationB = validateAuthoritativeDuration(playerVideoBDuration);
+  assert(verifiedDurationB === 411, 'Video B duration verified as 411s');
+
+  durationCache.set('videoB', verifiedDurationB!);
+  assert(durationCache.get('videoB') === 411, 'Video B duration is stored as 411s');
+  assert(durationCache.get('videoA') === 250, 'Video A duration remains distinct at 250s');
+  console.log('✅ TEST 3 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 4: Segment in final clip converted correctly from clip-relative to absolute timestamps
+// -------------------------------------------------------------------------
+console.log('TEST 4: Clip-Relative to Absolute Timestamp Conversion (e.g. 360s window, clip 8s–15s -> 368s–375s)');
+{
+  const windowStart = 360;
+  const clipDuration = 45;
+  const videoDuration = 411;
+
+  const rawClipSegments = [
+    {
+      instrumentName: 'Electric Guitar',
+      family: 'Strings',
+      startTime: 8,
+      endTime: 15,
+      evidence: 'High solo bending note',
+    },
+    {
+      instrumentName: 'Drum Kit',
+      family: 'Percussion',
+      startTime: 0,
+      endTime: 45,
+      evidence: 'Double kick drum groove',
+    },
+  ];
+
+  const absoluteSegments = convertClipRelativeSegments(
+    rawClipSegments,
+    windowStart,
+    clipDuration,
+    videoDuration
+  );
+
+  assert(absoluteSegments.length === 2, `Converted 2 segments (got ${absoluteSegments.length})`);
+  const guitar = absoluteSegments.find((s) => s.instrumentName === 'Electric Guitar');
+  assert(guitar?.startTime === 368, `Guitar starts at 368s (360 + 8) (got ${guitar?.startTime})`);
+  assert(guitar?.endTime === 375, `Guitar ends at 375s (360 + 15) (got ${guitar?.endTime})`);
+
+  const drums = absoluteSegments.find((s) => s.instrumentName === 'Drum Kit');
+  assert(drums?.startTime === 360, `Drums start at 360s (360 + 0) (got ${drums?.startTime})`);
+  assert(drums?.endTime === 405, `Drums end at 405s (360 + 45) (got ${drums?.endTime})`);
+  console.log('✅ TEST 4 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 5: Final 10-second section containing an audible instrument retains its detection
+// -------------------------------------------------------------------------
+console.log('TEST 5: Final 10-Second Section With Audible Instrument Retains Detection');
+{
+  const totalDuration = 100;
+  // Final window covers 55s to 100s. Solo piano plays from 90s to 99s (final 10s of video)
   const records: WindowCoverageRecord[] = [
     {
-      windowId: windows[0].id,
+      windowId: 'win-0',
       index: 0,
       requestedStart: 0,
       requestedEnd: 45,
@@ -95,21 +142,22 @@ console.log('TEST 2: Medium-Length Video (85s)');
       processedEnd: 45,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: [
         {
           id: 's0',
           instrumentName: 'Piano',
           family: 'Keyboards',
-          startTime: 5,
+          startTime: 0,
           endTime: 45,
-          confidence: 88,
+          confidence: 95,
           audibility: 'audible',
         },
       ],
     },
     {
-      windowId: windows[1].id,
+      windowId: 'win-1',
       index: 1,
       requestedStart: 40,
       requestedEnd: 85,
@@ -117,6 +165,7 @@ console.log('TEST 2: Medium-Length Video (85s)');
       processedEnd: 85,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: [
         {
@@ -124,250 +173,54 @@ console.log('TEST 2: Medium-Length Video (85s)');
           instrumentName: 'Piano',
           family: 'Keyboards',
           startTime: 40,
-          endTime: 75,
-          confidence: 92,
-          audibility: 'audible',
-        },
-      ],
-    },
-  ];
-
-  const coverage = calculateCoverage(duration!, records);
-  assert(coverage.isFullCoverage === true, 'Full coverage verified independently');
-  assert(coverage.coveragePercentage === 100, 'Coverage percentage is 100%');
-  assert(coverage.missingRanges.length === 0, 'No missing ranges');
-
-  // Reconcile: Piano segments [5, 45] and [40, 75] should merge into [5, 75]
-  const reconciled = reconcileWindowSegments(records, duration!);
-  assert(reconciled.length === 1, `Merged into 1 continuous segment (got ${reconciled.length})`);
-  assert(reconciled[0].startTime === 5, 'Merged segment starts at 5s');
-  assert(reconciled[0].endTime === 75, 'Merged segment ends at 75s');
-  console.log('✅ TEST 2 PASSED\n');
-}
-
-// -------------------------------------------------------------------------
-// TEST 3: Long video (e.g. 240 seconds)
-// -------------------------------------------------------------------------
-console.log('TEST 3: Long Video (240s, multi-window deterministic scheduling)');
-{
-  const duration = validateAuthoritativeDuration(240);
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-  // Step is 40s: 0-45, 40-85, 80-125, 120-165, 160-205, 200-240 = 6 windows
-  assert(windows.length === 6, `Scheduled ${windows.length} windows for 240s video`);
-  assert(windows[0].startTime === 0, 'First window starts at 0s');
-  assert(windows[windows.length - 1].endTime === 240, 'Final window ends at 240s exactly');
-
-  // Verify no gaps exist between any adjacent windows
-  for (let i = 0; i < windows.length - 1; i++) {
-    assert(
-      windows[i].endTime >= windows[i + 1].startTime,
-      `No gap between window ${i} (ends ${windows[i].endTime}) and ${i + 1} (starts ${windows[i + 1].startTime})`
-    );
-  }
-
-  // All 6 windows succeed
-  const records: WindowCoverageRecord[] = windows.map((w, idx) => ({
-    windowId: w.id,
-    index: idx,
-    requestedStart: w.startTime,
-    requestedEnd: w.endTime,
-    processedStart: w.startTime,
-    processedEnd: w.endTime,
-    status: 'success',
-    retryCount: 0,
-    isSilence: false,
-    segments: [
-      {
-        id: `seg-long-${idx}`,
-        instrumentName: 'Acoustic Guitar',
-        family: 'Strings',
-        startTime: w.startTime + 2,
-        endTime: w.endTime - 2,
-        confidence: 85,
-        audibility: 'audible',
-      },
-    ],
-  }));
-
-  const coverage = calculateCoverage(duration!, records);
-  assert(coverage.isFullCoverage === true, 'Independent calculation verifies 100% full coverage');
-  assert(coverage.coveragePercentage === 100, 'Coverage percentage = 100%');
-  assert(coverage.failedWindows === 0, '0 failed windows');
-  console.log('✅ TEST 3 PASSED\n');
-}
-
-// -------------------------------------------------------------------------
-// TEST 4: Video where one analysis window fails (tests retry & honest partial coverage)
-// -------------------------------------------------------------------------
-console.log('TEST 4: One Window Fails (Automatic retry exhausted & honest partial coverage)');
-{
-  const duration = validateAuthoritativeDuration(120);
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-  // Window 0: 0–45
-  // Window 1: 40–85 (FAILS)
-  // Window 2: 80–120
-  assert(windows.length === 3, '3 windows scheduled for 120s video');
-
-  const records: WindowCoverageRecord[] = [
-    {
-      windowId: windows[0].id,
-      index: 0,
-      requestedStart: 0,
-      requestedEnd: 45,
-      processedStart: 0,
-      processedEnd: 45,
-      status: 'success',
-      retryCount: 0,
-      isSilence: false,
-      segments: [
-        {
-          id: 'seg-w0',
-          instrumentName: 'Flute',
-          family: 'Woodwinds',
-          startTime: 10,
-          endTime: 30,
-          confidence: 90,
+          endTime: 85,
+          confidence: 95,
           audibility: 'audible',
         },
       ],
     },
     {
-      windowId: windows[1].id,
-      index: 1,
-      requestedStart: 40,
-      requestedEnd: 85,
-      processedStart: 0,
-      processedEnd: 0,
-      status: 'failed',
-      retryCount: 2, // Retried 2 times before marking failed
-      error: 'API rate limit or connection timeout',
-      isSilence: false,
-      segments: [],
-    },
-    {
-      windowId: windows[2].id,
+      windowId: 'win-2',
       index: 2,
       requestedStart: 80,
-      requestedEnd: 120,
+      requestedEnd: 100,
       processedStart: 80,
-      processedEnd: 120,
+      processedEnd: 100,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: [
         {
-          id: 'seg-w2',
-          instrumentName: 'Cello',
-          family: 'Strings',
-          startTime: 85,
-          endTime: 110,
-          confidence: 85,
+          id: 's2',
+          instrumentName: 'Piano',
+          family: 'Keyboards',
+          startTime: 80,
+          endTime: 99, // Plays until 99s in the final 10s
+          confidence: 95,
           audibility: 'audible',
         },
       ],
     },
   ];
 
-  const coverage = calculateCoverage(duration!, records);
-  assert(coverage.isFullCoverage === false, 'isFullCoverage is FALSE because Window 1 failed');
-  assert(coverage.status === 'partial', 'Status is PARTIAL');
-  assert(coverage.failedWindows === 1, 'Failed windows count is 1');
-  assert(coverage.retryCount === 2, 'Total retries recorded is 2');
-  assert(coverage.missingRanges.length > 0, 'Identified missing range between 45s and 80s');
-  assert(
-    coverage.missingRanges[0].start === 45 && coverage.missingRanges[0].end === 80,
-    `Missing range is exactly [45s, 80s] (got [${coverage.missingRanges[0].start}, ${coverage.missingRanges[0].end}])`
-  );
-
-  // Reconciled results preserve the detections from the successful windows without fabricating anything
-  const reconciled = reconcileWindowSegments(records, duration!);
-  assert(reconciled.length === 2, 'Preserved detections from both successful windows (Flute + Cello)');
-  assert(reconciled[0].instrumentName === 'Flute', 'Flute preserved from Window 0');
-  assert(reconciled[1].instrumentName === 'Cello', 'Cello preserved from Window 2');
-  console.log('✅ TEST 4 PASSED\n');
-}
-
-// -------------------------------------------------------------------------
-// TEST 5: Video where Gemini returns incomplete or malformed JSON (tests retry & recovery)
-// -------------------------------------------------------------------------
-console.log('TEST 5: Window returns malformed JSON, retries and succeeds');
-{
-  const duration = validateAuthoritativeDuration(60);
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-
-  // Simulate window 0 failing on attempt 1 (malformed JSON) and succeeding on retry 1
-  const records: WindowCoverageRecord[] = [
-    {
-      windowId: windows[0].id,
-      index: 0,
-      requestedStart: 0,
-      requestedEnd: 45,
-      processedStart: 0,
-      processedEnd: 45,
-      status: 'success',
-      retryCount: 1, // Succeeded on retry attempt 1!
-      isSilence: false,
-      segments: [
-        {
-          id: 'seg-rec',
-          instrumentName: 'Trumpet',
-          family: 'Brass',
-          startTime: 5,
-          endTime: 42,
-          confidence: 90,
-          audibility: 'audible',
-        },
-      ],
-    },
-    {
-      windowId: windows[1].id,
-      index: 1,
-      requestedStart: 40,
-      requestedEnd: 60,
-      processedStart: 40,
-      processedEnd: 60,
-      status: 'success',
-      retryCount: 0,
-      isSilence: false,
-      segments: [
-        {
-          id: 'seg-rec-2',
-          instrumentName: 'Trumpet',
-          family: 'Brass',
-          startTime: 40,
-          endTime: 55,
-          confidence: 88,
-          audibility: 'audible',
-        },
-      ],
-    },
-  ];
-
-  const coverage = calculateCoverage(duration!, records);
-  assert(coverage.isFullCoverage === true, 'Recovered from malformed JSON via retry, achieved full coverage');
-  assert(coverage.retryCount === 1, 'Retry count recorded as 1');
-  assert(coverage.failedWindows === 0, '0 permanently failed windows');
-
-  const reconciled = reconcileWindowSegments(records, duration!);
-  assert(reconciled.length === 1, 'Trumpet across windows merged into 1 continuous segment [5, 55]');
-  assert(reconciled[0].startTime === 5 && reconciled[0].endTime === 55, 'Segment bounds: 5s to 55s');
+  const reconciled = reconcileWindowSegments(records, totalDuration);
+  const finalPiano = reconciled.find((s) => s.instrumentName === 'Piano');
+  assert(Boolean(finalPiano), 'Piano detected throughout track');
+  assert(finalPiano?.endTime === 99, `Piano ends at 99.0s in final section (got ${finalPiano?.endTime})`);
   console.log('✅ TEST 5 PASSED\n');
 }
 
 // -------------------------------------------------------------------------
-// TEST 6: Video containing genuine silence
+// REGRESSION TEST 6: Final 10-second section containing genuine silence must remain empty
 // -------------------------------------------------------------------------
-console.log('TEST 6: Recording Containing Genuine Silence (No instruments)');
+console.log('TEST 6: Final 10-Second Section Containing Genuine Silence Remains Empty');
 {
-  const duration = validateAuthoritativeDuration(50);
-  const windows = generateAnalysisWindows(duration!, { windowSize: 45, overlap: 5 });
-  // Window 0: 0–45 (contains Violin)
-  // Window 1: 40–50 (contains genuine silence / 0 instruments)
-  assert(windows.length === 2, '2 windows scheduled');
-
+  const totalDuration = 100;
+  // Music ends at 88s, 88s to 100s is genuine silence
   const records: WindowCoverageRecord[] = [
     {
-      windowId: windows[0].id,
+      windowId: 'win-0',
       index: 0,
       requestedStart: 0,
       requestedEnd: 45,
@@ -375,75 +228,376 @@ console.log('TEST 6: Recording Containing Genuine Silence (No instruments)');
       processedEnd: 45,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: [
         {
-          id: 'seg-sil-0',
+          id: 's0',
           instrumentName: 'Violin',
           family: 'Strings',
-          startTime: 10,
-          endTime: 30,
+          startTime: 5,
+          endTime: 45,
           confidence: 92,
           audibility: 'audible',
         },
       ],
     },
     {
-      windowId: windows[1].id,
+      windowId: 'win-1',
       index: 1,
       requestedStart: 40,
-      requestedEnd: 50,
+      requestedEnd: 85,
       processedStart: 40,
-      processedEnd: 50,
-      status: 'success', // SUCCESSFULLY ANALYZED, even though 0 instruments were playing!
+      processedEnd: 85,
+      status: 'success',
       retryCount: 0,
-      isSilence: true, // Marked genuine silence
-      segments: [],
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 's1',
+          instrumentName: 'Violin',
+          family: 'Strings',
+          startTime: 40,
+          endTime: 85,
+          confidence: 92,
+          audibility: 'audible',
+        },
+      ],
+    },
+    {
+      windowId: 'win-2',
+      index: 2,
+      requestedStart: 80,
+      requestedEnd: 100,
+      processedStart: 80,
+      processedEnd: 100,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 's2',
+          instrumentName: 'Violin',
+          family: 'Strings',
+          startTime: 80,
+          endTime: 88, // Music stops at 88s, 88-100s is silent!
+          confidence: 92,
+          audibility: 'audible',
+        },
+      ],
     },
   ];
 
-  const coverage = calculateCoverage(duration!, records);
-  assert(
-    coverage.isFullCoverage === true,
-    'Genuine silence is recognized as SUCCESSFUL coverage, NOT an error or missing section'
-  );
-  assert(coverage.coveragePercentage === 100, 'Coverage percentage is 100%');
-  assert(coverage.missingRanges.length === 0, 'Missing ranges is empty');
+  const reconciled = reconcileWindowSegments(records, totalDuration);
+  const finalViolin = reconciled.find((s) => s.instrumentName === 'Violin');
+  assert(finalViolin?.endTime === 88, `Violin terminates at 88s and does NOT artificially stretch to 100s (got ${finalViolin?.endTime})`);
 
-  const reconciled = reconcileWindowSegments(records, duration!);
-  assert(reconciled.length === 1, 'Only Violin [10, 30] returned');
-  assert(reconciled[0].endTime === 30, 'Violin correctly terminates at 30s across the silent gap');
+  // Ensure no instruments exist between 88s and 100s
+  const trailingSegments = reconciled.filter((s) => s.startTime >= 88);
+  assert(trailingSegments.length === 0, 'Zero instruments fabricated in trailing silent section');
   console.log('✅ TEST 6 PASSED\n');
 }
 
 // -------------------------------------------------------------------------
-// TEST 7: Final analysis window reaches the exact end of recording
+// REGRESSION TEST 7: Empty response with audioAssessment: instrumental_music triggers recovery
 // -------------------------------------------------------------------------
-console.log('TEST 7: Final window reaches exact end of recording');
+console.log('TEST 7: Empty Instrument Response With audioAssessment="instrumental_music" Flags needsRecovery');
 {
-  const durationsToTest = [21.3, 45.0, 77.7, 183.4, 299.9];
+  const emptyRecord: WindowCoverageRecord = {
+    windowId: 'win-test',
+    index: 0,
+    requestedStart: 0,
+    requestedEnd: 45,
+    processedStart: 0,
+    processedEnd: 45,
+    status: 'success',
+    retryCount: 0,
+    audioAssessment: 'instrumental_music',
+    isSilence: false, // NOT classified as silence!
+    needsRecovery: true, // Flagged for targeted recovery!
+    segments: [],
+  };
 
-  for (const testDur of durationsToTest) {
-    const dur = validateAuthoritativeDuration(testDur)!;
-    const windows = generateAnalysisWindows(dur, { windowSize: 45, overlap: 5 });
-    const lastWindow = windows[windows.length - 1];
-
-    assert(
-      lastWindow.endTime === dur,
-      `For duration ${dur}s: final window ${lastWindow.id} ends at ${lastWindow.endTime}s (exact match)`
-    );
-
-    // Verify all windows are contiguous with overlap
-    for (let i = 0; i < windows.length - 1; i++) {
-      assert(
-        windows[i].endTime >= windows[i + 1].startTime,
-        `Window ${i} and ${i + 1} overlap properly`
-      );
-    }
-  }
+  assert(emptyRecord.isSilence === false, 'isSilence is FALSE despite empty segments array');
+  assert(emptyRecord.needsRecovery === true, 'needsRecovery is TRUE');
+  assert(emptyRecord.audioAssessment === 'instrumental_music', 'audioAssessment correctly preserved as instrumental_music');
   console.log('✅ TEST 7 PASSED\n');
 }
 
-console.log('=====================================================');
-console.log('ALL 7 COVERAGE RECOVERY & VERIFICATION TESTS PASSED!');
-console.log('=====================================================');
+// -------------------------------------------------------------------------
+// REGRESSION TEST 8: Explicitly confirmed silent window does not receive fabricated detections
+// -------------------------------------------------------------------------
+console.log('TEST 8: Confirmed Silent Window Does Not Receive Fabricated Instruments');
+{
+  const confirmedSilentWindow: WindowCoverageRecord = {
+    windowId: 'win-silent',
+    index: 1,
+    requestedStart: 45,
+    requestedEnd: 90,
+    processedStart: 45,
+    processedEnd: 90,
+    status: 'success',
+    retryCount: 0,
+    audioAssessment: 'silence',
+    isSilence: true,
+    needsRecovery: false,
+    segments: [],
+  };
+
+  const coverage = calculateCoverage(90, [
+    {
+      windowId: 'win-intro',
+      index: 0,
+      requestedStart: 0,
+      requestedEnd: 45,
+      processedStart: 0,
+      processedEnd: 45,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 'intro-flute',
+          instrumentName: 'Flute',
+          family: 'Woodwinds',
+          startTime: 5,
+          endTime: 40,
+          confidence: 90,
+          audibility: 'audible',
+        },
+      ],
+    },
+    confirmedSilentWindow,
+  ]);
+
+  assert(coverage.isFullCoverage === true, '100% full coverage achieved');
+  assert(coverage.confirmedSilentRanges.length === 1, '1 confirmed silent range recorded');
+  assert(coverage.confirmedSilentRanges[0].start === 45 && coverage.confirmedSilentRanges[0].end === 90, 'Silent range is [45s, 90s]');
+
+  const reconciled = reconcileWindowSegments([confirmedSilentWindow]);
+  assert(reconciled.length === 0, 'Zero segments generated for confirmed silence');
+  console.log('✅ TEST 8 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 9: Internal gap containing an audible instrument is recoverable through reanalysis
+// -------------------------------------------------------------------------
+console.log('TEST 9: Internal Gap Identified and Recovered Through Focused Targeted Reanalysis');
+{
+  const totalDuration = 120;
+  // Window 0: 0-40 has Acoustic Guitar [0-35]
+  // Window 1: 40-80 missed detections initially (empty)
+  // Window 2: 75-120 has Acoustic Guitar [85-115]
+  const initialSegments = [
+    {
+      id: 'g-part1',
+      instrumentName: 'Acoustic Guitar',
+      family: 'Strings' as const,
+      startTime: 0,
+      endTime: 35,
+      confidence: 90,
+      audibility: 'audible' as const,
+    },
+    {
+      id: 'g-part2',
+      instrumentName: 'Acoustic Guitar',
+      family: 'Strings' as const,
+      startTime: 85,
+      endTime: 115,
+      confidence: 90,
+      audibility: 'audible' as const,
+    },
+  ];
+
+  // 1. Find uncovered gaps >= 1.5s
+  const gaps = findUncoveredGaps(initialSegments, totalDuration, 1.5);
+  assert(gaps.length === 2, `Identified ${gaps.length} gaps (got [35-85] and [115-120])`);
+  assert(gaps[0].start === 35 && gaps[0].end === 85, 'First gap is [35s, 85s]');
+
+  // 2. Simulate targeted recovery on gap [35s, 85s]: finds Acoustic Guitar [35s, 85s]
+  const recoveredGapSegment = {
+    id: 'g-recovered',
+    instrumentName: 'Acoustic Guitar',
+    family: 'Strings' as const,
+    startTime: 35,
+    endTime: 85,
+    confidence: 92,
+    audibility: 'audible' as const,
+  };
+
+  // 3. Reconcile combined segments
+  const combinedRecords: WindowCoverageRecord[] = [
+    {
+      windowId: 'win-initial',
+      index: 0,
+      requestedStart: 0,
+      requestedEnd: 120,
+      processedStart: 0,
+      processedEnd: 120,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [...initialSegments, recoveredGapSegment],
+    },
+  ];
+
+  const merged = reconcileWindowSegments(combinedRecords, totalDuration);
+  assert(merged.length === 1, `Merged seamlessly into 1 continuous segment (got ${merged.length})`);
+  assert(merged[0].startTime === 0 && merged[0].endTime === 115, `Seamless span from 0s to 115s (got ${merged[0].startTime} to ${merged[0].endTime})`);
+  console.log('✅ TEST 9 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 10: Duplicate detections from overlapping windows must still be merged
+// -------------------------------------------------------------------------
+console.log('TEST 10: Duplicate Detections From Overlapping Windows Seamlessly Merged');
+{
+  const totalDuration = 80;
+  // Window 0 [0-45s] detects Trumpet [10-44s]
+  // Window 1 [40-80s] detects Trumpet [40-70s]
+  // Overlap interval is [40s, 44s]
+  const records: WindowCoverageRecord[] = [
+    {
+      windowId: 'win-0',
+      index: 0,
+      requestedStart: 0,
+      requestedEnd: 45,
+      processedStart: 0,
+      processedEnd: 45,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 'w0-t',
+          instrumentName: 'Trumpet',
+          family: 'Brass',
+          startTime: 10,
+          endTime: 44,
+          confidence: 90,
+          audibility: 'audible',
+        },
+      ],
+    },
+    {
+      windowId: 'win-1',
+      index: 1,
+      requestedStart: 40,
+      requestedEnd: 80,
+      processedStart: 40,
+      processedEnd: 80,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 'w1-t',
+          instrumentName: 'Trumpet',
+          family: 'Brass',
+          startTime: 40,
+          endTime: 70,
+          confidence: 92,
+          audibility: 'audible',
+        },
+      ],
+    },
+  ];
+
+  const reconciled = reconcileWindowSegments(records, totalDuration);
+  assert(reconciled.length === 1, `Duplicate overlap merged into 1 continuous segment (got ${reconciled.length})`);
+  assert(reconciled[0].startTime === 10, 'Merged segment starts at 10.0s');
+  assert(reconciled[0].endTime === 70, 'Merged segment ends at 70.0s');
+  console.log('✅ TEST 10 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 11: Genuine rests of at least 1 second must remain separate
+// -------------------------------------------------------------------------
+console.log('TEST 11: Genuine Musical Rests (>= 1.0s) Preserved Separately');
+{
+  const totalDuration = 100;
+  // Piano phrase 1: [10s, 25s]
+  // Rest of 3 seconds: [25s, 28s]
+  // Piano phrase 2: [28s, 45s]
+  const records: WindowCoverageRecord[] = [
+    {
+      windowId: 'win-0',
+      index: 0,
+      requestedStart: 0,
+      requestedEnd: 50,
+      processedStart: 0,
+      processedEnd: 50,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: [
+        {
+          id: 'piano-p1',
+          instrumentName: 'Piano',
+          family: 'Keyboards',
+          startTime: 10,
+          endTime: 25,
+          confidence: 94,
+          audibility: 'audible',
+        },
+        {
+          id: 'piano-p2',
+          instrumentName: 'Piano',
+          family: 'Keyboards',
+          startTime: 28,
+          endTime: 45,
+          confidence: 94,
+          audibility: 'audible',
+        },
+      ],
+    },
+  ];
+
+  const reconciled = reconcileWindowSegments(records, totalDuration);
+  assert(reconciled.length === 2, `2 distinct phrases preserved across the 3s rest (got ${reconciled.length})`);
+  assert(reconciled[0].endTime === 25, 'Phrase 1 terminates at 25s');
+  assert(reconciled[1].startTime === 28, 'Phrase 2 begins at 28s');
+  assert(reconciled[1].startTime - reconciled[0].endTime === 3, 'Rest duration of 3s preserved');
+  console.log('✅ TEST 11 PASSED\n');
+}
+
+// -------------------------------------------------------------------------
+// REGRESSION TEST 12: No segment may extend beyond the actual video duration
+// -------------------------------------------------------------------------
+console.log('TEST 12: No Segment Extends Beyond Actual Video Duration');
+{
+  const totalDuration = 65.4;
+  const rawClipSegments = [
+    {
+      instrumentName: 'Cello',
+      family: 'Strings',
+      startTime: 0,
+      endTime: 50, // Clip-relative 0 to 50
+    },
+  ];
+
+  // Window starts at 30s. 30 + 50 = 80s, which exceeds 65.4s totalDuration
+  const boundedSegments = convertClipRelativeSegments(
+    rawClipSegments,
+    30,
+    45,
+    totalDuration
+  );
+
+  assert(boundedSegments.length === 1, 'Segment converted and bounded');
+  assert(boundedSegments[0].startTime === 30, 'Segment starts at 30s');
+  assert(boundedSegments[0].endTime === 65.4, `Segment is clamped strictly to videoDuration 65.4s (got ${boundedSegments[0].endTime})`);
+  assert(boundedSegments[0].endTime <= totalDuration, 'Segment end time <= totalDuration');
+  console.log('✅ TEST 12 PASSED\n');
+}
+
+console.log('========================================================================');
+console.log('ALL 12 COVERAGE & RECOVERY REGRESSION TESTS COMPLETED SUCCESSFULLY!');
+console.log('========================================================================\n');

@@ -8,6 +8,7 @@ import {
 import {
   normalizeInstrument,
   MASTER_INSTRUMENT_CATALOG,
+  InstrumentTimelineSegment,
 } from '../src/utils/instrumentNormalization';
 
 function assert(condition: boolean, message: string) {
@@ -31,17 +32,8 @@ console.log('TEST 1: Orchestral / Classical Music (Symphonic Strings, Woodwinds,
   const windows = generateAnalysisWindows(duration, { windowSize: 45, overlap: 5 });
 
   // Simulate orchestral recording: Strings throughout, Woodwinds melody, Brass fanfares, Timpani
-  const records: WindowCoverageRecord[] = windows.map((w, idx) => ({
-    windowId: w.id,
-    index: idx,
-    requestedStart: w.startTime,
-    requestedEnd: w.endTime,
-    processedStart: w.startTime,
-    processedEnd: w.endTime,
-    status: 'success',
-    retryCount: 0,
-    isSilence: false,
-    segments: [
+  const records: WindowCoverageRecord[] = windows.map((w, idx) => {
+    const segs: InstrumentTimelineSegment[] = [
       {
         id: `orch-strings-${idx}`,
         instrumentName: 'String Section',
@@ -67,7 +59,7 @@ console.log('TEST 1: Orchestral / Classical Music (Symphonic Strings, Woodwinds,
             {
               id: `orch-brass-${idx}`,
               instrumentName: 'French Horn',
-              family: 'Brass',
+              family: 'Brass' as const,
               startTime: w.startTime + 10,
               endTime: w.endTime - 5,
               confidence: 90,
@@ -77,7 +69,7 @@ console.log('TEST 1: Orchestral / Classical Music (Symphonic Strings, Woodwinds,
             {
               id: `orch-timpani-${idx}`,
               instrumentName: 'Timpani',
-              family: 'Percussion',
+              family: 'Percussion' as const,
               startTime: w.startTime + 15,
               endTime: w.endTime - 2,
               confidence: 86,
@@ -86,8 +78,22 @@ console.log('TEST 1: Orchestral / Classical Music (Symphonic Strings, Woodwinds,
             },
           ]
         : []),
-    ],
-  }));
+    ];
+
+    return {
+      windowId: w.id,
+      index: idx,
+      requestedStart: w.startTime,
+      requestedEnd: w.endTime,
+      processedStart: w.startTime,
+      processedEnd: w.endTime,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: segs,
+    };
+  });
 
   const coverage = calculateCoverage(duration, records);
   assert(coverage.isFullCoverage, 'Full video coverage (100%)');
@@ -182,6 +188,7 @@ console.log('TEST 2: Anime / Game Soundtrack (OST: Piano intro, layered strings,
       processedEnd: w.endTime,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: segs,
     };
@@ -296,6 +303,7 @@ console.log('TEST 3: Rock / Speedcore / Symphonic Metal (Regression check for Fl
       processedEnd: w.endTime,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: segs,
     };
@@ -339,22 +347,23 @@ console.log('TEST 4: Acoustic / Pop Track (Acoustic Guitar, Upright Bass, Handcl
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'instrumental_music',
     isSilence: false,
     segments: [
       {
         id: `pop-acoust-${idx}`,
         instrumentName: 'Acoustic Guitar',
-        family: 'Guitars',
+        family: 'Strings',
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 96,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Steel-string acoustic guitar fingerpicking and strumming chords',
       },
       {
         id: `pop-bass-${idx}`,
         instrumentName: 'Bass Guitar',
-        family: 'Guitars',
+        family: 'Strings',
         startTime: w.startTime + 10,
         endTime: w.endTime,
         confidence: 90,
@@ -387,16 +396,17 @@ console.log('TEST 5: EDM / Electronic Track (Synthesizer, Drum Machine, Synth Ba
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'instrumental_music',
     isSilence: false,
     segments: [
       {
         id: `edm-synth-${idx}`,
         instrumentName: 'Synthesizer',
-        family: 'Electronic',
+        family: 'Voice & Electronic',
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 98,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Super-saw lead synthesizer chords and arpeggiator',
       },
       {
@@ -406,7 +416,7 @@ console.log('TEST 5: EDM / Electronic Track (Synthesizer, Drum Machine, Synth Ba
         startTime: w.startTime + 15,
         endTime: w.endTime,
         confidence: 94,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Electronic 808 programmed beat pattern and four-on-the-floor kick',
       },
     ],
@@ -439,6 +449,7 @@ console.log('TEST 6: Solo Instrument Track (Solo Piano, unassisted without drums
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'instrumental_music',
     isSilence: false,
     segments: [
       {
@@ -448,7 +459,7 @@ console.log('TEST 6: Solo Instrument Track (Solo Piano, unassisted without drums
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 98,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Unaccompanied grand piano performance playing classical nocturne',
       },
     ],
@@ -491,26 +502,27 @@ console.log('TEST 7: Traditional / World Music (Shakuhachi flute, Koto, Taiko dr
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'instrumental_music',
     isSilence: false,
     segments: [
       {
         id: `trad-koto-${idx}`,
         instrumentName: 'Koto',
-        family: 'Strings',
+        family: 'Traditional & World',
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 95,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Plucked 13-string traditional Japanese zither notes',
       },
       {
         id: `trad-shaku-${idx}`,
         instrumentName: 'Shakuhachi',
-        family: 'Woodwinds',
+        family: 'Traditional & World',
         startTime: w.startTime + 5,
         endTime: w.endTime - 5,
         confidence: 91,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Bamboo end-blown flute breathy phrasing',
       },
     ],
@@ -565,6 +577,7 @@ console.log('TEST 8: Live Concert Recording (Audience cheering, room reverb, liv
       processedEnd: w.endTime,
       status: 'success',
       retryCount: 0,
+      audioAssessment: 'instrumental_music',
       isSilence: false,
       segments: segs,
     };
@@ -593,16 +606,17 @@ console.log('TEST 9: Vocal-Centric / Choir / A Cappella');
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'instrumental_music',
     isSilence: false,
     segments: [
       {
         id: `choir-harm-${idx}`,
         instrumentName: 'Choir',
-        family: 'Vocals',
+        family: 'Voice & Electronic',
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 96,
-        audibility: 'prominent',
+        audibility: 'audible',
         evidence: 'Multi-part SATB choral polyphony without instrumental accompaniment',
       },
     ],
@@ -632,6 +646,7 @@ console.log('TEST 10: Speech / Non-Musical Audio (Podcast, Conversation, Ambient
     processedEnd: w.endTime,
     status: 'success',
     retryCount: 0,
+    audioAssessment: 'silence',
     isSilence: true, // No musical instruments
     segments: [],
   }));
