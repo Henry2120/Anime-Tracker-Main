@@ -21,14 +21,19 @@ export interface CanonicalInstrument {
   description: string;
 }
 
+export const TAXONOMY_VERSION = '2026.11-hybrid-v1';
+export const ANALYSIS_SCHEMA_VERSION = 'v6-hybrid-live-full';
+
 export interface InstrumentTimelineSegment {
   id: string;
   instrumentName: string;
   family: InstrumentFamily;
   startTime: number; // in seconds
   endTime: number; // in seconds
-  confidence: number; // 0..1 or 0..100
+  confidence?: number; // 0..1 or 0..100
   audibility: 'audible' | 'suspected' | 'uncertain';
+  status?: 'confirmed' | 'provisional'; // Distinguishes provisional vs confirmed detection
+  isVoice?: boolean; // Fast flag for vocal category
   evidence?: string;
 }
 
@@ -134,21 +139,23 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     description: 'Small four-string plucked Hawaiian lute with cheerful, light timbre',
   },
   {
-    id: 'strings-ensemble',
-    canonicalName: 'Strings (Ensemble)',
+    id: 'unresolved-string-section',
+    canonicalName: 'Unresolved String Section',
     family: 'Strings',
     aliases: [
-      'strings (ensemble)',
-      'strings ensemble',
-      'string ensemble',
-      'strings',
+      'unresolved string section',
       'string section',
+      'strings section',
       'orchestral strings',
       'chamber strings',
       'symphonic strings',
-      'solo strings',
+      'strings ensemble',
+      'strings (ensemble)',
+      'strings',
+      'ensemble strings',
+      'string orchestra',
     ],
-    description: 'Blended orchestral string ensemble of violins, violas, cellos, and double basses',
+    description: 'Blended orchestral bowed string section where individual instruments (violin, viola, cello, double bass) cannot be isolated with acoustic certainty',
   },
 
   // =========================================================================
@@ -225,11 +232,11 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     description: 'Single-reed conical brass-bodied woodwind with soulful, reedy dynamics',
   },
   {
-    id: 'woodwinds-ensemble',
-    canonicalName: 'Woodwinds (Ensemble)',
+    id: 'unresolved-woodwind-section',
+    canonicalName: 'Unresolved Woodwind Section',
     family: 'Woodwinds',
-    aliases: ['woodwinds (ensemble)', 'woodwind ensemble', 'woodwinds', 'woodwind section', 'orchestral woodwinds'],
-    description: 'Blended orchestral ensemble of flutes, oboes, clarinets, and bassoons',
+    aliases: ['unresolved woodwind section', 'woodwind section', 'woodwinds section', 'orchestral woodwinds', 'woodwinds ensemble', 'woodwinds (ensemble)', 'woodwinds'],
+    description: 'Blended orchestral woodwind section where individual instruments (flute, oboe, clarinet, bassoon) cannot be isolated with acoustic certainty',
   },
 
   // =========================================================================
@@ -292,11 +299,11 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     description: 'Deepest and largest orchestral brass instrument anchoring the bass section',
   },
   {
-    id: 'brass-ensemble',
-    canonicalName: 'Brass (Ensemble)',
+    id: 'unresolved-brass-section',
+    canonicalName: 'Unresolved Brass Section',
     family: 'Brass',
-    aliases: ['brass (ensemble)', 'brass ensemble', 'brass section', 'orchestral brass', 'horns section', 'brass horns'],
-    description: 'Blended orchestral ensemble of trumpets, french horns, trombones, and tubas',
+    aliases: ['unresolved brass section', 'brass section', 'brass ensemble', 'orchestral brass', 'brass (ensemble)', 'brass horns', 'horns section'],
+    description: 'Blended orchestral brass section where individual instruments (trumpet, horn, trombone, tuba) cannot be isolated with acoustic certainty',
   },
 
   // =========================================================================
@@ -357,6 +364,13 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     family: 'Keyboards',
     aliases: ['accordion', 'bellows', 'squeezebox', 'concertina', 'bandoneon'],
     description: 'Free-reed keyboard instrument operated by hand-pumped bellows',
+  },
+  {
+    id: 'celesta',
+    canonicalName: 'Celesta',
+    family: 'Keyboards',
+    aliases: ['celesta', 'celeste'],
+    description: 'Struck steel plates controlled by a keyboard producing ethereal, bell-like chimes',
   },
 
   // =========================================================================
@@ -541,30 +555,100 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     aliases: ['taiko', 'wadaiko', 'taiko drums', 'japanese drums'],
     description: 'Traditional Japanese barrel-shaped wooden drums played with thick bachi sticks',
   },
+  {
+    id: 'oud',
+    canonicalName: 'Oud',
+    family: 'Traditional & World',
+    aliases: ['oud', 'ud', 'arabic lute', 'middle eastern lute'],
+    description: 'Short-neck fretless pear-shaped plucked lute central to Middle Eastern traditions',
+  },
+  {
+    id: 'handpan',
+    canonicalName: 'Handpan',
+    family: 'Traditional & World',
+    aliases: ['handpan', 'hang drum', 'pantam', 'cupola'],
+    description: 'Convex steel resonant dome struck by hands with hypnotic, ethereal overtones',
+  },
 
   // =========================================================================
   // 7. VOICE AND ELECTRONIC SOUNDS
   // =========================================================================
   {
-    id: 'lead-vocals',
-    canonicalName: 'Lead Vocals',
+    id: 'male-solo-voice',
+    canonicalName: 'Male Solo Voice',
     family: 'Voice & Electronic',
-    aliases: ['lead vocals', 'vocals', 'vocal', 'voice', 'singing', 'male vocals', 'female vocals'],
-    description: 'Primary human singing voice carrying the melody and lyrics',
+    aliases: ['male solo voice', 'male solo', 'male lead vocals', 'male vocals', 'male voice', 'male singer', 'male solo singing', 'solo male voice'],
+    description: 'Solo male singing voice carrying the melody and lyrics',
   },
   {
-    id: 'backing-vocals',
-    canonicalName: 'Backing Vocals',
+    id: 'female-solo-voice',
+    canonicalName: 'Female Solo Voice',
     family: 'Voice & Electronic',
-    aliases: ['backing vocals', 'backup vocals', 'harmony vocals', 'background vocals', 'harmonies'],
-    description: 'Harmonizing vocal layers supporting the lead singer',
+    aliases: ['female solo voice', 'female solo', 'female lead vocals', 'female vocals', 'female voice', 'female singer', 'female solo singing', 'solo female voice'],
+    description: 'Solo female singing voice carrying the melody and lyrics',
   },
   {
-    id: 'choir',
-    canonicalName: 'Choir',
+    id: 'male-backing-vocals',
+    canonicalName: 'Male Backing Vocals',
     family: 'Voice & Electronic',
-    aliases: ['choir', 'chorus', 'vocal ensemble', 'choral'],
-    description: 'Large ensemble of singers producing lush multi-part choral harmonies',
+    aliases: ['male backing vocals', 'male harmonies', 'male background vocals', 'male backup vocals', 'male backup'],
+    description: 'Harmonizing male vocal lines supporting the lead performance',
+  },
+  {
+    id: 'female-backing-vocals',
+    canonicalName: 'Female Backing Vocals',
+    family: 'Voice & Electronic',
+    aliases: ['female backing vocals', 'female harmonies', 'female background vocals', 'female backup vocals', 'female backup'],
+    description: 'Harmonizing female vocal lines supporting the lead performance',
+  },
+  {
+    id: 'mixed-backing-vocals',
+    canonicalName: 'Mixed Backing Vocals',
+    family: 'Voice & Electronic',
+    aliases: ['mixed backing vocals', 'backing vocals', 'backup vocals', 'harmony vocals', 'background vocals', 'harmonies'],
+    description: 'Blended male and female supporting vocal harmonies',
+  },
+  {
+    id: 'male-choir',
+    canonicalName: 'Male Choir',
+    family: 'Voice & Electronic',
+    aliases: ['male choir', 'mens choir', 'tenor bass choir', 'male choral', 'male chorus'],
+    description: 'Ensemble of male voices singing in multi-part tenor/baritone/bass harmony',
+  },
+  {
+    id: 'female-choir',
+    canonicalName: 'Female Choir',
+    family: 'Voice & Electronic',
+    aliases: ['female choir', 'womens choir', 'soprano alto choir', 'female choral', 'treble choir', 'female chorus'],
+    description: 'Ensemble of female voices singing in multi-part soprano/alto harmony',
+  },
+  {
+    id: 'mixed-choir',
+    canonicalName: 'Mixed Choir',
+    family: 'Voice & Electronic',
+    aliases: ['mixed choir', 'choir', 'chorus', 'vocal ensemble', 'choral', 'satb choir', 'concert choir'],
+    description: 'Full mixed ensemble singing in soprano, alto, tenor, and bass (SATB) harmony',
+  },
+  {
+    id: 'spoken-male-voice',
+    canonicalName: 'Spoken Male Voice',
+    family: 'Voice & Electronic',
+    aliases: ['spoken male voice', 'male speech', 'male spoken voice', 'male dialogue', 'male voiceover', 'male spoken'],
+    description: 'Spoken word, dialogue, recitation, or speech by a male speaker without singing',
+  },
+  {
+    id: 'spoken-female-voice',
+    canonicalName: 'Spoken Female Voice',
+    family: 'Voice & Electronic',
+    aliases: ['spoken female voice', 'female speech', 'female spoken voice', 'female dialogue', 'female voiceover', 'female spoken'],
+    description: 'Spoken word, dialogue, recitation, or speech by a female speaker without singing',
+  },
+  {
+    id: 'unclassified-voice',
+    canonicalName: 'Unclassified Voice',
+    family: 'Voice & Electronic',
+    aliases: ['unclassified voice', 'lead vocals', 'vocals', 'vocal', 'voice', 'singing', 'unclassified vocals', 'human voice'],
+    description: 'Human vocalization where gender presentation or solo/ensemble distinction is acoustically ambiguous',
   },
   {
     id: 'electronic-bass',
@@ -587,7 +671,32 @@ export const MASTER_INSTRUMENT_CATALOG: CanonicalInstrument[] = [
     aliases: ['arpeggiator', 'synth arp', 'sequenced synth', 'synth plucks'],
     description: 'Rapid rhythmic step-sequenced electronic note patterns and cycling motifs',
   },
+  {
+    id: 'unidentified-instrument',
+    canonicalName: 'Unidentified Instrument',
+    family: 'Other',
+    aliases: ['unidentified instrument', 'unidentified', 'unknown instrument', 'unresolved instrument', 'ambiguous instrument'],
+    description: 'Audible musical instrument that cannot be distinguished with acoustic certainty',
+  },
 ];
+
+/**
+ * Checks whether an instrument name represents a vocal or choir classification.
+ */
+export function isVoiceInstrument(name: string): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase().trim();
+  return (
+    lower.includes('voice') ||
+    lower.includes('vocal') ||
+    lower.includes('choir') ||
+    lower.includes('chorus') ||
+    lower.includes('choral') ||
+    lower.includes('spoken') ||
+    lower.includes('singing') ||
+    lower.includes('singer')
+  );
+}
 
 /**
  * Fast lookup map for normalizing arbitrary strings to canonical metadata.
@@ -658,6 +767,42 @@ export function normalizeInstrument(input: unknown): {
       family: found.family,
       id: found.id,
     };
+  }
+
+  // 1b. Vocal-specific taxonomy disambiguation (Section 6)
+  if (isVoiceInstrument(lower)) {
+    const isFemale = lower.includes('female') || lower.includes('women') || lower.includes('girl');
+    const isMale = !isFemale && (lower.includes('male') || /\bmen\b|\bboy\b|\btenor\b|\bbaritone\b|\bbass vocal\b/.test(lower));
+    const isChoir = lower.includes('choir') || lower.includes('choral') || lower.includes('chorus');
+    const isBacking = lower.includes('backing') || lower.includes('backup') || lower.includes('harmony') || lower.includes('harmonies');
+    const isSpoken = lower.includes('spoken') || lower.includes('speech') || lower.includes('dialogue');
+
+    if (isChoir) {
+      if (isMale && !isFemale) return { canonicalName: 'Male Choir', family: 'Voice & Electronic', id: 'male-choir' };
+      if (isFemale && !isMale) return { canonicalName: 'Female Choir', family: 'Voice & Electronic', id: 'female-choir' };
+      return { canonicalName: 'Mixed Choir', family: 'Voice & Electronic', id: 'mixed-choir' };
+    }
+    if (isSpoken) {
+      if (isMale && !isFemale) return { canonicalName: 'Spoken Male Voice', family: 'Voice & Electronic', id: 'spoken-male-voice' };
+      if (isFemale && !isMale) return { canonicalName: 'Spoken Female Voice', family: 'Voice & Electronic', id: 'spoken-female-voice' };
+    }
+    if (isBacking) {
+      if (isMale && !isFemale) return { canonicalName: 'Male Backing Vocals', family: 'Voice & Electronic', id: 'male-backing-vocals' };
+      if (isFemale && !isMale) return { canonicalName: 'Female Backing Vocals', family: 'Voice & Electronic', id: 'female-backing-vocals' };
+      return { canonicalName: 'Mixed Backing Vocals', family: 'Voice & Electronic', id: 'mixed-backing-vocals' };
+    }
+    if (isMale && !isFemale) {
+      return { canonicalName: 'Male Solo Voice', family: 'Voice & Electronic', id: 'male-solo-voice' };
+    }
+    if (isFemale && !isMale) {
+      return { canonicalName: 'Female Solo Voice', family: 'Voice & Electronic', id: 'female-solo-voice' };
+    }
+    return { canonicalName: 'Unclassified Voice', family: 'Voice & Electronic', id: 'unclassified-voice' };
+  }
+
+  // 1c. Ambiguous / unidentified instrument handling
+  if (lower.includes('unidentified') || lower.includes('unknown') || lower.includes('ambiguous') || lower.includes('unresolved instrument')) {
+    return { canonicalName: 'Unidentified Instrument', family: 'Other', id: 'unidentified-instrument' };
   }
 
   // 2. Partial match against aliases
@@ -745,6 +890,8 @@ export function validateAndMergeTimelineSegments(
     endTime: number;
     confidence?: number;
     audibility?: 'audible' | 'suspected' | 'uncertain';
+    status?: 'confirmed' | 'provisional';
+    isVoice?: boolean;
     evidence?: string;
   }[] = [];
 
@@ -781,6 +928,13 @@ export function validateAndMergeTimelineSegments(
       ? rawEvidence.trim()
       : undefined;
 
+    const status: 'confirmed' | 'provisional' =
+      (item as any).status === 'provisional' ? 'provisional' : 'confirmed';
+    const isVoice =
+      (item as any).isVoice !== undefined
+        ? Boolean((item as any).isVoice)
+        : isVoiceInstrument(normalized.canonicalName);
+
     validCandidates.push({
       instrumentName: normalized.canonicalName,
       family: normalized.family,
@@ -789,6 +943,8 @@ export function validateAndMergeTimelineSegments(
       endTime,
       confidence,
       audibility,
+      status,
+      isVoice,
       evidence,
     });
   });
@@ -826,6 +982,10 @@ export function validateAndMergeTimelineSegments(
           prev.confidence = Math.max(prev.confidence ?? 0, current.confidence);
         }
         if (current.audibility === 'audible') prev.audibility = 'audible';
+        // If one segment is confirmed, the merged segment is confirmed
+        if (current.status === 'confirmed' || prev.status === 'confirmed') {
+          prev.status = 'confirmed';
+        }
         if (current.evidence && !prev.evidence?.includes(current.evidence)) {
           prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
         }
@@ -844,6 +1004,8 @@ export function validateAndMergeTimelineSegments(
         endTime: seg.endTime,
         confidence: seg.confidence,
         audibility: seg.audibility,
+        status: seg.status,
+        isVoice: seg.isVoice,
         evidence: seg.evidence,
       });
     });

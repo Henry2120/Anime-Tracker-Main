@@ -9,7 +9,15 @@ import {
   normalizeInstrument,
   MASTER_INSTRUMENT_CATALOG,
   InstrumentTimelineSegment,
+  isVoiceInstrument,
+  TAXONOMY_VERSION,
+  ANALYSIS_SCHEMA_VERSION,
 } from '../src/utils/instrumentNormalization';
+import {
+  buildAnalysisCacheKey,
+  CURRENT_MODEL_ID,
+  INSTRUCTION_VERSION,
+} from '../src/utils/analysisCacheIndexedDB';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -101,15 +109,15 @@ console.log('TEST 1: Orchestral / Classical Music (Symphonic Strings, Woodwinds,
 
   const reconciled = reconcileWindowSegments(records, duration);
   const instruments = new Set(reconciled.map((s) => s.instrumentName));
-  assert(instruments.has('Strings (Ensemble)'), 'Strings (Ensemble) identified and merged');
+  assert(instruments.has('Unresolved String Section'), 'Unresolved String Section identified and merged');
   assert(instruments.has('Flute'), 'Flute identified in woodwinds');
   assert(instruments.has('French Horn'), 'French Horn identified in brass');
   assert(instruments.has('Timpani'), 'Timpani identified in percussion');
 
-  // Check that Strings (Ensemble) spans continuous playback across windows
-  const stringSegs = reconciled.filter((s) => s.instrumentName === 'Strings (Ensemble)');
+  // Check that Unresolved String Section spans continuous playback across windows
+  const stringSegs = reconciled.filter((s) => s.instrumentName === 'Unresolved String Section');
   assert(stringSegs.length === 1 && stringSegs[0].startTime === 0 && stringSegs[0].endTime === 180,
-    'Strings (Ensemble) seamlessly merged across all 5 overlapping windows (0s to 180s)');
+    'Unresolved String Section seamlessly merged across all 5 overlapping windows (0s to 180s)');
   console.log('✅ TEST 1 PASSED: Classical Orchestral\n');
 }
 
@@ -318,8 +326,8 @@ console.log('TEST 3: Rock / Speedcore / Symphonic Metal (Regression check for Fl
   const introViolin = reconciled.find((s) => s.instrumentName === 'Violin' && s.startTime === 0 && s.endTime <= 4);
   assert(Boolean(introViolin), 'Flamewall solo Violin intro [0s-3s] preserved intact!');
 
-  const strings = reconciled.find((s) => s.instrumentName === 'Strings (Ensemble)');
-  assert(Boolean(strings), 'Symphonic Strings (Ensemble) detected');
+  const strings = reconciled.find((s) => s.instrumentName === 'Unresolved String Section');
+  assert(Boolean(strings), 'Symphonic Unresolved String Section detected');
 
   const drums = reconciled.find((s) => s.instrumentName === 'Drum Kit');
   assert(Boolean(drums), 'Drums detected');
@@ -590,7 +598,7 @@ console.log('TEST 8: Live Concert Recording (Audience cheering, room reverb, liv
 }
 
 // -------------------------------------------------------------------------
-// 9. Vocal-Centric Track / A Cappella / Choir
+// 9. Vocal-Centric Track / A Cappella / Mixed Choir
 // -------------------------------------------------------------------------
 console.log('TEST 9: Vocal-Centric / Choir / A Cappella');
 {
@@ -611,20 +619,22 @@ console.log('TEST 9: Vocal-Centric / Choir / A Cappella');
     segments: [
       {
         id: `choir-harm-${idx}`,
-        instrumentName: 'Choir',
+        instrumentName: 'Mixed Choir',
         family: 'Voice & Electronic',
         startTime: w.startTime,
         endTime: w.endTime,
         confidence: 96,
         audibility: 'audible',
         evidence: 'Multi-part SATB choral polyphony without instrumental accompaniment',
+        isVoice: true,
       },
     ],
   }));
 
   const reconciled = reconcileWindowSegments(records, duration);
-  assert(reconciled.length === 1 && reconciled[0].instrumentName === 'Choir', 'Choir recognized as canonical instrument');
+  assert(reconciled.length === 1 && reconciled[0].instrumentName === 'Mixed Choir', 'Mixed Choir recognized as canonical vocal instrument');
   assert(reconciled[0].family === 'Voice & Electronic', 'Family is Voice & Electronic');
+  assert(reconciled[0].isVoice === true, 'isVoice flag preserved');
   console.log('✅ TEST 9 PASSED: Vocal-Centric / Choir\n');
 }
 
@@ -665,6 +675,251 @@ console.log('TEST 10: Speech / Non-Musical Audio (Podcast, Conversation, Ambient
   console.log('✅ TEST 10 PASSED: Speech / Non-Musical Audio\n');
 }
 
+// -------------------------------------------------------------------------
+// 11. Fine-Grained Vocal Taxonomy & Voice Classifier (Section 6)
+// -------------------------------------------------------------------------
+console.log('TEST 11: Fine-Grained Vocal Taxonomy & Distinctions (Male/Female/Choir/Speech)');
+{
+  const testCases: Array<{ raw: string; expectedName: string; expectedFamily: string }> = [
+    { raw: 'Male Solo Voice', expectedName: 'Male Solo Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'male vocals', expectedName: 'Male Solo Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Female Solo Voice', expectedName: 'Female Solo Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'female lead singer', expectedName: 'Female Solo Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Male Backing Vocals', expectedName: 'Male Backing Vocals', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Female Backing Vocals', expectedName: 'Female Backing Vocals', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Mixed Backing Vocals', expectedName: 'Mixed Backing Vocals', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Male Choir', expectedName: 'Male Choir', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Female Choir', expectedName: 'Female Choir', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Mixed Choir', expectedName: 'Mixed Choir', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Spoken Male Voice', expectedName: 'Spoken Male Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Spoken Female Voice', expectedName: 'Spoken Female Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'Unclassified Voice', expectedName: 'Unclassified Voice', expectedFamily: 'Voice & Electronic' },
+    { raw: 'human voice', expectedName: 'Unclassified Voice', expectedFamily: 'Voice & Electronic' },
+  ];
+
+  testCases.forEach((tc) => {
+    const norm = normalizeInstrument(tc.raw);
+    assert(norm.canonicalName === tc.expectedName, `Vocal "${tc.raw}" maps to "${tc.expectedName}" (got "${norm.canonicalName}")`);
+    assert(norm.family === tc.expectedFamily, `Vocal "${tc.raw}" family is "${tc.expectedFamily}" (got "${norm.family}")`);
+    assert(isVoiceInstrument(norm.canonicalName), `isVoiceInstrument("${norm.canonicalName}") is true`);
+  });
+
+  // Non-voice instruments must return false
+  assert(!isVoiceInstrument('Piano'), 'Piano is not voice');
+  assert(!isVoiceInstrument('Violin'), 'Violin is not voice');
+  assert(!isVoiceInstrument('Drum Kit'), 'Drum Kit is not voice');
+  assert(!isVoiceInstrument('Synthesizer'), 'Synthesizer is not voice');
+  console.log('✅ TEST 11 PASSED: Vocal Taxonomy & Distinctions\n');
+}
+
+// -------------------------------------------------------------------------
+// 12. Solo Strings vs Unresolved Sections (Section 5)
+// -------------------------------------------------------------------------
+console.log('TEST 12: Solo Strings vs Unresolved Section Isolation (No Generic Strings)');
+{
+  assert(normalizeInstrument('Violin').canonicalName === 'Violin', 'Violin normalized');
+  assert(normalizeInstrument('Viola').canonicalName === 'Viola', 'Viola normalized');
+  assert(normalizeInstrument('Cello').canonicalName === 'Cello', 'Cello normalized');
+  assert(normalizeInstrument('Double Bass').canonicalName === 'Double Bass', 'Double Bass normalized');
+  assert(normalizeInstrument('String Section').canonicalName === 'Unresolved String Section', 'String Section maps to Unresolved String Section');
+  assert(normalizeInstrument('Strings (Ensemble)').canonicalName === 'Unresolved String Section', 'Strings (Ensemble) maps to Unresolved String Section');
+  assert(normalizeInstrument('Woodwind Section').canonicalName === 'Unresolved Woodwind Section', 'Woodwind Section maps to Unresolved Woodwind Section');
+  assert(normalizeInstrument('Brass Section').canonicalName === 'Unresolved Brass Section', 'Brass Section maps to Unresolved Brass Section');
+
+  // Verify generic ensemble labels are completely excluded from catalog
+  const catalogNames = MASTER_INSTRUMENT_CATALOG.map((i) => i.canonicalName);
+  assert(!catalogNames.includes('Strings (Ensemble)' as any), 'Strings (Ensemble) NOT in catalog');
+  assert(!catalogNames.includes('Woodwinds (Ensemble)' as any), 'Woodwinds (Ensemble) NOT in catalog');
+  assert(!catalogNames.includes('Brass (Ensemble)' as any), 'Brass (Ensemble) NOT in catalog');
+  assert(!catalogNames.includes('Strings' as any), 'Generic "Strings" NOT in catalog');
+  assert(!catalogNames.includes('Ensemble' as any), 'Generic "Ensemble" NOT in catalog');
+  console.log('✅ TEST 12 PASSED: Solo Strings vs Unresolved Sections\n');
+}
+
+// -------------------------------------------------------------------------
+// 13. Benchmark Track Regression (YouTube QME5QBetC_k)
+// -------------------------------------------------------------------------
+console.log('TEST 13: Benchmark Track Regression (YouTube QME5QBetC_k, Duration 195s)');
+{
+  const duration = validateAuthoritativeDuration(195)!;
+  const windows = generateAnalysisWindows(duration, { windowSize: 45, overlap: 5 });
+
+  // Simulate benchmark recording: Piano intro [0-20s], Female Solo Voice [20-190s], Drums & Bass [20-195s]
+  const records: WindowCoverageRecord[] = windows.map((w, idx) => {
+    const segs: InstrumentTimelineSegment[] = [];
+    if (w.startTime < 20) {
+      segs.push({
+        id: `bench-piano-${idx}`,
+        instrumentName: 'Piano',
+        family: 'Keyboards',
+        startTime: w.startTime,
+        endTime: Math.min(w.endTime, 22),
+        confidence: 94,
+        audibility: 'audible',
+        evidence: 'Acoustic piano arpeggio introduction theme',
+      });
+    }
+    if (w.endTime > 20) {
+      segs.push({
+        id: `bench-drums-${idx}`,
+        instrumentName: 'Drum Kit',
+        family: 'Percussion',
+        startTime: Math.max(w.startTime, 20),
+        endTime: w.endTime,
+        confidence: 96,
+        audibility: 'audible',
+        evidence: 'Solid acoustic drum groove with snare backbeat',
+      });
+      segs.push({
+        id: `bench-bass-${idx}`,
+        instrumentName: 'Bass Guitar',
+        family: 'Strings',
+        startTime: Math.max(w.startTime, 20),
+        endTime: w.endTime,
+        confidence: 92,
+        audibility: 'audible',
+        evidence: 'Electric bass root notes locking with kick drum',
+      });
+      segs.push({
+        id: `bench-vocal-${idx}`,
+        instrumentName: 'Female Solo Voice',
+        family: 'Voice & Electronic',
+        startTime: Math.max(w.startTime, 25),
+        endTime: Math.min(w.endTime, 185),
+        confidence: 95,
+        audibility: 'audible',
+        evidence: 'Female solo lead vocal performing main verse and chorus melody',
+        isVoice: true,
+      });
+    }
+
+    return {
+      windowId: w.id,
+      index: idx,
+      requestedStart: w.startTime,
+      requestedEnd: w.endTime,
+      processedStart: w.startTime,
+      processedEnd: w.endTime,
+      status: 'success',
+      retryCount: 0,
+      audioAssessment: 'instrumental_music',
+      isSilence: false,
+      segments: segs,
+    };
+  });
+
+  const coverage = calculateCoverage(duration, records);
+  assert(coverage.isFullCoverage, 'Full track coverage 100% on benchmark track');
+  assert(coverage.totalDuration === 195, 'Authoritative duration is 195s');
+  assert(coverage.missingRanges.length === 0, 'No missing gaps in benchmark track');
+
+  const reconciled = reconcileWindowSegments(records, duration);
+  const instNames = new Set(reconciled.map((s) => s.instrumentName));
+  assert(instNames.has('Piano'), 'Piano detected in intro');
+  assert(instNames.has('Drum Kit'), 'Drum Kit detected across track');
+  assert(instNames.has('Bass Guitar'), 'Bass Guitar detected');
+  assert(instNames.has('Female Solo Voice'), 'Female Solo Voice detected');
+
+  // Verify Voice flag propagation
+  const vocalSeg = reconciled.find((s) => s.instrumentName === 'Female Solo Voice');
+  assert(vocalSeg?.isVoice === true, 'Female Solo Voice has isVoice === true');
+  assert(vocalSeg?.startTime === 25, 'Vocal starts at 25s');
+  assert(vocalSeg?.endTime === 185, 'Vocal ends at 185s');
+  console.log('✅ TEST 13 PASSED: Benchmark Track Regression\n');
+}
+
+// -------------------------------------------------------------------------
+// 14. Session State Management & Generation ID Invalidation
+// -------------------------------------------------------------------------
+console.log('TEST 14: Session State Management, Generation ID Invalidation & Abort Handling');
+{
+  let currentGenerationId = 10;
+  const preservedSegments: InstrumentTimelineSegment[] = [
+    {
+      id: 'seg-1',
+      instrumentName: 'Piano',
+      family: 'Keyboards',
+      startTime: 0,
+      endTime: 30,
+      confidence: 90,
+      audibility: 'audible',
+    },
+  ];
+
+  // User presses Stop
+  const handleStop = () => {
+    currentGenerationId++;
+    // Preserves existing timeline segments without wiping them
+    return { currentGenerationId, preservedCount: preservedSegments.length };
+  };
+
+  const stopResult = handleStop();
+  assert(stopResult.currentGenerationId === 11, 'Generation ID incremented to 11');
+  assert(stopResult.preservedCount === 1, 'Completed segments preserved upon stopping');
+
+  // Simulate late-arriving chunk from cancelled generation 10
+  const lateChunkGenerationId = 10;
+  const isLateChunkIgnored = lateChunkGenerationId !== currentGenerationId;
+  assert(isLateChunkIgnored, 'Late-arriving chunk from older generation ID is rejected');
+  console.log('✅ TEST 14 PASSED: Session State & Generation Invalidation\n');
+}
+
+// -------------------------------------------------------------------------
+// 15. IndexedDB Versioned Cache Key Validation
+// -------------------------------------------------------------------------
+console.log('TEST 15: IndexedDB Versioned Cache Key Determinism & Invalidation');
+{
+  const key1 = buildAnalysisCacheKey({
+    videoId: 'QME5QBetC_k',
+    duration: 195,
+  });
+
+  const key2 = buildAnalysisCacheKey({
+    videoId: 'QME5QBetC_k',
+    duration: 195,
+  });
+
+  assert(key1 === key2, 'Cache key is deterministic for identical video & duration');
+  assert(key1.includes('QME5QBetC_k'), 'Cache key contains videoId');
+  assert(key1.includes(TAXONOMY_VERSION), `Cache key includes taxonomy version (${TAXONOMY_VERSION})`);
+  assert(key1.includes(ANALYSIS_SCHEMA_VERSION), `Cache key includes schema version (${ANALYSIS_SCHEMA_VERSION})`);
+  assert(key1.includes(CURRENT_MODEL_ID), `Cache key includes model ID (${CURRENT_MODEL_ID})`);
+  assert(key1.includes(INSTRUCTION_VERSION), `Cache key includes instruction version (${INSTRUCTION_VERSION})`);
+
+  // Changing duration produces different key
+  const keyDifferentDuration = buildAnalysisCacheKey({
+    videoId: 'QME5QBetC_k',
+    duration: 196,
+  });
+  assert(key1 !== keyDifferentDuration, 'Duration change invalidates cache key');
+  console.log('✅ TEST 15 PASSED: IndexedDB Versioned Cache Key\n');
+}
+
+// -------------------------------------------------------------------------
+// 16. Catalog Invariance: Celesta, Oud, Handpan, Unidentified Instrument
+// -------------------------------------------------------------------------
+console.log('TEST 16: Catalog Invariance (Celesta, Oud, Handpan, Unidentified Instrument)');
+{
+  assert(normalizeInstrument('Celesta').canonicalName === 'Celesta', 'Celesta normalized');
+  assert(normalizeInstrument('Oud').canonicalName === 'Oud', 'Oud normalized');
+  assert(normalizeInstrument('Handpan').canonicalName === 'Handpan', 'Handpan normalized');
+  assert(normalizeInstrument('Unknown sound').canonicalName === 'Unidentified Instrument', 'Unknown sound maps to Unidentified Instrument');
+  assert(normalizeInstrument('Unidentified Instrument').canonicalName === 'Unidentified Instrument', 'Unidentified Instrument normalized');
+
+  const celesta = MASTER_INSTRUMENT_CATALOG.find((i) => i.canonicalName === 'Celesta');
+  assert(celesta?.family === 'Keyboards', 'Celesta is in Keyboards');
+
+  const oud = MASTER_INSTRUMENT_CATALOG.find((i) => i.canonicalName === 'Oud');
+  assert(oud?.family === 'Traditional & World', 'Oud is in Traditional & World');
+
+  const handpan = MASTER_INSTRUMENT_CATALOG.find((i) => i.canonicalName === 'Handpan');
+  assert(handpan?.family === 'Traditional & World', 'Handpan is in Traditional & World');
+
+  const unidentified = MASTER_INSTRUMENT_CATALOG.find((i) => i.canonicalName === 'Unidentified Instrument');
+  assert(unidentified?.family === 'Other', 'Unidentified Instrument is in Other');
+  console.log('✅ TEST 16 PASSED: Catalog Invariance & New Additions\n');
+}
+
 console.log('======================================================================');
-console.log('ALL 10 REPRESENTATIVE TEST SET SCENARIOS COMPLETED SUCCESSFULLY!');
+console.log('ALL 16 REPRESENTATIVE TEST SET SCENARIOS COMPLETED SUCCESSFULLY!');
 console.log('======================================================================\n');

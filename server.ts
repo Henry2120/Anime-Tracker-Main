@@ -2238,7 +2238,7 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 // In-memory cache for analyzed YouTube performances (versioned to prevent returning outdated analysis)
-const ANALYSIS_CACHE_VERSION = "v5-accurate-timeline-recovery";
+const ANALYSIS_CACHE_VERSION = "v6-hybrid-live-full";
 const youtubeAnalysisCache = new Map<string, any>();
 const windowAnalysisCache = new Map<string, WindowCoverageRecord>();
 const activeAnalysisJobs = new Map<string, Promise<any>>();
@@ -2472,13 +2472,17 @@ CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
 
 3. EVIDENCE-BASED AUDITORY RECOGNITION (NO GENRE/IDENTITY ASSUMPTIONS):
    - Ground every detection in audible acoustic properties. Do NOT infer instruments based on song titles, artists, or typical genre tropes.
-   - Bowed Strings (Violin, Viola, Cello, Double Bass, Strings Ensemble): continuous bow friction, rosin scrape, vibrato, wooden resonance. Distinguish from distorted guitars and synthesizers.
-   - Acoustic Guitars (Acoustic / Classical): fingerpicking nail clicks, chamber resonance, natural nylon/steel string decay. Distinguish from magnetic electric guitars.
-   - Electric Guitars: electromagnetic pick attack, amplifier gain / distortion, overdrive, pitch bends, sustain pedal harmonics.
+   - Bowed Strings:
+     * Identify specific instruments whenever evidence permits: Violin, Viola, Cello, Double Bass.
+     * Do NOT use generic labels like "Strings" or "Ensemble" as individual instruments.
+     * If a bowed string section is audibly playing but individual instruments cannot be distinctly isolated, classify strictly as "Unresolved String Section".
+   - Plucked & Strummed Strings:
+     * Acoustic Guitar (fingerpicking/strumming, wooden chamber decay), Classical Guitar (nylon strings), Electric Guitar (magnetic pickup attack, overdrive, amplifier distortion), Bass Guitar (4/5 string electric bass), Harp, Banjo, Mandolin, Ukulele.
    - Pianos & Keyboards:
-     * Acoustic Piano: felt hammers striking steel strings, soundboard resonance.
+     * Acoustic Piano / Grand Piano: felt hammers striking steel strings, soundboard resonance.
      * Electric Piano (Rhodes/Wurlitzer): bell-like metallic chime, electromechanical tines.
      * Synthesizer: electronic waveforms, digital filters, arpeggiators, or synth pads.
+     * Organ / Pipe Organ / Harpsichord / Celesta / Accordion.
    - Bass Voice:
      * Bass Guitar: metallic finger/pick plucks on 4/5-string electric bass with amplifier low-end.
      * Double Bass / Upright Bass: acoustic bowed contrabass groan or deep hollow pizzicato thud.
@@ -2487,15 +2491,18 @@ CRITICAL GENERAL-PURPOSE ACOUSTIC TRANSCRIPTION PRINCIPLES:
      * Conventional Drum Kit: acoustic kick, snare drum with wire snare buzz, metal hi-hats, toms, cymbals.
      * Orchestral Percussion: concert timpani, gran cassa, tubular bells, glockenspiel, orchestral crash cymbals.
      * Drum Machine / Electronic Drums: quantized 808/909 samples, synthetic beat programming.
-   - Woodwinds & Brass:
-     * Flute, Piccolo, Oboe, Clarinet, Bassoon, Saxophone: reedy / edge-tone breath dynamics.
-     * Trumpet, French Horn, Trombone, Tuba: metallic lip-buzz brass projection.
-   - Vocals & Choirs:
-     * Lead Vocals (solo human voice singing melody/lyrics).
-     * Backing Vocals (vocal harmonies supporting lead).
-     * Choir (large multi-voice polyphonic ensemble singing in soprano/alto/tenor/bass harmony).
+   - Woodwinds:
+     * Flute, Piccolo, Oboe, Clarinet, Bass Clarinet, Bassoon, Saxophone, Recorder (or "Unresolved Woodwind Section" if blended).
+   - Brass:
+     * Trumpet, French Horn, Trombone, Tuba, Cornet, Flugelhorn (or "Unresolved Brass Section" if blended).
+   - Vocals & Voices (Strict distinctions):
+     * "Male Solo Voice" or "Female Solo Voice": single lead human singer carrying melody/lyrics.
+     * "Male Backing Vocals", "Female Backing Vocals", or "Mixed Backing Vocals": vocal harmonies supporting lead.
+     * "Male Choir", "Female Choir", or "Mixed Choir": multi-voice ensemble singing in polyphonic harmony (do NOT classify every voice as choir; do NOT infer choir merely from reverb/delay/layered production).
+     * "Spoken Male Voice" or "Spoken Female Voice": spoken dialogue, recitation, or speech without singing.
+     * "Unclassified Voice": singing voice where gender presentation or solo/ensemble distinction is acoustically ambiguous.
    - Traditional & World:
-     * Shamisen, Koto, Erhu, Guzheng, Pipa, Shakuhachi, Sitar, Tabla, Taiko: identify unique acoustic timbre.
+     * Shamisen, Koto, Erhu, Guzheng, Pipa, Shakuhachi, Sitar, Tabla, Taiko, Oud, Handpan: identify unique acoustic timbre.
 
 4. SENSITIVITY TO TRANSIENT, QUIET, & LAYERED VOICES:
    - Recognize quiet instruments playing underneath louder instruments (e.g. background strings, acoustic piano chords, soft rhythm guitar, or bass).
@@ -2526,8 +2533,8 @@ Determine:
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       retriesRun++;
-      const backoffMs = 1000 * Math.pow(2, attempt - 1);
-      console.log(`[MUSIC LAB] Window ${win.id} retry ${attempt}/${maxRetries} after ${backoffMs}ms backoff...`);
+      const backoffMs = Math.min(10000, 1000 * Math.pow(2, attempt - 1) + Math.random() * 500);
+      console.log(`[MUSIC LAB] Window ${win.id} retry ${attempt}/${maxRetries} after ${Math.round(backoffMs)}ms backoff with jitter...`);
       await new Promise((r) => setTimeout(r, backoffMs));
     }
 
@@ -2629,6 +2636,7 @@ Determine:
 
   // All retries failed for this window
   console.error(`[MUSIC LAB] Window ${win.id} permanently failed after ${retriesRun} retries. Error: ${lastError}`);
+  const isQuota = lastError?.includes("429") || lastError?.includes("RESOURCE_EXHAUSTED");
   return {
     windowId: win.id,
     index: win.index,
@@ -2636,9 +2644,11 @@ Determine:
     requestedEnd: win.endTime,
     processedStart: 0,
     processedEnd: 0,
-    status: "failed",
+    status: isQuota ? ("quota_exceeded" as any) : "failed",
     retryCount: retriesRun,
-    error: lastError,
+    error: isQuota
+      ? "Gemini API rate limit exceeded (429). Completed intervals preserved; please retry incomplete sections shortly."
+      : lastError,
     audioAssessment: "uncertain",
     isSilence: false,
     needsRecovery: true,
@@ -2710,7 +2720,36 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       const effectiveTitle = oembedTitle || titleHint || "YouTube Track";
       const targetUrl = url || `https://www.youtube.com/watch?v=${cleanVideoId}`;
 
-      // 2. Query Gemini AI with server-side API Key
+      // Browser-side YAMNet inference active. No Gemini API calls, retries, or quota usage.
+      return {
+        success: true,
+        status: 'local_yamnet_active',
+        videoId: cleanVideoId,
+        title: effectiveTitle,
+        artist: oembedAuthor || "YouTube Artist",
+        analysisSummary: "Instrument classification is performed locally in the browser using pretrained YAMNet (AudioSet). No Gemini API calls or paid quotas are consumed.",
+        coverage: {
+          totalDuration: typeof duration === 'number' && duration > 0 ? duration : 0,
+          authoritativeDurationEstablished: typeof duration === 'number' && duration > 0,
+          isFullCoverage: false,
+          coveragePercentage: 0,
+          analyzedRanges: [],
+          missingRanges: [],
+          confirmedSilentRanges: [],
+          nonInstrumentRanges: [],
+          uncertainRanges: [],
+          totalWindows: 0,
+          successfulWindows: 0,
+          failedWindows: 0,
+          retryCount: 0,
+          status: 'detected',
+        },
+        instrumentSegments: [],
+        allDetectedInstruments: [],
+        source: 'local_yamnet_browser',
+        cacheVersion: 'yamnet-local-v1',
+      };
+
       const ai = getGeminiClient();
       if (!ai) {
         console.warn(`[MUSIC LAB] Gemini API key not configured for analysis of video ${cleanVideoId}`);
@@ -2928,6 +2967,156 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
   } catch (err: any) {
     console.error("[MUSIC LAB] Error in analyze-youtube handler:", err);
     return res.status(500).json({ success: false, status: 'error', error: err.message || "Internal server error" });
+  }
+});
+
+// ----------------------------------------------------
+// TRUE LIVE DETECTION: AUDIO CHUNK ANALYSIS ENDPOINT
+// ----------------------------------------------------
+app.post("/api/music/analyze-audio-chunk", async (req, res) => {
+  try {
+    const {
+      audioData,
+      mimeType,
+      chunkDuration,
+      playbackStart,
+      playbackEnd,
+      videoId,
+      generationId,
+      isProvisional,
+    } = req.body || {};
+
+    // Audio chunk analysis runs client-side in the browser via YAMNet.
+    return res.json({
+      success: true,
+      status: "local_yamnet_active",
+      segments: [],
+      message: "Audio chunk analysis runs client-side in the browser via YAMNet.",
+    });
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({
+        success: false,
+        error: "GEMINI_API_KEY is not configured on the server. Please attach GEMINI_API_KEY in the Secrets panel in AI Studio settings to enable live audio detection.",
+      });
+    }
+
+    const cleanMime = (typeof mimeType === "string" ? mimeType.split(";")[0] : "") || "audio/webm";
+    const duration = typeof chunkDuration === "number" && chunkDuration > 0 ? chunkDuration : 8.0;
+    const startSec = typeof playbackStart === "number" ? Math.max(0, playbackStart) : 0;
+    const endSec = typeof playbackEnd === "number" ? Math.max(startSec + 0.5, playbackEnd) : startSec + duration;
+
+    const systemInstruction = `You are a world-class, objective acoustic musicologist and real-time audio transcription specialist.
+Your task is to analyze an actual captured live audio chunk (${duration}s length) from a playing YouTube video.
+Strict Rules:
+1. Listen strictly to the actual audio in this chunk.
+2. Output clip-relative timestamps [0.0s to ${duration}s]. 0.0s is the beginning of this audio chunk.
+3. Classify audioAssessment as: "instrumental_music" | "silence" | "non_instrument_audio" | "uncertain".
+4. Identify actual audible instruments and voices:
+   - Bowed Strings: Violin, Viola, Cello, Double Bass, or "Unresolved String Section" if individual instruments cannot be distinctly isolated. Never use generic "Strings" or "Ensemble".
+   - Plucked/Strummed Strings: Acoustic Guitar, Classical Guitar, Electric Guitar, Bass Guitar, Harp, Banjo, Mandolin, Ukulele.
+   - Woodwinds: Flute, Piccolo, Clarinet, Bass Clarinet, Oboe, Bassoon, Saxophone, Recorder, or "Unresolved Woodwind Section".
+   - Brass: Trumpet, French Horn, Trombone, Tuba, Cornet, Flugelhorn, or "Unresolved Brass Section".
+   - Keyboards: Piano, Grand Piano, Electric Piano, Organ, Harpsichord, Synthesizer, Celesta.
+   - Percussion: Drum Kit, Timpani, Snare Drum, Bass Drum, Cymbals, Xylophone, Vibraphone, Marimba, Glockenspiel, Taiko, Drum Machine.
+   - Traditional & World: Erhu, Guzheng, Koto, Shamisen, Sitar, Pipa, Tabla, Oud, Handpan, Shakuhachi.
+   - Vocals & Voices (Strict distinctions):
+     * "Male Solo Voice" or "Female Solo Voice": single lead human singer carrying melody/lyrics.
+     * "Male Backing Vocals", "Female Backing Vocals", or "Mixed Backing Vocals": vocal harmonies supporting lead.
+     * "Male Choir", "Female Choir", or "Mixed Choir": multi-voice ensemble singing in polyphonic harmony (do NOT classify every voice as choir; do NOT infer choir merely from reverb/delay/layered production).
+     * "Spoken Male Voice" or "Spoken Female Voice": spoken dialogue, recitation, or speech without singing.
+     * "Unclassified Voice": singing voice where gender presentation or solo/ensemble distinction is acoustically ambiguous.
+5. If only speech or ambient sound is present without instruments, set audioAssessment="non_instrument_audio" and instrumentSegments=[].
+6. If the audio is silent or a rest, set audioAssessment="silence" and instrumentSegments=[].`;
+
+    const promptText = `Analyze this ${duration}s captured audio chunk.
+Determine:
+1. audioAssessment: "instrumental_music" | "silence" | "non_instrument_audio" | "uncertain".
+2. chunkSummary: Brief summary of sounds heard.
+3. instrumentSegments: Array of instruments and voices audibly sounding with clip-relative timestamps [0.0s to ${duration}s].`;
+
+    const mediaPart = {
+      inlineData: {
+        mimeType: cleanMime,
+        data: audioData,
+      },
+    };
+
+    const aiResponse = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: [mediaPart, { text: promptText }],
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            audioAssessment: {
+              type: Type.STRING,
+              enum: ["instrumental_music", "silence", "non_instrument_audio", "uncertain"],
+            },
+            chunkSummary: { type: Type.STRING },
+            instrumentSegments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  instrumentName: { type: Type.STRING },
+                  family: { type: Type.STRING },
+                  startTime: { type: Type.NUMBER },
+                  endTime: { type: Type.NUMBER },
+                  evidence: { type: Type.STRING },
+                },
+                required: ["instrumentName", "family", "startTime", "endTime"],
+              },
+            },
+          },
+          required: ["audioAssessment", "instrumentSegments"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(aiResponse?.text || "{}");
+    const rawSegments = Array.isArray(parsed.instrumentSegments) ? parsed.instrumentSegments : [];
+
+    // Map clip-relative timestamps [0.0 to duration] to absolute playback clock [startSec, endSec]
+    const absoluteSegments = rawSegments.map((seg: any) => {
+      const relStart = typeof seg.startTime === "number" ? Math.max(0, Math.min(duration, seg.startTime)) : 0;
+      const relEnd = typeof seg.endTime === "number" ? Math.max(relStart + 0.3, Math.min(duration, seg.endTime)) : duration;
+      const mappedStart = Math.round((startSec + relStart) * 10) / 10;
+      const mappedEnd = Math.round((startSec + relEnd) * 10) / 10;
+      return {
+        ...seg,
+        startTime: mappedStart,
+        endTime: mappedEnd,
+        status: isProvisional ? "provisional" : "confirmed",
+      };
+    });
+
+    const validSegments = validateAndMergeTimelineSegments(absoluteSegments, {
+      gapMergeThreshold: 1.0,
+    });
+
+    return res.json({
+      success: true,
+      audioAssessment: parsed.audioAssessment || "uncertain",
+      chunkSummary: parsed.chunkSummary || "",
+      playbackStart: startSec,
+      playbackEnd: endSec,
+      generationId,
+      segments: validSegments,
+    });
+  } catch (err: any) {
+    console.error("[MUSIC LAB] Error in analyze-audio-chunk:", err);
+    const isRateLimit = err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+    return res.status(isRateLimit ? 429 : 500).json({
+      success: false,
+      isRateLimit,
+      error: isRateLimit
+        ? "Gemini API rate limit reached (429). Live audio chunk processing is temporarily throttled."
+        : err?.message || "Failed to analyze live audio chunk.",
+    });
   }
 });
 
