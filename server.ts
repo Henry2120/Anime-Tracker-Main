@@ -2720,36 +2720,7 @@ app.post("/api/music/analyze-youtube", async (req, res) => {
       const effectiveTitle = oembedTitle || titleHint || "YouTube Track";
       const targetUrl = url || `https://www.youtube.com/watch?v=${cleanVideoId}`;
 
-      // Browser-side YAMNet inference active. No Gemini API calls, retries, or quota usage.
-      return {
-        success: true,
-        status: 'local_yamnet_active',
-        videoId: cleanVideoId,
-        title: effectiveTitle,
-        artist: oembedAuthor || "YouTube Artist",
-        analysisSummary: "Instrument classification is performed locally in the browser using pretrained YAMNet (AudioSet). No Gemini API calls or paid quotas are consumed.",
-        coverage: {
-          totalDuration: typeof duration === 'number' && duration > 0 ? duration : 0,
-          authoritativeDurationEstablished: typeof duration === 'number' && duration > 0,
-          isFullCoverage: false,
-          coveragePercentage: 0,
-          analyzedRanges: [],
-          missingRanges: [],
-          confirmedSilentRanges: [],
-          nonInstrumentRanges: [],
-          uncertainRanges: [],
-          totalWindows: 0,
-          successfulWindows: 0,
-          failedWindows: 0,
-          retryCount: 0,
-          status: 'detected',
-        },
-        instrumentSegments: [],
-        allDetectedInstruments: [],
-        source: 'local_yamnet_browser',
-        cacheVersion: 'yamnet-local-v1',
-      };
-
+      // 2. Query Gemini AI with server-side API Key
       const ai = getGeminiClient();
       if (!ai) {
         console.warn(`[MUSIC LAB] Gemini API key not configured for analysis of video ${cleanVideoId}`);
@@ -2986,13 +2957,9 @@ app.post("/api/music/analyze-audio-chunk", async (req, res) => {
       isProvisional,
     } = req.body || {};
 
-    // Audio chunk analysis runs client-side in the browser via YAMNet.
-    return res.json({
-      success: true,
-      status: "local_yamnet_active",
-      segments: [],
-      message: "Audio chunk analysis runs client-side in the browser via YAMNet.",
-    });
+    if (!audioData || typeof audioData !== "string") {
+      return res.status(400).json({ success: false, error: "Missing audioData base64 payload" });
+    }
 
     const ai = getGeminiClient();
     if (!ai) {

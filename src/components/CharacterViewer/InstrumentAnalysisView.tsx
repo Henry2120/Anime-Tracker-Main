@@ -22,9 +22,6 @@ import {
   Radio,
   Square,
   RotateCcw,
-  FileAudio,
-  Upload,
-  Cpu,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
 import { extractYouTubeVideoId, PRESET_CONCERT_TRACKS } from './ConcertMusicContext';
@@ -44,12 +41,10 @@ import {
   clearCachedAnalysisFromDB,
 } from '../../utils/analysisCacheIndexedDB';
 import {
+  LiveTabAudioCaptureSession,
   isTabAudioCaptureSupported,
   LiveCaptureError,
 } from '../../utils/audioCapture';
-import { YamnetTabAudioStreamer } from '../../utils/yamnetTabAudioStreamer';
-import { analyzeLocalAudioFile } from '../../utils/localAudioClassifier';
-import { yamnetService } from '../../utils/yamnetAudioClassifier';
 
 export interface InstrumentAnalysisViewProps {
   theme?: AppTheme;
@@ -159,23 +154,14 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const [videoTitle, setVideoTitle] = useState('Elegy of the End (Lappy)');
   const [videoArtist, setVideoArtist] = useState('Lappy');
 
-  // Input Modes: YouTube Tab Audio vs Local Audio File
-  const [analysisMode, setAnalysisMode] = useState<'youtube' | 'local_file'>('youtube');
+  // Hybrid Analysis Mode & Session States (Section 2 & 4)
+  const [analysisMode, setAnalysisMode] = useState<'full_track' | 'live'>('full_track');
   const [sessionState, setSessionState] = useState<
     'idle' | 'preparing' | 'detecting' | 'processing' | 'completed' | 'stopped' | 'error'
   >('idle');
   const [isCachedResult, setIsCachedResult] = useState<boolean>(false);
   const [liveCaptureError, setLiveCaptureError] = useState<LiveCaptureError | null>(null);
   const [liveDelayNotice, setLiveDelayNotice] = useState<string | null>(null);
-
-  // Local Audio File State
-  const [localAudioFile, setLocalAudioFile] = useState<File | null>(null);
-  const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
-  const [localAudioProgress, setLocalAudioProgress] = useState<{
-    progress: number;
-    currentSec: number;
-    totalSec: number;
-  } | null>(null);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -210,7 +196,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     description?: string;
   }[]>([]);
 
-  // Synchronized Player State (YouTube or Local HTML5 Audio)
+  // YouTube Player Synchronized State
   const [playerCurrentTime, setPlayerCurrentTime] = useState<number>(0);
   const [playerDuration, setPlayerDuration] = useState<number>(0);
   const [isPlayerPlaying, setIsPlayerPlaying] = useState<boolean>(false);
@@ -221,13 +207,10 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const [collapsedFamilies, setCollapsedFamilies] = useState<Record<string, boolean>>({});
 
   const ytPlayerRef = useRef<any>(null);
-  const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const timePollingIntervalRef = useRef<any>(null);
   const currentGenerationIdRef = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const localAudioAbortRef = useRef<AbortController | null>(null);
-  const yamnetStreamerRef = useRef<YamnetTabAudioStreamer | null>(null);
-  const liveCaptureSessionRef = useRef<any>(null);
+  const liveCaptureSessionRef = useRef<LiveTabAudioCaptureSession | null>(null);
   const playerLoadedVideoIdRef = useRef<string | null>(null);
   const playerDurationsMapRef = useRef<Map<string, number>>(new Map());
 
@@ -372,36 +355,17 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const handleSeek = (seconds: number) => {
     const target = Math.max(0, seconds);
     setPlayerCurrentTime(target);
-
-    if (analysisMode === 'local_file') {
-      if (localAudioRef.current) {
-        localAudioRef.current.currentTime = target;
-      }
-    } else {
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-        try {
-          ytPlayerRef.current.seekTo(target, true);
-        } catch (err) {
-          console.warn('[Analysis Player] seek error:', err);
-        }
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      try {
+        ytPlayerRef.current.seekTo(target, true);
+      } catch (err) {
+        console.warn('[Analysis Player] seek error:', err);
       }
     }
   };
 
-  // Toggle play/pause on player (YouTube or Local Audio)
+  // Toggle play/pause on player
   const handleTogglePlay = () => {
-    if (analysisMode === 'local_file') {
-      if (!localAudioRef.current) return;
-      if (isPlayerPlaying) {
-        localAudioRef.current.pause();
-      } else {
-        localAudioRef.current.play().catch((err) => {
-          console.warn('[Local Player] play error:', err);
-        });
-      }
-      return;
-    }
-
     if (!ytPlayerRef.current) return;
     try {
       if (isPlayerPlaying) {
@@ -485,9 +449,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // ANALYZE TRACK ACTION (BACKEND GEMINI REQUEST)
   // =========================================================================
   // =========================================================================
-  // STOP ACTION
-  // Cancels pending requests, stops tab audio capture, releases Web Audio nodes,
-  // stops YAMNet streamer, and pauses playback.
+  // STOP ACTION (SECTION 4)
+  // Cancels pending requests, stops audio tracks, releases nodes, invalidates session
   // =========================================================================
   const handleStop = useCallback(() => {
     // Invalidate outstanding requests via generation ID
@@ -498,23 +461,9 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       abortControllerRef.current = null;
     }
 
-    if (localAudioAbortRef.current) {
-      localAudioAbortRef.current.abort();
-      localAudioAbortRef.current = null;
-    }
-
-    if (yamnetStreamerRef.current) {
-      yamnetStreamerRef.current.stop();
-      yamnetStreamerRef.current = null;
-    }
-
     if (liveCaptureSessionRef.current) {
       liveCaptureSessionRef.current.stop();
       liveCaptureSessionRef.current = null;
-    }
-
-    if (localAudioRef.current) {
-      localAudioRef.current.pause();
     }
 
     setIsAnalyzing(false);
@@ -529,20 +478,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      if (localAudioAbortRef.current) {
-        localAudioAbortRef.current.abort();
-      }
-      if (yamnetStreamerRef.current) {
-        yamnetStreamerRef.current.stop();
-      }
       if (liveCaptureSessionRef.current) {
         liveCaptureSessionRef.current.stop();
       }
-      if (localAudioUrl) {
-        URL.revokeObjectURL(localAudioUrl);
-      }
     };
-  }, [localAudioUrl]);
+  }, []);
 
   // =========================================================================
   // FULL-TRACK ANALYSIS ACTION (BACKEND GEMINI REQUEST + INDEXEDDB CACHE)
@@ -567,7 +507,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
       abortControllerRef.current = new AbortController();
 
-      setAnalysisMode('youtube');
+      setAnalysisMode('full_track');
       setSessionState('preparing');
       setIsAnalyzing(true);
       setAnalysisError(null);
@@ -736,15 +676,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // TRUE LIVE DETECTION ACTION (SECTION 8)
   // Captures actual audio while YouTube recording is playing
   // =========================================================================
-  // =========================================================================
-  // TRUE LIVE DETECTION ACTION (BROWSER-LOCAL YAMNET TAB AUDIO STREAMER)
-  // Captures actual audio via getDisplayMedia and classifies locally with YAMNet
-  // =========================================================================
   const handleStartLiveDetection = async () => {
     handleStop();
 
     const generationId = ++currentGenerationIdRef.current;
-    setAnalysisMode('youtube');
+    setAnalysisMode('live');
     setLiveCaptureError(null);
     setAnalysisError(null);
     setLiveDelayNotice(null);
@@ -752,152 +688,96 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setIsAnalyzing(true);
 
     try {
-      const streamer = new YamnetTabAudioStreamer({
+      const session = new LiveTabAudioCaptureSession({
         generationId,
         getPlaybackTime: () => (ytPlayerRef.current?.getCurrentTime?.() ?? playerCurrentTime),
         onStatusChange: (status, error) => {
           if (generationId !== currentGenerationIdRef.current) return;
           if (status === 'capturing') {
             setSessionState('detecting');
-          } else if (status === 'loading_model') {
-            setSessionState('preparing');
           } else if (status === 'stopped') {
             setSessionState('stopped');
             setIsAnalyzing(false);
           } else if (status === 'error' && error) {
-            setLiveCaptureError(error as any);
+            setLiveCaptureError(error);
             setAnalysisError(error.message);
             setSessionState('error');
             setIsAnalyzing(false);
           }
         },
-        onDetection: ({ startTime, endTime, detections, isSilence }) => {
+        onChunk: async (payload) => {
           if (generationId !== currentGenerationIdRef.current) return;
-          if (isSilence || !detections || detections.length === 0) return;
+          const chunkStartTime = Date.now();
 
-          const newSegments: InstrumentTimelineSegment[] = detections.map((d, idx) => ({
-            id: `yamnet-live-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-            instrumentName: d.canonicalName,
-            family: d.family,
-            startTime: Math.round(startTime * 100) / 100,
-            endTime: Math.round(endTime * 100) / 100,
-            confidence: Math.round(d.score * 100),
-            audibility: (d.score >= 0.5 ? 'audible' : 'suspected') as 'audible' | 'suspected',
-            isVoice: d.isVoice || d.family === 'Voice & Electronic',
-            status: 'confirmed',
-            evidence: `YAMNet AudioSet: ${d.categoryName} (${Math.round(d.score * 100)}%)`,
-          }));
-
-          setTimelineSegments((prev) => {
-            const combined = [...prev, ...newSegments];
-            return parseTimelineSegments(combined, { gapMergeThreshold: 1.0 });
-          });
-
-          setAllDetectedInstruments((prev) => {
-            const map = new Map<string, { name: string; family: string }>();
-            prev.forEach((i) => map.set(i.name.toLowerCase(), i));
-            newSegments.forEach((seg) => {
-              if (!map.has(seg.instrumentName.toLowerCase())) {
-                map.set(seg.instrumentName.toLowerCase(), {
-                  name: seg.instrumentName,
-                  family: seg.family,
-                });
-              }
+          try {
+            const res = await fetch('/api/music/analyze-audio-chunk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                audioData: payload.audioBase64,
+                mimeType: payload.mimeType,
+                chunkDuration: payload.chunkDuration,
+                playbackStart: payload.playbackStart,
+                playbackEnd: payload.playbackEnd,
+                videoId: activeVideoId,
+                generationId,
+                isProvisional: payload.isProvisional,
+              }),
             });
-            return Array.from(map.values());
-          });
 
-          setAnalysisStatus('detected');
-        },
-      });
+            if (generationId !== currentGenerationIdRef.current) return;
 
-      yamnetStreamerRef.current = streamer;
-      await streamer.start();
-    } catch (err: any) {
-      if (generationId !== currentGenerationIdRef.current) return;
-      console.warn('[YAMNet Live Streamer] Start failed:', err);
-      setSessionState('error');
-      setIsAnalyzing(false);
-    }
-  };
+            const elapsedSec = (Date.now() - chunkStartTime) / 1000;
+            if (elapsedSec > payload.chunkDuration) {
+              setLiveDelayNotice(
+                `Live processing is delayed by ${Math.round(elapsedSec - payload.chunkDuration)}s. Audio timestamps remain synchronized with playback clock.`
+              );
+            } else {
+              setLiveDelayNotice(null);
+            }
 
-  // =========================================================================
-  // LOCAL AUDIO FILE ANALYSIS (BROWSER-SIDE YAMNET CLASSIFIER)
-  // Decodes local audio file into AudioBuffer, resamples to 16kHz mono, and runs YAMNet
-  // =========================================================================
-  const handleSelectLocalAudioFile = (file: File) => {
-    handleStop();
-    if (localAudioUrl) {
-      URL.revokeObjectURL(localAudioUrl);
-    }
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              console.warn('[Live Detection] Chunk failed:', errData);
+              return;
+            }
 
-    const url = URL.createObjectURL(file);
-    setLocalAudioFile(file);
-    setLocalAudioUrl(url);
-    setVideoTitle(file.name.replace(/\.[^/.]+$/, ''));
-    setVideoArtist('Local Audio File');
-    setPlayerCurrentTime(0);
-    setPlayerDuration(0);
-    setTimelineSegments([]);
-    setAllDetectedInstruments([]);
-    setAnalysisCoverage(null);
-    setLocalAudioProgress(null);
-    setSessionState('idle');
-    setIsAnalyzing(false);
-    setAnalysisStatus('idle');
-    setAnalysisError(null);
-  };
+            const chunkResult = await res.json();
+            if (generationId !== currentGenerationIdRef.current) return;
 
-  const handleStartLocalFileAnalysis = async () => {
-    if (!localAudioFile) {
-      setAnalysisError('Please choose an audio file first (.mp3, .wav, .ogg, .flac, .m4a).');
-      return;
-    }
+            if (Array.isArray(chunkResult.segments) && chunkResult.segments.length > 0) {
+              setTimelineSegments((prev) => {
+                const combined = [...prev, ...chunkResult.segments];
+                return parseTimelineSegments(combined, { gapMergeThreshold: 1.0 });
+              });
 
-    handleStop();
-    const generationId = ++currentGenerationIdRef.current;
-    setIsAnalyzing(true);
-    setSessionState('processing');
-    setAnalysisError(null);
-    setLocalAudioProgress({ progress: 0, currentSec: 0, totalSec: 0 });
+              setAllDetectedInstruments((prev) => {
+                const map = new Map<string, { name: string; family: string }>();
+                prev.forEach((i) => map.set(i.name.toLowerCase(), i));
+                chunkResult.segments.forEach((seg: any) => {
+                  if (!map.has(seg.instrumentName.toLowerCase())) {
+                    map.set(seg.instrumentName.toLowerCase(), {
+                      name: seg.instrumentName,
+                      family: seg.family,
+                    });
+                  }
+                });
+                return Array.from(map.values());
+              });
 
-    localAudioAbortRef.current = new AbortController();
-
-    try {
-      const result = await analyzeLocalAudioFile(
-        localAudioFile,
-        localAudioFile.name,
-        (progress, currentSec, totalSec) => {
-          if (generationId === currentGenerationIdRef.current) {
-            setLocalAudioProgress({ progress, currentSec, totalSec });
+              setAnalysisStatus('detected');
+            }
+          } catch (chunkErr: any) {
+            console.warn('[Live Detection] Chunk request error:', chunkErr);
           }
         },
-        localAudioAbortRef.current.signal
-      );
-
-      if (generationId !== currentGenerationIdRef.current) return;
-
-      setTimelineSegments(result.segments);
-      setAllDetectedInstruments(result.allDetectedInstruments);
-      setPlayerDuration(result.duration);
-      setAnalysisCoverage({
-        startSecond: 0,
-        endSecond: result.duration,
-        totalDuration: result.duration,
-        isFullCoverage: true,
-        coveragePercentage: 100,
-        authoritativeDurationEstablished: true,
-        totalWindows: result.windowResults.length,
-        successfulWindows: result.windowResults.length,
-        failedWindows: 0,
       });
-      setSessionState('completed');
-      setIsAnalyzing(false);
-      setAnalysisStatus(result.segments.length > 0 ? 'detected' : 'unsupported');
+
+      liveCaptureSessionRef.current = session;
+      await session.start();
     } catch (err: any) {
       if (generationId !== currentGenerationIdRef.current) return;
-      console.error('[Local File Analysis] Error:', err);
-      setAnalysisError(err.message || 'Failed to analyze local audio file.');
+      console.warn('[Live Detection] Start failed:', err);
       setSessionState('error');
       setIsAnalyzing(false);
     }
@@ -1079,49 +959,45 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
           </div>
         </div>
 
-        {/* In-Browser YAMNet Mode Selector & Controls */}
+        {/* Hybrid Architecture Mode Selector & Explicit Controls (Section 2, 3, 4, 8) */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#161422] border border-black/10 dark:border-white/10 shadow-sm space-y-3.5">
           {/* Mode Switcher Tabs */}
           <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-black/5 dark:border-white/5">
             <div className="flex items-center p-1 bg-black/5 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5">
               <button
                 type="button"
-                onClick={() => {
-                  handleStop();
-                  setAnalysisMode('youtube');
-                }}
+                onClick={() => setAnalysisMode('full_track')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  analysisMode === 'youtube'
+                  analysisMode === 'full_track'
+                    ? 'bg-white dark:bg-[#25242A] text-[#7567C7] shadow-xs'
+                    : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
+                }`}
+              >
+                <Activity className="h-3.5 w-3.5" />
+                <span>Full-Track Analysis</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnalysisMode('live')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  analysisMode === 'live'
                     ? 'bg-white dark:bg-[#25242A] text-rose-500 shadow-xs'
                     : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
                 }`}
               >
                 <Radio className="h-3.5 w-3.5" />
-                <span>YouTube Tab Audio (Live YAMNet)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  handleStop();
-                  setAnalysisMode('local_file');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  analysisMode === 'local_file'
-                    ? 'bg-white dark:bg-[#25242A] text-[#7567C7] shadow-xs'
-                    : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white'
-                }`}
-              >
-                <FileAudio className="h-3.5 w-3.5" />
-                <span>Local Audio File (Offline YAMNet)</span>
+                <span>True Live Detection</span>
               </button>
             </div>
 
-            {/* Model & Session State Badge */}
+            {/* Session State Badge */}
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                <Cpu className="h-3 w-3" />
-                <span>YAMNet WebAssembly (No Gemini)</span>
-              </span>
+              {isCachedResult && (
+                <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-[#7567C7]/15 text-[#7567C7] border border-[#7567C7]/30 flex items-center gap-1">
+                  <Zap className="h-3 w-3" />
+                  <span>Durable Cache (IndexedDB)</span>
+                </span>
+              )}
               <span
                 className={`text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
                   sessionState === 'detecting'
@@ -1143,157 +1019,95 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </div>
           </div>
 
-          {/* Mode A: YouTube Controls */}
-          {analysisMode === 'youtube' && (
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={inputUrl}
-                    onChange={(e) => setInputUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleStartFullTrackClick();
-                      }
-                    }}
-                    placeholder="Paste public YouTube URL or 11-char video ID (e.g. x3G1I_9DPf4)..."
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#7567C7] focus:outline-none transition-all placeholder:text-[#9E9AA6]"
-                  />
-                  <Search className="h-4 w-4 absolute left-3 top-3 text-[#9E9AA6]" />
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleStartLiveDetection}
-                    disabled={isAnalyzing}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    {isAnalyzing && sessionState === 'detecting' ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        <span>Live Detecting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Radio className="h-3.5 w-3.5" />
-                        <span>Start Tab Audio Detection</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleStop}
-                    disabled={!isAnalyzing && sessionState !== 'detecting' && sessionState !== 'processing'}
-                    className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-40 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    title="Stop current analysis and preserve completed timeline"
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" />
-                    <span>Stop</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* YouTube Tab Audio Guidance */}
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-200 text-xs flex items-start gap-2">
-                <Info className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
-                <div className="space-y-0.5">
-                  <span className="font-bold">Real-Time In-Browser YAMNet Classification:</span>
-                  <p className="text-[11px] opacity-90">
-                    Click <strong>Start Tab Audio Detection</strong>. When your browser's share dialog appears, select the tab playing this YouTube video and ensure <strong>"Share audio"</strong> is checked. Audio is classified continuously in WebAssembly with zero external API calls.
-                  </p>
-                </div>
-              </div>
+          {/* Input & Action Bar */}
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={inputUrl}
+                onChange={(e) => setInputUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (analysisMode === 'full_track') handleStartFullTrackClick();
+                    else handleStartLiveDetection();
+                  }
+                }}
+                placeholder="Paste public YouTube URL or 11-char video ID (e.g. x3G1I_9DPf4)..."
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#7567C7] focus:outline-none transition-all placeholder:text-[#9E9AA6]"
+              />
+              <Search className="h-4 w-4 absolute left-3 top-3 text-[#9E9AA6]" />
             </div>
-          )}
 
-          {/* Mode B: Local Audio File Controls */}
-          {analysisMode === 'local_file' && (
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
-                <label className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-[#7567C7]/40 hover:border-[#7567C7] bg-[#7567C7]/5 hover:bg-[#7567C7]/10 transition-all cursor-pointer text-xs">
-                  <Upload className="h-4 w-4 text-[#7567C7] shrink-0" />
-                  <span className="truncate font-medium text-[#25242A] dark:text-[#F4F2F7]">
-                    {localAudioFile ? (
-                      <>
-                        <span className="font-bold">{localAudioFile.name}</span>{' '}
-                        <span className="text-[#77747D]">
-                          ({(localAudioFile.size / (1024 * 1024)).toFixed(2)} MB)
-                        </span>
-                      </>
-                    ) : (
-                      'Choose or drop an audio file (.mp3, .wav, .ogg, .flac, .m4a)...'
-                    )}
-                  </span>
-                  <input
-                    type="file"
-                    accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleSelectLocalAudioFile(file);
-                    }}
-                  />
-                </label>
-
-                <div className="flex items-center gap-2 shrink-0">
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 shrink-0">
+              {analysisMode === 'full_track' ? (
+                <>
                   <button
                     type="button"
-                    onClick={handleStartLocalFileAnalysis}
-                    disabled={isAnalyzing || !localAudioFile}
+                    onClick={handleStartFullTrackClick}
+                    disabled={isAnalyzing}
                     className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#7567C7] hover:bg-[#6556B8] disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {isAnalyzing ? (
+                    {isAnalyzing && sessionState !== 'stopped' ? (
                       <>
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        <span>Analyzing Audio...</span>
+                        <span>Analyzing Track...</span>
                       </>
                     ) : (
                       <>
                         <Play className="h-3.5 w-3.5 fill-current" />
-                        <span>Analyze Audio File</span>
+                        <span>Start Full-Track Analysis</span>
                       </>
                     )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleStop}
-                    disabled={!isAnalyzing}
-                    className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-40 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    title="Stop analysis"
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" />
-                    <span>Stop</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Progress Bar for Local File */}
-              {isAnalyzing && localAudioProgress && (
-                <div className="space-y-1.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                  <div className="flex justify-between text-xs font-bold text-purple-900 dark:text-purple-200">
-                    <span>YAMNet AudioSet Analysis</span>
-                    <span>
-                      {localAudioProgress.progress}% ({formatTime(localAudioProgress.currentSec)} / {formatTime(localAudioProgress.totalSec)})
-                    </span>
-                  </div>
-                  <div className="w-full h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-                    <div
-                      className="h-full bg-[#7567C7] rounded-full transition-all duration-150"
-                      style={{ width: `${localAudioProgress.progress}%` }}
-                    />
-                  </div>
-                </div>
+                  {(timelineSegments.length > 0 || isCachedResult) && (
+                    <button
+                      type="button"
+                      onClick={handleRerunFullTrackClick}
+                      disabled={isAnalyzing}
+                      title="Clear local cache and re-analyze with Gemini"
+                      className="px-3 py-2.5 rounded-xl text-xs font-bold bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] dark:text-[#A4A1AA] border border-black/10 dark:border-white/10 transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span className="hidden md:inline">Rerun</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleStartLiveDetection}
+                  disabled={isAnalyzing}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Radio className="h-3.5 w-3.5" />
+                  <span>Start Live Detection</span>
+                </button>
               )}
 
-              {/* Local File Guidance */}
-              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-900 dark:text-purple-200 text-xs flex items-start gap-2">
-                <Info className="h-4 w-4 shrink-0 text-[#7567C7] mt-0.5" />
+              {/* Explicit Stop Button (Section 3 & 4) */}
+              <button
+                type="button"
+                onClick={handleStop}
+                disabled={!isAnalyzing && sessionState !== 'detecting' && sessionState !== 'processing'}
+                className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-40 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                title="Stop current analysis and preserve completed timeline"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+                <span>Stop</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mode Guidance / Explanations */}
+          {analysisMode === 'live' && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-200 text-xs flex items-start gap-2">
+              <Info className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-bold">True Live Tab-Audio Detection:</span>
                 <p className="text-[11px] opacity-90">
-                  Audio is decoded and resampled to 16 kHz mono directly inside your browser. YAMNet analyzes 0.975s audio windows with 50% overlap using local WebAssembly. <strong>No audio data is sent across the network.</strong>
+                  When you click <strong>Start Live Detection</strong>, your browser will open a share dialog. Select the tab playing this YouTube video and ensure <strong>"Share audio"</strong> is checked. Audio is captured in ~8-10s windows as the video plays.
                 </p>
               </div>
             </div>
@@ -1398,10 +1212,10 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               <button
                 type="button"
                 onClick={() => {
-                  if (analysisMode === 'youtube') {
+                  if (analysisMode === 'live') {
                     handleStartLiveDetection();
                   } else {
-                    handleStartLocalFileAnalysis();
+                    handleRerunFullTrackClick();
                   }
                 }}
                 disabled={isAnalyzing}
@@ -1414,16 +1228,12 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         </div>
 
         {/* =========================================================================
-            2. SYNCHRONIZED PLAYER (YOUTUBE EMBED OR LOCAL AUDIO PLAYER)
+            2. EMBEDDED YOUTUBE PLAYER & SYNCHRONIZATION CONTROLLER
             ========================================================================= */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#161422] border border-black/10 dark:border-white/10 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {analysisMode === 'youtube' ? (
-                <Youtube className="h-4 w-4 text-red-500" />
-              ) : (
-                <FileAudio className="h-4 w-4 text-[#7567C7]" />
-              )}
+              <Youtube className="h-4 w-4 text-red-500" />
               <h2 className="text-xs sm:text-sm font-bold text-[#25242A] dark:text-[#F4F2F7] truncate max-w-md">
                 {videoTitle} {videoArtist ? `— ${videoArtist}` : ''}
               </h2>
@@ -1439,69 +1249,10 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </div>
           </div>
 
-          {/* Hidden HTML5 Audio Element for Local Audio Playback */}
-          <audio
-            ref={localAudioRef}
-            src={localAudioUrl || undefined}
-            onTimeUpdate={(e) => {
-              const cur = e.currentTarget.currentTime;
-              if (typeof cur === 'number' && !isNaN(cur)) {
-                setPlayerCurrentTime(cur);
-              }
-            }}
-            onDurationChange={(e) => {
-              const dur = e.currentTarget.duration;
-              if (typeof dur === 'number' && dur > 0 && !isNaN(dur)) {
-                setPlayerDuration(dur);
-              }
-            }}
-            onPlay={() => setIsPlayerPlaying(true)}
-            onPause={() => setIsPlayerPlaying(false)}
-            onEnded={() => setIsPlayerPlaying(false)}
-            className="hidden"
-          />
-
-          {/* YouTube Video Container (Mode A) */}
-          <div
-            className={`relative w-full aspect-video max-w-3xl mx-auto rounded-xl overflow-hidden bg-black shadow-inner border border-black/15 ${
-              analysisMode === 'youtube' ? 'block' : 'hidden'
-            }`}
-          >
+          {/* Embedded YouTube Iframe Target (16:9 Aspect Ratio) */}
+          <div className="relative w-full aspect-video max-w-3xl mx-auto rounded-xl overflow-hidden bg-black shadow-inner border border-black/15">
             <div id="analysis-embedded-yt-player" className="w-full h-full" />
           </div>
-
-          {/* Local Audio File Card (Mode B) */}
-          {analysisMode === 'local_file' && (
-            <div className="p-6 rounded-xl bg-gradient-to-br from-[#7567C7]/10 via-[#7567C7]/5 to-transparent border border-[#7567C7]/20 flex flex-col items-center justify-center space-y-3">
-              <div className="p-4 rounded-2xl bg-[#7567C7]/15 text-[#7567C7]">
-                <Music className="h-8 w-8" />
-              </div>
-              <div className="text-center">
-                <span className="text-sm font-bold text-[#25242A] dark:text-[#F4F2F7]">
-                  {localAudioFile ? localAudioFile.name : 'No audio file loaded'}
-                </span>
-                <p className="text-xs text-[#77747D] dark:text-[#A4A1AA] mt-0.5">
-                  {localAudioFile
-                    ? `${(localAudioFile.size / (1024 * 1024)).toFixed(2)} MB • ${formatTime(effectiveDuration)} duration`
-                    : 'Choose an audio file above to analyze and play locally'}
-                </p>
-              </div>
-
-              {localAudioFile && (
-                <div className="w-full max-w-md pt-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={effectiveDuration || 100}
-                    step={0.1}
-                    value={playerCurrentTime}
-                    onChange={(e) => handleSeek(parseFloat(e.target.value))}
-                    className="w-full accent-[#7567C7] cursor-pointer"
-                  />
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Quick Playback Transport Controls */}
           <div className="flex items-center justify-between pt-1">
@@ -1509,8 +1260,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               <button
                 type="button"
                 onClick={handleTogglePlay}
-                disabled={analysisMode === 'local_file' && !localAudioFile}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   isPlayerPlaying
                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     : 'bg-[#7567C7] hover:bg-[#6556B8] text-white'
@@ -1524,7 +1274,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 ) : (
                   <>
                     <Play className="h-3.5 w-3.5 fill-current" />
-                    <span>{analysisMode === 'local_file' ? 'Play Audio' : 'Play Video'}</span>
+                    <span>Play Video</span>
                   </>
                 )}
               </button>
@@ -1956,7 +1706,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         <div className="p-3.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 text-[11px] text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-2">
           <Info className="h-4 w-4 shrink-0 text-[#7567C7]" />
           <span>
-            In-browser YAMNet (AudioSet) audio classification runs entirely locally inside WebAssembly. Real-time active instrument highlighting synchronizes directly with the player clock. Zero Gemini API calls and zero server audio processing.
+            Timeline synchronization calculates active instruments directly from the YouTube player's playback position. No audio capture or microphone permissions required.
           </span>
         </div>
       </div>
