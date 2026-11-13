@@ -35,6 +35,9 @@ export interface InstrumentTimelineSegment {
   status?: 'confirmed' | 'provisional'; // Distinguishes provisional vs confirmed detection
   isVoice?: boolean; // Fast flag for vocal category
   evidence?: string;
+  source?: 'gemini' | 'yamnet'; // Analysis engine provenance
+  originalModelClass?: string; // Raw model label (e.g., AudioSet class name)
+  rawScore?: number; // Original unthresholded model probability [0..1]
 }
 
 export interface NormalizedDetectedInstrument {
@@ -800,7 +803,24 @@ export function normalizeInstrument(input: unknown): {
     return { canonicalName: 'Unclassified Voice', family: 'Voice & Electronic', id: 'unclassified-voice' };
   }
 
-  // 1c. Ambiguous / unidentified instrument handling
+  // 1c. Preserve explicit broader AudioSet classifications without coercive sub-instrument matching
+  if (lower === 'guitar (audioset)') {
+    return { canonicalName: 'Guitar (AudioSet)', family: 'Strings', id: 'guitar-general' };
+  }
+  if (lower === 'plucked strings (audioset)') {
+    return { canonicalName: 'Plucked Strings (AudioSet)', family: 'Strings', id: 'plucked-strings-general' };
+  }
+  if (lower === 'keyboard (audioset)') {
+    return { canonicalName: 'Keyboard (AudioSet)', family: 'Keyboards', id: 'keyboard-general' };
+  }
+  if (lower === 'singing bowl (audioset)') {
+    return { canonicalName: 'Singing Bowl (AudioSet)', family: 'Traditional & World', id: 'singing-bowl' };
+  }
+  if (lower === 'orchestra (audioset)') {
+    return { canonicalName: 'Orchestra (AudioSet)', family: 'Other', id: 'orchestra-general' };
+  }
+
+  // 1d. Ambiguous / unidentified instrument handling
   if (lower.includes('unidentified') || lower.includes('unknown') || lower.includes('ambiguous') || lower.includes('unresolved instrument')) {
     return { canonicalName: 'Unidentified Instrument', family: 'Other', id: 'unidentified-instrument' };
   }
@@ -893,6 +913,9 @@ export function validateAndMergeTimelineSegments(
     status?: 'confirmed' | 'provisional';
     isVoice?: boolean;
     evidence?: string;
+    source?: 'gemini' | 'yamnet';
+    originalModelClass?: string;
+    rawScore?: number;
   }[] = [];
 
   rawSegments.forEach((item) => {
@@ -935,6 +958,21 @@ export function validateAndMergeTimelineSegments(
         ? Boolean((item as any).isVoice)
         : isVoiceInstrument(normalized.canonicalName);
 
+    const source: 'gemini' | 'yamnet' | undefined =
+      (item as any).source === 'yamnet'
+        ? 'yamnet'
+        : (item as any).source === 'gemini'
+        ? 'gemini'
+        : undefined;
+    const originalModelClass =
+      typeof (item as any).originalModelClass === 'string'
+        ? (item as any).originalModelClass
+        : undefined;
+    const rawScore =
+      typeof (item as any).rawScore === 'number' && Number.isFinite((item as any).rawScore)
+        ? (item as any).rawScore
+        : undefined;
+
     validCandidates.push({
       instrumentName: normalized.canonicalName,
       family: normalized.family,
@@ -946,6 +984,9 @@ export function validateAndMergeTimelineSegments(
       status,
       isVoice,
       evidence,
+      source,
+      originalModelClass,
+      rawScore,
     });
   });
 
@@ -981,10 +1022,21 @@ export function validateAndMergeTimelineSegments(
         if (typeof current.confidence === 'number') {
           prev.confidence = Math.max(prev.confidence ?? 0, current.confidence);
         }
+        if (typeof current.rawScore === 'number') {
+          prev.rawScore = Math.max(prev.rawScore ?? 0, current.rawScore);
+        }
         if (current.audibility === 'audible') prev.audibility = 'audible';
         // If one segment is confirmed, the merged segment is confirmed
         if (current.status === 'confirmed' || prev.status === 'confirmed') {
           prev.status = 'confirmed';
+        }
+        if (
+          current.originalModelClass &&
+          !prev.originalModelClass?.includes(current.originalModelClass)
+        ) {
+          prev.originalModelClass = prev.originalModelClass
+            ? `${prev.originalModelClass}, ${current.originalModelClass}`
+            : current.originalModelClass;
         }
         if (current.evidence && !prev.evidence?.includes(current.evidence)) {
           prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
@@ -1007,6 +1059,9 @@ export function validateAndMergeTimelineSegments(
         status: seg.status,
         isVoice: seg.isVoice,
         evidence: seg.evidence,
+        ...(seg.source ? { source: seg.source } : {}),
+        ...(seg.originalModelClass ? { originalModelClass: seg.originalModelClass } : {}),
+        ...(typeof seg.rawScore === 'number' ? { rawScore: seg.rawScore } : {}),
       });
     });
   });

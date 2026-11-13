@@ -28,6 +28,10 @@ import {
   DEFAULT_SCENERY_CONFIG,
 } from './scenery/sceneryTypes';
 import { CompositeEnvironment } from './scenery/CompositeEnvironment';
+import {
+  subscribeGlbEnvironmentStatus,
+  GlbEnvironmentLoadState,
+} from './scenery/GlbEnvironmentAsset';
 
 export interface EnvironmentPreviewPanelProps {
   theme?: AppTheme;
@@ -95,7 +99,7 @@ function PreviewCameraRig({
       enableDamping
       dampingFactor={0.08}
       minDistance={1.5}
-      maxDistance={35.0}
+      maxDistance={45.0}
       minPolarAngle={0.05}
       maxPolarAngle={Math.PI / 2 + 0.15}
       target={[0, 1.2, 0]}
@@ -119,6 +123,11 @@ export const EnvironmentPreviewPanel: React.FC<EnvironmentPreviewPanelProps> = (
     fps: 60,
     frameMs: 1.2,
   });
+  const [glbStatuses, setGlbStatuses] = useState<Record<string, GlbEnvironmentLoadState>>({});
+
+  useEffect(() => {
+    return subscribeGlbEnvironmentStatus(setGlbStatuses);
+  }, []);
 
   const sceneryItems: {
     key: keyof SceneryConfig;
@@ -183,6 +192,22 @@ export const EnvironmentPreviewPanel: React.FC<EnvironmentPreviewPanelProps> = (
       icon: <Sparkles className="h-4 w-4 text-lime-400" />,
       description: 'Floating bioluminescent warm golden-green orbs drifting gently through the environment space.',
       tag: 'Particles',
+    },
+    {
+      key: 'sainteChapelleInterior',
+      name: 'Sainte-Chapelle Interior (GLB)',
+      category: '3D Interior Asset',
+      icon: <Church className="h-4 w-4 text-amber-400" />,
+      description: 'Gothic cathedral interior 3D GLB scene (~34.4 MB). Lazy-loaded only when enabled and disposed when disabled.',
+      tag: '34.4 MB GLB',
+    },
+    {
+      key: 'fireStage',
+      name: 'AniVerse Fire Stage (GLB)',
+      category: 'Animated 3D Stage Asset',
+      icon: <Flame className="h-4 w-4 text-rose-400" />,
+      description: 'Concert fire stage 3D GLB (~4.6 MB) featuring looping FireShow_Loop pyrotechnic animation. Lazy-loaded on demand.',
+      tag: '4.6 MB GLB',
     },
   ];
 
@@ -311,7 +336,29 @@ export const EnvironmentPreviewPanel: React.FC<EnvironmentPreviewPanelProps> = (
             </div>
           </div>
 
-          {/* Viewport Info Overlay Chip */}
+          {/* Viewport Info Overlay Chip & GLB Asset Load Progress */}
+          <div className="absolute bottom-3 left-3 z-20 flex flex-wrap items-center gap-2">
+            {Object.values(glbStatuses)
+              .filter((st) => st.status === 'loading' || st.status === 'error')
+              .map((st) => (
+                <div
+                  key={st.id}
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-bold backdrop-blur-md border shadow-md flex items-center gap-1.5 ${
+                    st.status === 'error'
+                      ? 'bg-rose-950/80 text-rose-200 border-rose-500/40'
+                      : 'bg-black/70 text-amber-200 border-amber-400/30'
+                  }`}
+                >
+                  <Activity className={`h-3 w-3 ${st.status === 'loading' ? 'animate-spin' : ''}`} />
+                  <span>
+                    {st.status === 'loading'
+                      ? `Loading ${st.name}: ${st.progress}%`
+                      : `${st.name}: ${st.errorMessage || 'Load failed'}`}
+                  </span>
+                </div>
+              ))}
+          </div>
+
           <div className="absolute bottom-3 right-3 z-20 px-3 py-1.5 rounded-xl bg-black/60 text-white/80 text-[10px] font-medium backdrop-blur-md border border-white/15 shadow-md flex items-center gap-1.5">
             <Sparkles className="h-3 w-3 text-purple-400" />
             <span>Drag to rotate • Scroll to zoom • {activeCount} active layer{activeCount !== 1 ? 's' : ''}</span>
@@ -330,7 +377,7 @@ export const EnvironmentPreviewPanel: React.FC<EnvironmentPreviewPanelProps> = (
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {SCENERY_PRESETS.map((preset) => {
               const isMatch =
                 JSON.stringify(previewConfig) === JSON.stringify(preset.config);

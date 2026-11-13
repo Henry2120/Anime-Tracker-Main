@@ -44,6 +44,17 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
       colorClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30',
     },
   },
+  {
+    matchFilenames: ['Hinata_Grand_Piano_Exs_Grand_Piano.glb'],
+    matchIds: ['hinata-grand-piano'],
+    matchNames: ['Hinata (Grand Piano)'],
+    role: {
+      roleTag: 'Grand Piano',
+      category: 'Keys',
+      iconType: 'piano',
+      colorClass: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',
+    },
+  },
   // Strings
   {
     matchFilenames: ['Kazusa (Band).glb'],
@@ -111,6 +122,28 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
       colorClass: 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30',
     },
   },
+  {
+    matchFilenames: ['Kisaki_Erhu_Exs_Erhu.glb'],
+    matchIds: ['kisaki-erhu'],
+    matchNames: ['Kisaki (Erhu)'],
+    role: {
+      roleTag: 'Erhu',
+      category: 'Strings',
+      iconType: 'strings',
+      colorClass: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',
+    },
+  },
+  {
+    matchFilenames: ['Saori_Dress_Harp_Exs_Harp (1).glb'],
+    matchIds: ['saori-dress-harp'],
+    matchNames: ['Saori (Dress) with Harp'],
+    role: {
+      roleTag: 'Harp',
+      category: 'Strings',
+      iconType: 'strings',
+      colorClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
+    },
+  },
   // Percussion
   {
     matchFilenames: ['Natsu (Band).glb', 'Natsu (Band) (No Weapon).glb'],
@@ -144,6 +177,17 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
       category: 'Percussion',
       iconType: 'drums',
       colorClass: 'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-500/30',
+    },
+  },
+  {
+    matchFilenames: ['Yuuka_Handpan_Exs_Handpan.glb'],
+    matchIds: ['yuuka-handpan'],
+    matchNames: ['Yuuka (Handpan)'],
+    role: {
+      roleTag: 'Handpan',
+      category: 'Percussion',
+      iconType: 'drums',
+      colorClass: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
     },
   },
   // Woodwinds & Brass

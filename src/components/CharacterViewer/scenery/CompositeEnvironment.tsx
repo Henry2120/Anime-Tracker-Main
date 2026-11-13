@@ -13,6 +13,12 @@ import { GlassChapel } from './GlassChapel';
 import { PerformanceStage } from './PerformanceStage';
 import { BurningFire } from './BurningFire';
 import { GroundSpikes } from './GroundSpikes';
+import { GlbEnvironmentAsset } from './GlbEnvironmentAsset';
+
+export const SAINTE_CHAPELLE_INTERIOR_GLB_URL =
+  'https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Sainte_Chapelle_Interior.glb';
+export const ANIVERSE_FIRE_STAGE_GLB_URL =
+  'https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/AniVerse_Fire_Stage.glb';
 
 export interface CompositeEnvironmentProps {
   config: SceneryConfig;
@@ -22,7 +28,7 @@ export interface CompositeEnvironmentProps {
 
 /**
  * Composite Scenery Environment:
- * Combines any selection of scenery elements:
+ * Combines procedural scenery layers and manually selected lazy-loaded GLB stage/interior assets:
  * - Night Sky & Starfield
  * - Base Ground / Meadow Terrain
  * - Fireflies
@@ -30,6 +36,8 @@ export interface CompositeEnvironmentProps {
  * - Performance Stage
  * - Burning Fire
  * - Ground Spikes
+ * - Sainte-Chapelle Interior (GLB, OFF by default)
+ * - AniVerse Fire Stage (Animated GLB, OFF by default)
  *
  * Ensures balanced lighting and proper depth sorting without washing out models.
  */
@@ -41,14 +49,18 @@ export const CompositeEnvironment: React.FC<CompositeEnvironmentProps> = ({
   const { camera } = useThree();
 
   useEffect(() => {
-    if (camera && camera.far < 165) {
-      camera.far = 165;
+    if (camera && camera.far < 180) {
+      camera.far = 180;
       camera.updateProjectionMatrix();
     }
   }, [camera]);
 
-  const hasAnySky = config.nightSky;
-  const isNightTheme = config.nightSky || config.groundSpikes || config.burningFire || config.glassChapel;
+  const isNightTheme =
+    config.nightSky ||
+    config.groundSpikes ||
+    config.burningFire ||
+    config.glassChapel ||
+    config.fireStage;
 
   return (
     <group name="CompositeEnvironment_Root">
@@ -103,9 +115,36 @@ export const CompositeEnvironment: React.FC<CompositeEnvironmentProps> = ({
         </group>
       )}
 
-      {/* 8. Balanced Environmental Composite Lighting */}
+      {/* 8. Sainte-Chapelle Interior (Lazy-loaded GLB, manual activation only) */}
+      {config.sainteChapelleInterior && (
+        <group name="Env_SainteChapelleInterior">
+          <GlbEnvironmentAsset
+            id="sainte-chapelle-interior"
+            name="Sainte-Chapelle Interior"
+            url={SAINTE_CHAPELLE_INTERIOR_GLB_URL}
+            castShadow={false}
+            receiveShadow={true}
+          />
+        </group>
+      )}
+
+      {/* 9. AniVerse Fire Stage (Lazy-loaded animated GLB with FireShow_Loop, manual activation only) */}
+      {config.fireStage && (
+        <group name="Env_AniVerseFireStage">
+          <GlbEnvironmentAsset
+            id="aniverse-fire-stage"
+            name="AniVerse Fire Stage"
+            url={ANIVERSE_FIRE_STAGE_GLB_URL}
+            preferredClipName="FireShow_Loop"
+            castShadow={false}
+            receiveShadow={true}
+          />
+        </group>
+      )}
+
+      {/* 10. Balanced Environmental Composite Lighting */}
       <group name="Env_Lighting">
-        {isNightTheme ? (
+        {isNightTheme && !config.sainteChapelleInterior ? (
           <>
             {/* Soft Ambient Fill */}
             <ambientLight intensity={0.75} color={config.nightSky ? '#131e33' : '#1e293b'} />
@@ -137,8 +176,8 @@ export const CompositeEnvironment: React.FC<CompositeEnvironmentProps> = ({
           </>
         ) : (
           <>
-            {/* Daylight / Studio Balanced Illumination */}
-            <ambientLight intensity={0.9} color="#ffffff" />
+            {/* Daylight / Interior / Studio Balanced Illumination */}
+            <ambientLight intensity={0.95} color="#ffffff" />
             <directionalLight
               position={[4, 12, 6]}
               intensity={1.3}
@@ -148,7 +187,7 @@ export const CompositeEnvironment: React.FC<CompositeEnvironmentProps> = ({
               shadow-mapSize-height={1024}
               shadow-bias={-0.0005}
             />
-            <directionalLight position={[-4, 8, -4]} intensity={0.5} color="#e2e8f0" />
+            <directionalLight position={[-4, 8, -4]} intensity={0.55} color="#e2e8f0" />
           </>
         )}
       </group>

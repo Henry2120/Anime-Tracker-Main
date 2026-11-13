@@ -81,7 +81,10 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
       const name = (char.manifestEntry.name || '').toLowerCase();
       const id = (char.manifestEntry.id || '').toLowerCase();
       const filename = (char.manifestEntry.filename || '').toLowerCase();
-      const hasHina = name.includes('hina') || id.includes('hina') || filename.includes('hina');
+      const hasHina =
+        (name.includes('hina') && !name.includes('hinata')) ||
+        (id.includes('hina') && !id.includes('hinata')) ||
+        (filename.includes('hina') && !filename.includes('hinata'));
       const hasDress = name.includes('dress') || id.includes('dress') || filename.includes('dress');
       return hasHina && hasDress;
     });

@@ -470,7 +470,10 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     const filename = (char.manifestEntry.filename || '').toLowerCase();
     const name = (char.manifestEntry.name || '').toLowerCase();
 
-    const isHina = id.includes('hina') || filename.includes('hina') || name.includes('hina');
+    const isHina =
+      (id.includes('hina') && !id.includes('hinata')) ||
+      (filename.includes('hina') && !filename.includes('hinata')) ||
+      (name.includes('hina') && !name.includes('hinata'));
     const isDress = id.includes('dress') || filename.includes('dress') || name.includes('dress');
 
     return isHina && isDress;

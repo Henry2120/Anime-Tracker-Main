@@ -75,7 +75,10 @@ export function isHinaPianoPerformer(
   const name = (entry.name || '').toLowerCase();
   const id = (entry.id || '').toLowerCase();
   const filename = (entry.filename || '').toLowerCase();
-  const hasHina = name.includes('hina') || id.includes('hina') || filename.includes('hina');
+  const hasHina =
+    (name.includes('hina') && !name.includes('hinata')) ||
+    (id.includes('hina') && !id.includes('hinata')) ||
+    (filename.includes('hina') && !filename.includes('hinata'));
   const hasDressOrPiano =
     name.includes('dress') ||
     id.includes('dress') ||
@@ -196,6 +199,7 @@ export function useCharacterLoader() {
               // Compute bounding box & statistics
               let vertexCount = 0;
               let meshCount = 0;
+              const isHinaPianoModel = isHinaPianoPerformer(entry, scene);
 
               scene.traverse((obj) => {
                 if ((obj as THREE.Mesh).isMesh) {
@@ -213,13 +217,14 @@ export function useCharacterLoader() {
                     vertexCount += mesh.geometry.attributes.position?.count || 0;
                   }
 
-                  // Detect piano mesh
-                  const isPianoMesh =
-                    mesh.name === 'SubMesh_0' ||
-                    mesh.name === 'Mesh_0' ||
-                    mesh.name.toLowerCase().includes('piano') ||
-                    Boolean(mesh.parent?.name?.toLowerCase().includes('piano')) ||
-                    Boolean(mesh.parent?.parent?.name?.toLowerCase().includes('piano'));
+                  // Detect Dress Hina piano mesh strictly when model is Dress Hina (never override Hinata's Grand Piano PBR colors)
+                  const isHinaPianoMesh =
+                    isHinaPianoModel &&
+                    (mesh.name === 'SubMesh_0' ||
+                      mesh.name === 'Mesh_0' ||
+                      mesh.name.toLowerCase().includes('piano') ||
+                      Boolean(mesh.parent?.name?.toLowerCase().includes('piano')) ||
+                      Boolean(mesh.parent?.parent?.name?.toLowerCase().includes('piano')));
 
                   if (mesh.material) {
                     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -231,7 +236,7 @@ export function useCharacterLoader() {
                       if (m.transparent === false || ('alphaTest' in m && (m as any).alphaTest > 0)) {
                         m.depthWrite = true;
                       }
-                      if (isPianoMesh) {
+                      if (isHinaPianoMesh) {
                         // Piano lacquer finish: smooth glossy clearcoat, elegant specular shine
                         if ('roughness' in m) (m as THREE.MeshStandardMaterial).roughness = 0.22;
                         if ('metalness' in m) (m as THREE.MeshStandardMaterial).metalness = 0.15;

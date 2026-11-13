@@ -39,12 +39,25 @@ import {
   getCachedAnalysisFromDB,
   saveAnalysisToDB,
   clearCachedAnalysisFromDB,
+  getCachedYamnetAnalysisFromDB,
+  saveYamnetAnalysisToDB,
+  clearCachedYamnetAnalysisFromDB,
+  mergeYamnetCaptureRanges,
+  YamnetCaptureRange,
 } from '../../utils/analysisCacheIndexedDB';
 import {
   LiveTabAudioCaptureSession,
   isTabAudioCaptureSupported,
+  isRunningInIframe,
   LiveCaptureError,
 } from '../../utils/audioCapture';
+import {
+  getOrInitializeYamnetClassifier,
+  classifyPcmFrameLocally,
+  mergeYamnetTimelineSegments,
+  YamnetTemporalTracker,
+  YamnetCategoryPrediction,
+} from '../../utils/yamnetClassifier';
 
 export interface InstrumentAnalysisViewProps {
   theme?: AppTheme;
@@ -157,11 +170,32 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   // Hybrid Analysis Mode & Session States (Section 2 & 4)
   const [analysisMode, setAnalysisMode] = useState<'full_track' | 'live'>('full_track');
   const [sessionState, setSessionState] = useState<
-    'idle' | 'preparing' | 'detecting' | 'processing' | 'completed' | 'stopped' | 'error'
+    'idle' | 'preparing' | 'detecting' | 'processing' | 'paused' | 'completed' | 'stopped' | 'error'
+  >('idle');
+  const [liveStatusDetail, setLiveStatusDetail] = useState<
+    | 'idle'
+    | 'loading_model'
+    | 'waiting_tab_audio'
+    | 'capturing'
+    | 'analysing'
+    | 'paused'
+    | 'stopped'
+    | 'completed_capture'
+    | 'permission_denied'
+    | 'missing_tab_audio'
+    | 'model_error'
+    | 'processing_error'
   >('idle');
   const [isCachedResult, setIsCachedResult] = useState<boolean>(false);
   const [liveCaptureError, setLiveCaptureError] = useState<LiveCaptureError | null>(null);
   const [liveDelayNotice, setLiveDelayNotice] = useState<string | null>(null);
+  const [liveLastPredictions, setLiveLastPredictions] = useState<YamnetCategoryPrediction[]>([]);
+  const [yamnetCaptureSummary, setYamnetCaptureSummary] = useState<{
+    capturedRanges: YamnetCaptureRange[];
+    totalCapturedSeconds: number;
+    totalDuration: number;
+    isCompleteCapture: boolean;
+  } | null>(null);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -213,6 +247,21 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   const liveCaptureSessionRef = useRef<LiveTabAudioCaptureSession | null>(null);
   const playerLoadedVideoIdRef = useRef<string | null>(null);
   const playerDurationsMapRef = useRef<Map<string, number>>(new Map());
+  const playerCurrentTimeRef = useRef<number>(0);
+  const playerDurationRef = useRef<number>(0);
+  const activeVideoIdRef = useRef<string>(activeVideoId);
+
+  // Local YAMNet session tracking refs (avoid stale closures inside AudioWorklet callback)
+  const yamnetTrackerRef = useRef<YamnetTemporalTracker>(new YamnetTemporalTracker());
+  const yamnetLastFrameEndRef = useRef<number | null>(null);
+  const yamnetCapturedRangesRef = useRef<YamnetCaptureRange[]>([]);
+  const yamnetSegmentsRef = useRef<InstrumentTimelineSegment[]>([]);
+  const yamnetDetectedMapRef = useRef<Map<string, { name: string; family: string }>>(new Map());
+  const yamnetFrameCountRef = useRef<number>(0);
+
+  playerCurrentTimeRef.current = playerCurrentTime;
+  playerDurationRef.current = playerDuration;
+  activeVideoIdRef.current = activeVideoId;
 
   // =========================================================================
   // EMBEDDED YOUTUBE PLAYER INITIALIZATION
@@ -445,14 +494,42 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     [initYouTubePlayer]
   );
 
-  // =========================================================================
-  // ANALYZE TRACK ACTION (BACKEND GEMINI REQUEST)
-  // =========================================================================
+  // Persist current live YAMNet session to dedicated IndexedDB store (never touches Gemini store)
+  const persistCurrentYamnetSession = useCallback(async (vid: string) => {
+    if (!vid || (yamnetCapturedRangesRef.current.length === 0 && yamnetSegmentsRef.current.length === 0)) {
+      return null;
+    }
+    const dur =
+      playerDurationsMapRef.current.get(vid) ||
+      (playerDurationRef.current > 0 ? playerDurationRef.current : 0);
+
+    const detectedList = Array.from(yamnetDetectedMapRef.current.values());
+    const saved = await saveYamnetAnalysisToDB({
+      videoId: vid,
+      duration: dur,
+      capturedRanges: yamnetCapturedRangesRef.current,
+      instrumentSegments: yamnetSegmentsRef.current,
+      allDetectedInstruments: detectedList,
+    });
+    if (saved) {
+      setYamnetCaptureSummary({
+        capturedRanges: saved.capturedRanges,
+        totalCapturedSeconds: saved.totalCapturedSeconds,
+        totalDuration: saved.duration,
+        isCompleteCapture: saved.isCompleteCapture,
+      });
+    }
+    return saved;
+  }, []);
+
   // =========================================================================
   // STOP ACTION (SECTION 4)
   // Cancels pending requests, stops audio tracks, releases nodes, invalidates session
   // =========================================================================
   const handleStop = useCallback(() => {
+    const wasCapturingYamnet = Boolean(liveCaptureSessionRef.current?.getIsRunning());
+    const currentVid = activeVideoIdRef.current;
+
     // Invalidate outstanding requests via generation ID
     currentGenerationIdRef.current++;
 
@@ -466,10 +543,23 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       liveCaptureSessionRef.current = null;
     }
 
+    if (wasCapturingYamnet && currentVid) {
+      persistCurrentYamnetSession(currentVid).then((saved) => {
+        if (saved?.isCompleteCapture) {
+          setLiveStatusDetail('completed_capture');
+          setSessionState('completed');
+        } else {
+          setLiveStatusDetail('stopped');
+          setSessionState('stopped');
+        }
+      });
+    } else {
+      setLiveStatusDetail('stopped');
+      setSessionState('stopped');
+    }
+
     setIsAnalyzing(false);
-    setSessionState('stopped');
-    setAnalysisStatus((prev) => (prev === 'idle' ? 'idle' : 'stopped'));
-  }, []);
+  }, [persistCurrentYamnetSession]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -480,6 +570,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
       if (liveCaptureSessionRef.current) {
         liveCaptureSessionRef.current.stop();
+        liveCaptureSessionRef.current = null;
       }
     };
   }, []);
@@ -673,102 +764,270 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   );
 
   // =========================================================================
-  // TRUE LIVE DETECTION ACTION (SECTION 8)
-  // Captures actual audio while YouTube recording is playing
+  // LOCAL BROWSER-SIDE YAMNET TRUE LIVE DETECTION
+  // Captures 16 kHz mono Float32 PCM from shared tab audio & classifies locally
+  // Zero network audio upload or server Gemini chunk calls.
   // =========================================================================
   const handleStartLiveDetection = async () => {
-    handleStop();
+    // Stop any ongoing capture or full-track request
+    currentGenerationIdRef.current++;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (liveCaptureSessionRef.current) {
+      liveCaptureSessionRef.current.stop();
+      liveCaptureSessionRef.current = null;
+    }
 
     const generationId = ++currentGenerationIdRef.current;
+
+    // Resolve target video from inputUrl if user typed a new one
+    const trimmedInput = inputUrl.trim();
+    const targetVideoId = (trimmedInput ? extractYouTubeVideoId(trimmedInput) || trimmedInput : activeVideoId).trim();
+    const isVideoSwitch = targetVideoId && targetVideoId !== activeVideoId;
+    const effectiveVideoId = targetVideoId || activeVideoId;
+
+    if (isVideoSwitch) {
+      setActiveVideoId(effectiveVideoId);
+      setPlayerCurrentTime(0);
+      setTimelineSegments([]);
+      setAllDetectedInstruments([]);
+      yamnetSegmentsRef.current = [];
+      yamnetCapturedRangesRef.current = [];
+      yamnetDetectedMapRef.current.clear();
+    }
+
     setAnalysisMode('live');
     setLiveCaptureError(null);
     setAnalysisError(null);
+    setAnalysisCoverage(null);
+    setAnalysisSummary('');
+    setIsCachedResult(false);
     setLiveDelayNotice(null);
+    setLiveLastPredictions([]);
     setSessionState('preparing');
+    setLiveStatusDetail('loading_model');
     setIsAnalyzing(true);
+
+    yamnetTrackerRef.current.reset();
+    yamnetLastFrameEndRef.current = null;
+    yamnetFrameCountRef.current = 0;
+
+    // Seed with existing YAMNet cache if present for the same video so resuming appends smoothly
+    try {
+      const existingCache = await getCachedYamnetAnalysisFromDB(effectiveVideoId);
+      if (generationId !== currentGenerationIdRef.current) return;
+      if (existingCache && (existingCache.instrumentSegments.length > 0 || existingCache.capturedRanges.length > 0)) {
+        yamnetSegmentsRef.current = existingCache.instrumentSegments;
+        yamnetCapturedRangesRef.current = existingCache.capturedRanges;
+        yamnetDetectedMapRef.current.clear();
+        existingCache.allDetectedInstruments.forEach((inst) => {
+          yamnetDetectedMapRef.current.set(inst.name.toLowerCase(), inst);
+        });
+        setTimelineSegments(existingCache.instrumentSegments);
+        setAllDetectedInstruments(existingCache.allDetectedInstruments);
+        setYamnetCaptureSummary({
+          capturedRanges: existingCache.capturedRanges,
+          totalCapturedSeconds: existingCache.totalCapturedSeconds,
+          totalDuration: existingCache.duration,
+          isCompleteCapture: existingCache.isCompleteCapture,
+        });
+      } else if (!isVideoSwitch) {
+        yamnetSegmentsRef.current = [];
+        yamnetCapturedRangesRef.current = [];
+        yamnetDetectedMapRef.current.clear();
+        setTimelineSegments([]);
+        setAllDetectedInstruments([]);
+        setYamnetCaptureSummary(null);
+      }
+    } catch {}
+
+    // 1. Initialize local MediaPipe AudioClassifier (YAMNet)
+    let classifier: Awaited<ReturnType<typeof getOrInitializeYamnetClassifier>>;
+    try {
+      classifier = await getOrInitializeYamnetClassifier();
+      if (generationId !== currentGenerationIdRef.current) return;
+    } catch (modelErr: any) {
+      if (generationId !== currentGenerationIdRef.current) return;
+      const errMsg = modelErr?.message || 'Failed to load local YAMNet WASM/TFLite runtime.';
+      console.error('[YAMNet] Model initialization error:', modelErr);
+      setLiveStatusDetail('model_error');
+      setAnalysisError(`Local YAMNet model error: ${errMsg}`);
+      setSessionState('error');
+      setAnalysisStatus('error');
+      setIsAnalyzing(false);
+      return;
+    }
+
+    // 2. Ensure YouTube player is cued/ready for duration lookup
+    const targetDuration = await ensurePlayerReadyForVideo(effectiveVideoId);
+    if (generationId !== currentGenerationIdRef.current) return;
+    if (typeof targetDuration === 'number' && targetDuration > 0) {
+      setPlayerDuration(targetDuration);
+    }
+
+    // 3. Request tab audio via getDisplayMedia and stream 16 kHz PCM frames from AudioWorklet
+    setLiveStatusDetail('waiting_tab_audio');
 
     try {
       const session = new LiveTabAudioCaptureSession({
         generationId,
-        getPlaybackTime: () => (ytPlayerRef.current?.getCurrentTime?.() ?? playerCurrentTime),
         onStatusChange: (status, error) => {
           if (generationId !== currentGenerationIdRef.current) return;
-          if (status === 'capturing') {
+          if (status === 'requesting_permission') {
+            setLiveStatusDetail('waiting_tab_audio');
+            setSessionState('preparing');
+          } else if (status === 'capturing') {
+            setLiveStatusDetail('capturing');
             setSessionState('detecting');
           } else if (status === 'stopped') {
-            setSessionState('stopped');
             setIsAnalyzing(false);
+            persistCurrentYamnetSession(effectiveVideoId).then((saved) => {
+              if (generationId !== currentGenerationIdRef.current) return;
+              if (saved?.isCompleteCapture) {
+                setLiveStatusDetail('completed_capture');
+                setSessionState('completed');
+              } else {
+                setLiveStatusDetail('stopped');
+                setSessionState('stopped');
+              }
+            });
           } else if (status === 'error' && error) {
             setLiveCaptureError(error);
             setAnalysisError(error.message);
+            setLiveStatusDetail(
+              error.type === 'no_audio_track' ? 'missing_tab_audio' : 'permission_denied'
+            );
             setSessionState('error');
             setIsAnalyzing(false);
           }
         },
-        onChunk: async (payload) => {
+        onFrame: (frame) => {
           if (generationId !== currentGenerationIdRef.current) return;
-          const chunkStartTime = Date.now();
+
+          // Read live YouTube player state & clock dynamically
+          let playerState: number | undefined;
+          let currentYtTime = playerCurrentTimeRef.current;
+          let playbackRate = 1;
+          try {
+            if (ytPlayerRef.current) {
+              playerState = ytPlayerRef.current.getPlayerState?.();
+              const t = ytPlayerRef.current.getCurrentTime?.();
+              if (typeof t === 'number' && Number.isFinite(t)) {
+                currentYtTime = t;
+              }
+              const r = ytPlayerRef.current.getPlaybackRate?.();
+              if (typeof r === 'number' && Number.isFinite(r) && r > 0) {
+                playbackRate = r;
+              }
+            }
+          } catch {}
+
+          // Pause handling: if YouTube is paused, stopped, unstarted, or buffering, do NOT attribute frames
+          if (typeof playerState === 'number' && playerState !== 1) {
+            setLiveStatusDetail('paused');
+            setSessionState('paused');
+            yamnetLastFrameEndRef.current = null;
+            yamnetTrackerRef.current.reset();
+
+            if (playerState === 0 && yamnetCapturedRangesRef.current.length > 0) {
+              persistCurrentYamnetSession(effectiveVideoId);
+            }
+            return;
+          }
+
+          setLiveStatusDetail('analysing');
+          setSessionState('detecting');
+
+          const timelineSpan = Math.max(0.3, frame.frameDurationSec * playbackRate);
+          const knownDur =
+            playerDurationsMapRef.current.get(effectiveVideoId) ||
+            (playerDurationRef.current > 0 ? playerDurationRef.current : 0);
+
+          let playbackStart: number;
+          let playbackEnd: number;
+
+          const prevEnd = yamnetLastFrameEndRef.current;
+          if (prevEnd !== null && Math.abs(currentYtTime - prevEnd) > 2.2) {
+            // Seek detected (forward or backward): reset temporal smoothing to prevent cross-seek bleed
+            yamnetTrackerRef.current.reset();
+            playbackEnd = knownDur > 0 ? Math.min(knownDur, currentYtTime) : currentYtTime;
+            playbackStart = Math.max(0, playbackEnd - timelineSpan);
+          } else {
+            playbackEnd = knownDur > 0 ? Math.min(knownDur, Math.max(0.3, currentYtTime)) : Math.max(0.3, currentYtTime);
+            playbackStart = Math.max(0, playbackEnd - timelineSpan);
+          }
+
+          if (playbackEnd <= playbackStart) {
+            playbackEnd = playbackStart + 0.4;
+          }
+          yamnetLastFrameEndRef.current = playbackEnd;
 
           try {
-            const res = await fetch('/api/music/analyze-audio-chunk', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                audioData: payload.audioBase64,
-                mimeType: payload.mimeType,
-                chunkDuration: payload.chunkDuration,
-                playbackStart: payload.playbackStart,
-                playbackEnd: payload.playbackEnd,
-                videoId: activeVideoId,
-                generationId,
-                isProvisional: payload.isProvisional,
-              }),
+            const frameResult = classifyPcmFrameLocally({
+              classifier,
+              samples16k: frame.samples16k,
+              playbackStart,
+              playbackEnd,
+              tracker: yamnetTrackerRef.current,
+              inputRms: frame.rms,
             });
 
-            if (generationId !== currentGenerationIdRef.current) return;
+            setLiveLastPredictions(frameResult.predictions);
 
-            const elapsedSec = (Date.now() - chunkStartTime) / 1000;
-            if (elapsedSec > payload.chunkDuration) {
-              setLiveDelayNotice(
-                `Live processing is delayed by ${Math.round(elapsedSec - payload.chunkDuration)}s. Audio timestamps remain synchronized with playback clock.`
+            // Track actual captured playback range regardless of silence/instruments
+            const nextRanges = mergeYamnetCaptureRanges([
+              ...yamnetCapturedRangesRef.current,
+              { start: playbackStart, end: playbackEnd },
+            ]);
+            yamnetCapturedRangesRef.current = nextRanges;
+
+            const totalCapturedSec =
+              Math.round(nextRanges.reduce((acc, r) => acc + (r.end - r.start), 0) * 10) / 10;
+            const isComplete = knownDur > 0 && totalCapturedSec >= knownDur * 0.92;
+
+            setYamnetCaptureSummary({
+              capturedRanges: nextRanges,
+              totalCapturedSeconds: totalCapturedSec,
+              totalDuration: knownDur,
+              isCompleteCapture: isComplete,
+            });
+
+            if (frameResult.segments.length > 0) {
+              const combined = [...yamnetSegmentsRef.current, ...frameResult.segments];
+              const merged = mergeYamnetTimelineSegments(
+                combined,
+                knownDur > 0 ? knownDur : undefined
               );
-            } else {
-              setLiveDelayNotice(null);
-            }
+              yamnetSegmentsRef.current = merged;
 
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}));
-              console.warn('[Live Detection] Chunk failed:', errData);
-              return;
-            }
-
-            const chunkResult = await res.json();
-            if (generationId !== currentGenerationIdRef.current) return;
-
-            if (Array.isArray(chunkResult.segments) && chunkResult.segments.length > 0) {
-              setTimelineSegments((prev) => {
-                const combined = [...prev, ...chunkResult.segments];
-                return parseTimelineSegments(combined, { gapMergeThreshold: 1.0 });
+              frameResult.segments.forEach((seg) => {
+                const key = seg.instrumentName.toLowerCase();
+                if (!yamnetDetectedMapRef.current.has(key)) {
+                  yamnetDetectedMapRef.current.set(key, {
+                    name: seg.instrumentName,
+                    family: seg.family,
+                  });
+                }
               });
 
-              setAllDetectedInstruments((prev) => {
-                const map = new Map<string, { name: string; family: string }>();
-                prev.forEach((i) => map.set(i.name.toLowerCase(), i));
-                chunkResult.segments.forEach((seg: any) => {
-                  if (!map.has(seg.instrumentName.toLowerCase())) {
-                    map.set(seg.instrumentName.toLowerCase(), {
-                      name: seg.instrumentName,
-                      family: seg.family,
-                    });
-                  }
-                });
-                return Array.from(map.values());
-              });
-
+              const nextDetectedList = Array.from(yamnetDetectedMapRef.current.values());
+              setTimelineSegments(merged);
+              setAllDetectedInstruments(nextDetectedList);
               setAnalysisStatus('detected');
             }
-          } catch (chunkErr: any) {
-            console.warn('[Live Detection] Chunk request error:', chunkErr);
+
+            yamnetFrameCountRef.current += 1;
+            if (yamnetFrameCountRef.current % 3 === 0) {
+              persistCurrentYamnetSession(effectiveVideoId);
+            }
+          } catch (procErr: any) {
+            console.warn('[YAMNet] Frame classification error:', procErr);
+            setLiveStatusDetail('processing_error');
+            setLiveDelayNotice(
+              `Local YAMNet frame processing warning: ${procErr?.message || 'classification skipped for one frame'}`
+            );
           }
         },
       });
@@ -777,13 +1036,105 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       await session.start();
     } catch (err: any) {
       if (generationId !== currentGenerationIdRef.current) return;
-      console.warn('[Live Detection] Start failed:', err);
+      console.warn('[YAMNet Live Detection] Start failed:', err);
       setSessionState('error');
       setIsAnalyzing(false);
     }
   };
 
-  // User click handlers for explicit Start
+  const handleClearLiveYamnetCache = useCallback(async () => {
+    handleStop();
+    await clearCachedYamnetAnalysisFromDB(activeVideoId);
+    yamnetTrackerRef.current.reset();
+    yamnetLastFrameEndRef.current = null;
+    yamnetCapturedRangesRef.current = [];
+    yamnetSegmentsRef.current = [];
+    yamnetDetectedMapRef.current.clear();
+    setTimelineSegments([]);
+    setAllDetectedInstruments([]);
+    setYamnetCaptureSummary(null);
+    setLiveLastPredictions([]);
+    setIsCachedResult(false);
+    setAnalysisStatus('idle');
+    setLiveStatusDetail('idle');
+    setSessionState('idle');
+  }, [activeVideoId, handleStop]);
+
+  // Mode switcher that keeps Gemini and YAMNet caches/results strictly isolated
+  const handleSwitchAnalysisMode = useCallback(
+    async (targetMode: 'full_track' | 'live') => {
+      if (targetMode === analysisMode) return;
+      handleStop();
+      setAnalysisMode(targetMode);
+      setAnalysisError(null);
+      setLiveCaptureError(null);
+      setLiveDelayNotice(null);
+      setLiveLastPredictions([]);
+      setIsCachedResult(false);
+
+      const dur =
+        playerDurationsMapRef.current.get(activeVideoId) ||
+        (playerDurationRef.current > 0 ? playerDurationRef.current : 0);
+
+      if (targetMode === 'full_track') {
+        setYamnetCaptureSummary(null);
+        setLiveStatusDetail('idle');
+        if (dur > 0) {
+          const cached = await getCachedAnalysisFromDB({ videoId: activeVideoId, duration: dur });
+          if (cached) {
+            const data = cached.analysisResult;
+            setAnalysisStatus((data.status as any) || 'detected');
+            if (data.coverage) setAnalysisCoverage(data.coverage);
+            setVideoTitle(data.title || `YouTube Track (${activeVideoId})`);
+            setVideoArtist(data.artist || '');
+            setAnalysisSummary(data.analysisSummary || '');
+            setTimelineSegments(data.instrumentSegments || []);
+            setAllDetectedInstruments(data.allDetectedInstruments || []);
+            setIsCachedResult(true);
+            setSessionState('completed');
+            return;
+          }
+        }
+      } else {
+        setAnalysisCoverage(null);
+        setAnalysisSummary('');
+        const cachedYamnet = await getCachedYamnetAnalysisFromDB(activeVideoId);
+        if (cachedYamnet) {
+          yamnetSegmentsRef.current = cachedYamnet.instrumentSegments;
+          yamnetCapturedRangesRef.current = cachedYamnet.capturedRanges;
+          yamnetDetectedMapRef.current.clear();
+          cachedYamnet.allDetectedInstruments.forEach((inst) => {
+            yamnetDetectedMapRef.current.set(inst.name.toLowerCase(), inst);
+          });
+          setTimelineSegments(cachedYamnet.instrumentSegments);
+          setAllDetectedInstruments(cachedYamnet.allDetectedInstruments);
+          setYamnetCaptureSummary({
+            capturedRanges: cachedYamnet.capturedRanges,
+            totalCapturedSeconds: cachedYamnet.totalCapturedSeconds,
+            totalDuration: cachedYamnet.duration,
+            isCompleteCapture: cachedYamnet.isCompleteCapture,
+          });
+          setAnalysisStatus(cachedYamnet.instrumentSegments.length > 0 ? 'detected' : 'idle');
+          setIsCachedResult(true);
+          setLiveStatusDetail(cachedYamnet.isCompleteCapture ? 'completed_capture' : 'stopped');
+          setSessionState(cachedYamnet.isCompleteCapture ? 'completed' : 'stopped');
+          return;
+        }
+      }
+
+      setTimelineSegments([]);
+      setAllDetectedInstruments([]);
+      setAnalysisCoverage(null);
+      setAnalysisSummary('');
+      setYamnetCaptureSummary(null);
+      setAnalysisStatus('idle');
+      setLiveStatusDetail('idle');
+      setSessionState('idle');
+    },
+    [analysisMode, activeVideoId, handleStop]
+  );
+
+  // User click handlers for explicit Start (Full-Track Gemini preserved intact)
   const handleStartFullTrackClick = () => {
     const trimmed = inputUrl.trim();
     if (!trimmed) {
@@ -812,6 +1163,16 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setVideoTitle(trackTitle);
     setVideoArtist('');
     setPlayerCurrentTime(0);
+    setAnalysisError(null);
+    setLiveCaptureError(null);
+    setLiveLastPredictions([]);
+    setIsCachedResult(false);
+
+    yamnetTrackerRef.current.reset();
+    yamnetLastFrameEndRef.current = null;
+    yamnetCapturedRangesRef.current = [];
+    yamnetSegmentsRef.current = [];
+    yamnetDetectedMapRef.current.clear();
 
     // Cue new video in player without auto-starting analysis
     if (ytPlayerRef.current && typeof ytPlayerRef.current.cueVideoById === 'function') {
@@ -821,9 +1182,31 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       } catch {}
     }
 
-    // Check if IndexedDB has cached results for this preset
+    // Check active mode's separate IndexedDB store
     const duration = await ensurePlayerReadyForVideo(trackId);
-    if (duration) {
+    if (analysisMode === 'live') {
+      const cachedYamnet = await getCachedYamnetAnalysisFromDB(trackId);
+      if (cachedYamnet) {
+        yamnetSegmentsRef.current = cachedYamnet.instrumentSegments;
+        yamnetCapturedRangesRef.current = cachedYamnet.capturedRanges;
+        cachedYamnet.allDetectedInstruments.forEach((inst) => {
+          yamnetDetectedMapRef.current.set(inst.name.toLowerCase(), inst);
+        });
+        setTimelineSegments(cachedYamnet.instrumentSegments);
+        setAllDetectedInstruments(cachedYamnet.allDetectedInstruments);
+        setYamnetCaptureSummary({
+          capturedRanges: cachedYamnet.capturedRanges,
+          totalCapturedSeconds: cachedYamnet.totalCapturedSeconds,
+          totalDuration: cachedYamnet.duration || duration || 0,
+          isCompleteCapture: cachedYamnet.isCompleteCapture,
+        });
+        setAnalysisStatus(cachedYamnet.instrumentSegments.length > 0 ? 'detected' : 'idle');
+        setIsCachedResult(true);
+        setLiveStatusDetail(cachedYamnet.isCompleteCapture ? 'completed_capture' : 'stopped');
+        setSessionState(cachedYamnet.isCompleteCapture ? 'completed' : 'stopped');
+        return;
+      }
+    } else if (duration) {
       const cached = await getCachedAnalysisFromDB({ videoId: trackId, duration });
       if (cached) {
         const data = cached.analysisResult;
@@ -844,8 +1227,10 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
     setTimelineSegments([]);
     setAllDetectedInstruments([]);
     setAnalysisCoverage(null);
+    setYamnetCaptureSummary(null);
     setAnalysisSummary('');
     setAnalysisStatus('idle');
+    setLiveStatusDetail('idle');
     setSessionState('idle');
   };
 
@@ -966,7 +1351,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             <div className="flex items-center p-1 bg-black/5 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5">
               <button
                 type="button"
-                onClick={() => setAnalysisMode('full_track')}
+                onClick={() => handleSwitchAnalysisMode('full_track')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   analysisMode === 'full_track'
                     ? 'bg-white dark:bg-[#25242A] text-[#7567C7] shadow-xs'
@@ -978,7 +1363,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               </button>
               <button
                 type="button"
-                onClick={() => setAnalysisMode('live')}
+                onClick={() => handleSwitchAnalysisMode('live')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   analysisMode === 'live'
                     ? 'bg-white dark:bg-[#25242A] text-rose-500 shadow-xs'
@@ -986,16 +1371,23 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 }`}
               >
                 <Radio className="h-3.5 w-3.5" />
-                <span>True Live Detection</span>
+                <span>True Live Detection (YAMNet)</span>
               </button>
             </div>
 
             {/* Session State Badge */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {analysisMode === 'live' && (
+                <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                  100% Local Browser AudioSet YAMNet (16 kHz PCM)
+                </span>
+              )}
               {isCachedResult && (
                 <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-[#7567C7]/15 text-[#7567C7] border border-[#7567C7]/30 flex items-center gap-1">
                   <Zap className="h-3 w-3" />
-                  <span>Durable Cache (IndexedDB)</span>
+                  <span>
+                    {analysisMode === 'live' ? 'Cached YAMNet (IndexedDB)' : 'Durable Cache (IndexedDB)'}
+                  </span>
                 </span>
               )}
               <span
@@ -1004,6 +1396,8 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                     ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30 animate-pulse'
                     : sessionState === 'processing' || sessionState === 'preparing'
                     ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse'
+                    : sessionState === 'paused'
+                    ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30'
                     : sessionState === 'completed'
                     ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                     : sessionState === 'stopped'
@@ -1014,7 +1408,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                <span className="capitalize">{sessionState}</span>
+                <span>
+                  {analysisMode === 'live' && liveStatusDetail !== 'idle'
+                    ? liveStatusDetail.replace(/_/g, ' ')
+                    : sessionState}
+                </span>
               </span>
             </div>
           </div>
@@ -1075,22 +1473,59 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                   )}
                 </>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleStartLiveDetection}
-                  disabled={isAnalyzing}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <Radio className="h-3.5 w-3.5" />
-                  <span>Start Live Detection</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleStartLiveDetection}
+                    disabled={isAnalyzing}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>
+                          {liveStatusDetail === 'loading_model'
+                            ? 'Loading YAMNet...'
+                            : liveStatusDetail === 'waiting_tab_audio'
+                            ? 'Share Tab Audio...'
+                            : liveStatusDetail === 'paused'
+                            ? 'Paused (Play Video)'
+                            : 'Detecting Locally...'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="h-3.5 w-3.5" />
+                        <span>Start YAMNet Detection</span>
+                      </>
+                    )}
+                  </button>
+
+                  {(timelineSegments.length > 0 || yamnetCaptureSummary || isCachedResult) && (
+                    <button
+                      type="button"
+                      onClick={handleClearLiveYamnetCache}
+                      disabled={isAnalyzing}
+                      title="Clear local YAMNet cache for this track (keeps Gemini Full-Track cache intact)"
+                      className="px-3 py-2.5 rounded-xl text-xs font-bold bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] dark:text-[#A4A1AA] border border-black/10 dark:border-white/10 transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span className="hidden md:inline">New Capture</span>
+                    </button>
+                  )}
+                </>
               )}
 
               {/* Explicit Stop Button (Section 3 & 4) */}
               <button
                 type="button"
                 onClick={handleStop}
-                disabled={!isAnalyzing && sessionState !== 'detecting' && sessionState !== 'processing'}
+                disabled={
+                  !isAnalyzing &&
+                  sessionState !== 'detecting' &&
+                  sessionState !== 'processing' &&
+                  sessionState !== 'paused'
+                }
                 className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-40 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 title="Stop current analysis and preserve completed timeline"
               >
@@ -1100,16 +1535,46 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             </div>
           </div>
 
-          {/* Mode Guidance / Explanations */}
+          {/* Mode Guidance / Local YAMNet Live Telemetry */}
           {analysisMode === 'live' && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-200 text-xs flex items-start gap-2">
-              <Info className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
-              <div className="space-y-0.5">
-                <span className="font-bold">True Live Tab-Audio Detection:</span>
-                <p className="text-[11px] opacity-90">
-                  When you click <strong>Start Live Detection</strong>, your browser will open a share dialog. Select the tab playing this YouTube video and ensure <strong>"Share audio"</strong> is checked. Audio is captured in ~8-10s windows as the video plays.
-                </p>
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-900 dark:text-rose-200 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold">True Live Tab-Audio Detection (Local Browser YAMNet):</span>
+                  <p className="text-[11px] opacity-90">
+                    Runs directly in your browser using MediaPipe AudioClassifier (AudioSet YAMNet, 16 kHz mono PCM via AudioWorklet) with zero audio upload to Gemini. Select this tab in the share dialog and toggle <strong>"Also share tab audio"</strong> ON.
+                  </p>
+                  {isRunningInIframe() && (
+                    <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                      Previewing inside an embedded iframe may block tab-audio capture via browser Permissions Policy. For best results, open AniVerse in a standalone HTTPS Chrome tab.
+                    </p>
+                  )}
+                </div>
               </div>
+
+              {liveCaptureError?.actionableHelp && (
+                <div className="p-2.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-950 dark:text-amber-200">
+                  <strong>Browser Capture Guidance:</strong> {liveCaptureError.actionableHelp}
+                </div>
+              )}
+
+              {liveLastPredictions.length > 0 && (
+                <div className="pt-1.5 border-t border-rose-500/20 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-75 mr-1">
+                    Latest AudioSet Frame:
+                  </span>
+                  {liveLastPredictions.map((pred) => (
+                    <span
+                      key={`${pred.canonicalName}-${pred.originalModelClass}`}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/70 dark:bg-black/30 border border-rose-500/25"
+                      title={`Raw AudioSet class: ${pred.originalModelClass} | Raw score: ${pred.rawScore.toFixed(4)} | Smoothed: ${pred.smoothedScore.toFixed(4)}`}
+                    >
+                      {pred.canonicalName} ({pred.originalModelClass}: {(pred.rawScore * 100).toFixed(1)}%)
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1143,7 +1608,34 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               ))}
             </div>
 
-            {analysisCoverage && (
+            {analysisMode === 'live' && yamnetCaptureSummary && (
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                    yamnetCaptureSummary.isCompleteCapture
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      : 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                  }`}
+                >
+                  {yamnetCaptureSummary.isCompleteCapture
+                    ? '✓ Full Track Captured (YAMNet)'
+                    : yamnetCaptureSummary.totalDuration > 0
+                    ? `Live Capture: ${Math.min(
+                        99,
+                        Math.round(
+                          (yamnetCaptureSummary.totalCapturedSeconds /
+                            yamnetCaptureSummary.totalDuration) *
+                            100
+                        )
+                      )}% (${formatTime(yamnetCaptureSummary.totalCapturedSeconds)} / ${formatTime(
+                        yamnetCaptureSummary.totalDuration
+                      )})`
+                    : `Live Captured: ${formatTime(yamnetCaptureSummary.totalCapturedSeconds)}`}
+                </span>
+              </div>
+            )}
+
+            {analysisMode === 'full_track' && analysisCoverage && (
               <div className="flex items-center gap-2">
                 <span
                   className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
@@ -1706,7 +2198,9 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         <div className="p-3.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 text-[11px] text-[#77747D] dark:text-[#A4A1AA] flex items-center gap-2">
           <Info className="h-4 w-4 shrink-0 text-[#7567C7]" />
           <span>
-            Timeline synchronization calculates active instruments directly from the YouTube player's playback position. No audio capture or microphone permissions required.
+            {analysisMode === 'live'
+              ? 'True Live Detection processes shared browser tab audio (16 kHz mono PCM) locally on-device using MediaPipe AudioSet YAMNet with zero server audio uploads.'
+              : 'Full-Track Analysis synchronizes active instruments directly from the YouTube player playback position without requiring tab-audio capture or microphone permissions.'}
           </span>
         </div>
       </div>

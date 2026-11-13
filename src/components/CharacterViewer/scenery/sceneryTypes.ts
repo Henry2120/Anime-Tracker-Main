@@ -6,6 +6,8 @@ export interface SceneryConfig {
   performanceStage: boolean;
   burningFire: boolean;
   groundSpikes: boolean;
+  sainteChapelleInterior: boolean;
+  fireStage: boolean;
 }
 
 export const DEFAULT_SCENERY_CONFIG: SceneryConfig = {
@@ -16,6 +18,8 @@ export const DEFAULT_SCENERY_CONFIG: SceneryConfig = {
   performanceStage: false,
   burningFire: false,
   groundSpikes: false,
+  sainteChapelleInterior: false,
+  fireStage: false,
 };
 
 export const HINA_SPECIAL_SCENERY: SceneryConfig = {
@@ -26,6 +30,8 @@ export const HINA_SPECIAL_SCENERY: SceneryConfig = {
   performanceStage: false,
   burningFire: false,
   groundSpikes: false,
+  sainteChapelleInterior: false,
+  fireStage: false,
 };
 
 export interface SceneryPreset {
@@ -48,6 +54,8 @@ export const SCENERY_PRESETS: SceneryPreset[] = [
       performanceStage: true,
       burningFire: false,
       groundSpikes: false,
+      sainteChapelleInterior: false,
+      fireStage: false,
     },
   },
   {
@@ -62,6 +70,8 @@ export const SCENERY_PRESETS: SceneryPreset[] = [
       performanceStage: true,
       burningFire: true,
       groundSpikes: true,
+      sainteChapelleInterior: false,
+      fireStage: false,
     },
   },
   {
@@ -76,6 +86,8 @@ export const SCENERY_PRESETS: SceneryPreset[] = [
       performanceStage: false,
       burningFire: false,
       groundSpikes: false,
+      sainteChapelleInterior: false,
+      fireStage: false,
     },
   },
   {
@@ -90,6 +102,8 @@ export const SCENERY_PRESETS: SceneryPreset[] = [
       performanceStage: true,
       burningFire: false,
       groundSpikes: false,
+      sainteChapelleInterior: false,
+      fireStage: false,
     },
   },
   {
@@ -104,6 +118,40 @@ export const SCENERY_PRESETS: SceneryPreset[] = [
       performanceStage: true,
       burningFire: true,
       groundSpikes: false,
+      sainteChapelleInterior: false,
+      fireStage: false,
+    },
+  },
+  {
+    id: 'sainte-chapelle-interior',
+    name: 'Sainte-Chapelle Interior (GLB)',
+    description: 'Detailed Gothic cathedral interior GLB with stained glass and vaulted nave (34.4 MB, lazy-loaded).',
+    config: {
+      meadowTerrain: false,
+      nightSky: false,
+      fireflies: false,
+      glassChapel: false,
+      performanceStage: false,
+      burningFire: false,
+      groundSpikes: false,
+      sainteChapelleInterior: true,
+      fireStage: false,
+    },
+  },
+  {
+    id: 'aniverse-fire-stage',
+    name: 'AniVerse Fire Stage (GLB)',
+    description: 'Animated pyrotechnic concert stage GLB with FireShow_Loop FX and dark starry sky (4.6 MB, lazy-loaded).',
+    config: {
+      meadowTerrain: false,
+      nightSky: true,
+      fireflies: false,
+      glassChapel: false,
+      performanceStage: false,
+      burningFire: false,
+      groundSpikes: false,
+      sainteChapelleInterior: false,
+      fireStage: true,
     },
   },
 ];

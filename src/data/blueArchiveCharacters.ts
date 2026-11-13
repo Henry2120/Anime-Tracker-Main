@@ -1862,6 +1862,30 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Reisa%20(Magical)%20(Special).glb"
   },
   {
+    "id": "hinata-grand-piano",
+    "name": "Hinata (Grand Piano)",
+    "filename": "Hinata_Grand_Piano_Exs_Grand_Piano.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Hinata_Grand_Piano_Exs_Grand_Piano.glb"
+  },
+  {
+    "id": "kisaki-erhu",
+    "name": "Kisaki (Erhu)",
+    "filename": "Kisaki_Erhu_Exs_Erhu.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Kisaki_Erhu_Exs_Erhu.glb"
+  },
+  {
+    "id": "yuuka-handpan",
+    "name": "Yuuka (Handpan)",
+    "filename": "Yuuka_Handpan_Exs_Handpan.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Yuuka_Handpan_Exs_Handpan.glb"
+  },
+  {
+    "id": "saori-dress-harp",
+    "name": "Saori (Dress) with Harp",
+    "filename": "Saori_Dress_Harp_Exs_Harp (1).glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Saori_Dress_Harp_Exs_Harp%20(1).glb"
+  },
+  {
     "id": "cellist-performer",
     "name": "Cellist",
     "filename": "cellist.glb",
@@ -1875,7 +1899,7 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
   }
 ];
 
-export const BLUE_ARCHIVE_CHARACTER_COUNT = 310;
+export const BLUE_ARCHIVE_CHARACTER_COUNT = BLUE_ARCHIVE_CHARACTERS.length;
 
 export function getCharacterById(id: string): CharacterManifestEntry | undefined {
   return BLUE_ARCHIVE_CHARACTERS.find((c) => c.id === id);

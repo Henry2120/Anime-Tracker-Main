@@ -1,17 +1,22 @@
 /**
- * Dedicated tab-audio capture and windowed chunking for True Live Detection.
- * Uses navigator.mediaDevices.getDisplayMedia with mandatory audio track verification.
- * Respects browser security, permissions policy, and clean resource disposal.
+ * Local Web Audio tab-audio capture and 16 kHz mono Float32 PCM streaming
+ * for browser-side MediaPipe YAMNet Live Detection.
+ *
+ * Uses navigator.mediaDevices.getDisplayMedia with mandatory audio track verification
+ * and an AudioWorkletProcessor (/yamnet/pcm-capture-worklet.js) that downmixes multi-channel
+ * input to mono, anti-alias filters, and resamples cleanly to 16,000 Hz PCM.
  */
 
-export interface AudioChunkPayload {
-  audioBase64: string;
-  mimeType: string;
-  chunkDuration: number;
-  playbackStart: number;
-  playbackEnd: number;
+export const YAMNET_WORKLET_PATH = '/yamnet/pcm-capture-worklet.js';
+export const YAMNET_TARGET_SAMPLE_RATE = 16000;
+
+export interface PcmFramePayload {
+  samples16k: Float32Array;
+  sampleRate: 16000;
+  sourceSampleRate: number;
+  frameDurationSec: number;
+  rms: number;
   generationId: number;
-  isProvisional: boolean;
 }
 
 export type LiveCaptureStatus =
@@ -23,78 +28,139 @@ export type LiveCaptureStatus =
   | 'error';
 
 export interface LiveCaptureError {
-  type: 'unsupported' | 'permission_denied' | 'policy_blocked' | 'no_audio_track' | 'unknown';
+  type:
+    | 'unsupported'
+    | 'permission_denied'
+    | 'policy_blocked'
+    | 'no_audio_track'
+    | 'worklet_error'
+    | 'unknown';
   message: string;
   actionableHelp?: string;
 }
 
 /**
- * Checks if getDisplayMedia is supported by the current browser environment.
+ * Checks if getDisplayMedia and Web Audio AudioWorklet are supported by the current browser.
  */
 export function isTabAudioCaptureSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
-    Boolean(navigator?.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function')
+    Boolean(navigator?.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') &&
+    typeof AudioContext !== 'undefined'
   );
 }
 
 /**
- * Encodes an ArrayBuffer or Blob into a Base64 string safely.
+ * Detects whether the app is currently hosted inside a nested iframe.
  */
-export async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      const base64 = result.includes(',') ? result.split(',')[1] : result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+export function isRunningInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
 }
 
 /**
- * Session controller managing tab audio stream, window slicing, and timestamp alignment.
+ * Downmixes & resamples an arbitrary sample-rate block/buffer to 16 kHz mono Float32 PCM.
+ * Exported as a reusable pure DSP helper (also tested independently in unit tests).
+ */
+export function downsampleTo16kMono(
+  channels: Float32Array[],
+  sourceSampleRate: number,
+  targetSampleRate: number = YAMNET_TARGET_SAMPLE_RATE
+): Float32Array {
+  if (!channels.length || channels[0].length === 0) {
+    return new Float32Array(0);
+  }
+
+  const numChannels = channels.length;
+  const inputLen = channels[0].length;
+  const mono = new Float32Array(inputLen);
+
+  for (let i = 0; i < inputLen; i++) {
+    let sum = 0;
+    for (let ch = 0; ch < numChannels; ch++) {
+      sum += channels[ch][i] || 0;
+    }
+    mono[i] = sum / numChannels;
+  }
+
+  if (!sourceSampleRate || sourceSampleRate === targetSampleRate) {
+    return mono;
+  }
+
+  // Anti-aliasing low-pass filter before downsampling
+  let filtered = mono;
+  if (sourceSampleRate > targetSampleRate) {
+    filtered = new Float32Array(inputLen);
+    const alpha = 1 - Math.exp((-2 * Math.PI * 7200) / sourceSampleRate);
+    let lpPrev = mono[0];
+    filtered[0] = lpPrev;
+    for (let i = 1; i < inputLen; i++) {
+      lpPrev = lpPrev + alpha * (mono[i] - lpPrev);
+      filtered[i] = lpPrev;
+    }
+  }
+
+  const ratio = sourceSampleRate / targetSampleRate;
+  const outputLen = Math.max(1, Math.floor(inputLen / ratio));
+  const out = new Float32Array(outputLen);
+
+  for (let j = 0; j < outputLen; j++) {
+    const srcPos = j * ratio;
+    const i0 = Math.floor(srcPos);
+    const i1 = Math.min(inputLen - 1, i0 + 1);
+    const frac = srcPos - i0;
+    out[j] = filtered[i0] + frac * (filtered[i1] - filtered[i0]);
+  }
+
+  return out;
+}
+
+/**
+ * Session controller managing browser tab audio stream, AudioWorklet 16 kHz PCM extraction,
+ * single-session lifecycle guarantees, and clean disposal of all Web Audio resources.
  */
 export class LiveTabAudioCaptureSession {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
-  private chunkTimer: any = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
+  private silentGainNode: GainNode | null = null;
   private currentGenerationId: number = 0;
   private isRunning: boolean = false;
-  private recordedBlobs: Blob[] = [];
-  private windowStartTime: number = 0;
+  private isDisposed: boolean = false;
 
-  // Window settings: ~8-10 seconds of captured audio
-  private readonly windowIntervalMs = 8000;
-
-  private onChunkCallback: ((payload: AudioChunkPayload) => void) | null = null;
-  private onStatusChangeCallback: ((status: LiveCaptureStatus, error?: LiveCaptureError) => void) | null = null;
-  private getPlaybackTimeFn: () => number = () => 0;
+  private onFrameCallback: ((payload: PcmFramePayload) => void) | null = null;
+  private onStatusChangeCallback:
+    | ((status: LiveCaptureStatus, error?: LiveCaptureError) => void)
+    | null = null;
 
   constructor(options: {
     generationId: number;
-    getPlaybackTime: () => number;
-    onChunk: (payload: AudioChunkPayload) => void;
+    onFrame: (payload: PcmFramePayload) => void;
     onStatusChange?: (status: LiveCaptureStatus, error?: LiveCaptureError) => void;
   }) {
     this.currentGenerationId = options.generationId;
-    this.getPlaybackTimeFn = options.getPlaybackTime;
-    this.onChunkCallback = options.onChunk;
+    this.onFrameCallback = options.onFrame;
     this.onStatusChangeCallback = options.onStatusChange || null;
   }
 
   /**
-   * Prompts the user to select the browser tab with audio sharing and begins capture.
+   * Prompts the user to select the browser tab with audio sharing and begins 16 kHz PCM capture.
    */
   public async start(): Promise<void> {
+    if (this.isDisposed) {
+      throw new Error('Cannot start a disposed LiveTabAudioCaptureSession.');
+    }
+
     if (!isTabAudioCaptureSupported()) {
       const err: LiveCaptureError = {
         type: 'unsupported',
-        message: 'Tab audio capture (getDisplayMedia) is not supported by your current browser.',
-        actionableHelp: 'Please use a modern desktop browser such as Chrome, Edge, or Brave.',
+        message: 'Tab audio capture (getDisplayMedia + Web Audio) is not supported in this browser.',
+        actionableHelp: 'Please use a modern desktop Chromium browser (Chrome, Edge, or Brave).',
       };
       this.onStatusChangeCallback?.('error', err);
       throw err;
@@ -103,8 +169,7 @@ export class LiveTabAudioCaptureSession {
     this.onStatusChangeCallback?.('requesting_permission');
 
     try {
-      // Prompt user with display media dialog.
-      // Must request video: true because getDisplayMedia requires video, and audio: true for tab audio.
+      // Request video: true (browser requirement for getDisplayMedia tab sharing) + raw unprocessed audio.
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: {
@@ -114,81 +179,124 @@ export class LiveTabAudioCaptureSession {
         } as any,
       });
 
-      // Strict validation: Verify the user actually shared an audio track!
+      if (this.isDisposed) {
+        displayStream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       const audioTracks = displayStream.getAudioTracks();
       if (!audioTracks || audioTracks.length === 0) {
-        // Stop any video tracks that were granted
         displayStream.getTracks().forEach((t) => t.stop());
         const err: LiveCaptureError = {
           type: 'no_audio_track',
           message: 'No audio track was shared with the application.',
           actionableHelp:
-            "When the browser window/tab share dialog appears, select the YouTube tab and make sure to check the 'Share audio' or 'Share tab audio' toggle.",
+            'In the browser share dialog, select the Chromium tab playing this video and make sure the "Also share tab audio" toggle is turned ON.',
         };
         this.onStatusChangeCallback?.('error', err);
         throw err;
       }
 
       this.stream = displayStream;
-      this.isRunning = true;
-      this.onStatusChangeCallback?.('capturing');
 
-      // Listen for when user clicks "Stop sharing" in the native browser banner
+      // Stop gracefully if user clicks the browser banner "Stop sharing"
       audioTracks[0].onended = () => {
-        console.log('[Live Audio] Tab audio stream ended by user via browser UI.');
-        this.stop();
+        if (!this.isDisposed && this.isRunning) {
+          this.stop();
+        }
       };
 
-      // Set up MediaRecorder on audio stream
-      // Create an audio-only stream to ensure lightweight encoding
-      const audioOnlyStream = new MediaStream(audioTracks);
+      // Initialize Web Audio pipeline with AudioWorklet for clean off-main-thread resampling
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtx();
+      this.audioContext = ctx;
 
-      // Determine best supported mime type
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        if (MediaRecorder.isTypeSupported('audio/webm')) {
-          mimeType = 'audio/webm';
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else {
-          mimeType = '';
-        }
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
       }
 
-      const recorderOptions: MediaRecorderOptions = mimeType ? { mimeType } : {};
-      this.mediaRecorder = new MediaRecorder(audioOnlyStream, recorderOptions);
-      const effectiveMime = this.mediaRecorder.mimeType || 'audio/webm';
+      if (!ctx.audioWorklet) {
+        this.cleanupInternal();
+        const err: LiveCaptureError = {
+          type: 'worklet_error',
+          message: 'AudioWorklet is unavailable in this browser context.',
+          actionableHelp:
+            'AudioWorklet requires a secure HTTPS or localhost origin. Open the app in a standalone HTTPS Chrome tab.',
+        };
+        this.onStatusChangeCallback?.('error', err);
+        throw err;
+      }
 
-      this.windowStartTime = this.getPlaybackTimeFn();
+      await ctx.audioWorklet.addModule(YAMNET_WORKLET_PATH);
 
-      this.mediaRecorder.ondataavailable = async (event: BlobEvent) => {
-        if (event.data && event.data.size > 0 && this.isRunning) {
-          this.recordedBlobs.push(event.data);
+      if (this.isDisposed) {
+        this.cleanupInternal();
+        return;
+      }
+
+      // Build an audio-only MediaStream so video frames do not overhead the audio graph
+      const audioOnlyStream = new MediaStream(audioTracks);
+      const source = ctx.createMediaStreamSource(audioOnlyStream);
+      const worklet = new AudioWorkletNode(ctx, 'yamnet-pcm-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      // Connect via a zero-gain sink so Chromium drives the AudioWorklet graph without feedback/echo
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0;
+
+      this.sourceNode = source;
+      this.workletNode = worklet;
+      this.silentGainNode = silentGain;
+
+      worklet.port.onmessage = (event: MessageEvent) => {
+        if (!this.isRunning || this.isDisposed) return;
+        const data = event.data;
+        if (data?.type === 'frame' && data.samples instanceof Float32Array) {
+          this.onFrameCallback?.({
+            samples16k: data.samples,
+            sampleRate: YAMNET_TARGET_SAMPLE_RATE,
+            sourceSampleRate: typeof data.sourceSampleRate === 'number' ? data.sourceSampleRate : ctx.sampleRate,
+            frameDurationSec:
+              typeof data.frameDurationSec === 'number'
+                ? data.frameDurationSec
+                : data.samples.length / YAMNET_TARGET_SAMPLE_RATE,
+            rms: typeof data.rms === 'number' ? data.rms : 0,
+            generationId: this.currentGenerationId,
+          });
         }
       };
 
-      // Start recording in chunks
-      this.mediaRecorder.start(1000); // collect timeslices every 1s
+      source.connect(worklet);
+      worklet.connect(silentGain);
+      silentGain.connect(ctx.destination);
 
-      // Schedule window harvest every windowIntervalMs (8s)
-      this.scheduleNextWindowHarvest(effectiveMime);
+      this.isRunning = true;
+      this.onStatusChangeCallback?.('capturing');
     } catch (err: any) {
-      if (err.type) throw err; // already formatted
+      this.cleanupInternal();
+
+      if (err && typeof err === 'object' && 'type' in err && 'message' in err) {
+        throw err;
+      }
 
       const errMsg = err?.message || String(err);
-      const isPermissionPolicy =
-        errMsg.toLowerCase().includes('permissions policy') ||
-        errMsg.toLowerCase().includes('not allowed') ||
-        err?.name === 'NotAllowedError';
+      const lower = errMsg.toLowerCase();
+      const inIframe = isRunningInIframe();
+      const isPolicy =
+        lower.includes('permissions policy') ||
+        lower.includes('disallowed by permissions policy') ||
+        (inIframe && (err?.name === 'NotAllowedError' || lower.includes('not allowed')));
 
       const captureErr: LiveCaptureError = {
-        type: isPermissionPolicy ? 'policy_blocked' : 'permission_denied',
-        message: isPermissionPolicy
-          ? 'Screen/Tab capture was blocked by browser or iframe security policy.'
+        type: isPolicy ? 'policy_blocked' : 'permission_denied',
+        message: isPolicy
+          ? 'Tab audio sharing was blocked by the surrounding iframe Permissions Policy.'
           : 'Tab audio sharing permission was cancelled or denied.',
-        actionableHelp: isPermissionPolicy
-          ? 'The iframe environment or browser settings may restrict getDisplayMedia. If previewing in an iframe, try opening the preview URL in a standalone browser tab.'
-          : 'Click "Start Live Detection" and approve tab audio sharing to enable real-time detection.',
+        actionableHelp: isPolicy
+          ? 'Open AniVerse directly in a standalone Chrome tab (e.g. your Cloud Run HTTPS URL) instead of inside an embedded preview iframe, then share this tab with audio.'
+          : 'Click "Start Live Detection", select the tab playing YouTube, and enable "Share tab audio".',
       };
 
       this.onStatusChangeCallback?.('error', captureErr);
@@ -196,65 +304,36 @@ export class LiveTabAudioCaptureSession {
     }
   }
 
-  private scheduleNextWindowHarvest(mimeType: string) {
-    if (!this.isRunning) return;
-
-    this.chunkTimer = setTimeout(async () => {
-      if (!this.isRunning || !this.mediaRecorder) return;
-
-      const windowEndTime = this.getPlaybackTimeFn();
-      const chunkDuration = Math.max(1, Math.round((windowEndTime - this.windowStartTime) * 10) / 10);
-
-      if (this.recordedBlobs.length > 0) {
-        const fullBlob = new Blob(this.recordedBlobs, { type: mimeType });
-        // Retain the last 2 seconds of blobs for window overlap (~25%)
-        const overlapBlobs = this.recordedBlobs.slice(-2);
-        this.recordedBlobs = overlapBlobs;
-
-        try {
-          const base64Data = await blobToBase64(fullBlob);
-          if (this.isRunning && this.onChunkCallback) {
-            this.onChunkCallback({
-              audioBase64: base64Data,
-              mimeType,
-              chunkDuration,
-              playbackStart: Math.max(0, this.windowStartTime),
-              playbackEnd: windowEndTime,
-              generationId: this.currentGenerationId,
-              isProvisional: true,
-            });
-          }
-        } catch (encodeErr) {
-          console.warn('[Live Audio] Chunk base64 encoding failed:', encodeErr);
-        }
-      }
-
-      this.windowStartTime = windowEndTime;
-      this.scheduleNextWindowHarvest(mimeType);
-    }, this.windowIntervalMs);
-  }
-
-  /**
-   * Stops audio capture and completely cleans up all streams, nodes, and timers.
-   */
-  public stop(): void {
+  private cleanupInternal(): void {
     this.isRunning = false;
 
-    if (this.chunkTimer) {
-      clearTimeout(this.chunkTimer);
-      this.chunkTimer = null;
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.postMessage({ type: 'stop' });
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
+      } catch {}
+      this.workletNode = null;
     }
 
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+    if (this.sourceNode) {
       try {
-        this.mediaRecorder.stop();
+        this.sourceNode.disconnect();
       } catch {}
-      this.mediaRecorder = null;
+      this.sourceNode = null;
+    }
+
+    if (this.silentGainNode) {
+      try {
+        this.silentGainNode.disconnect();
+      } catch {}
+      this.silentGainNode = null;
     }
 
     if (this.stream) {
       this.stream.getTracks().forEach((track) => {
         try {
+          track.onended = null;
           track.stop();
         } catch {}
       });
@@ -267,9 +346,18 @@ export class LiveTabAudioCaptureSession {
       } catch {}
       this.audioContext = null;
     }
+  }
 
-    this.recordedBlobs = [];
-    this.onStatusChangeCallback?.('stopped');
+  /**
+   * Stops capture immediately and releases every Web Audio node, stream track, and AudioContext.
+   */
+  public stop(): void {
+    const wasActive = this.isRunning || this.stream !== null || this.audioContext !== null;
+    this.isDisposed = true;
+    this.cleanupInternal();
+    if (wasActive) {
+      this.onStatusChangeCallback?.('stopped');
+    }
   }
 
   public getIsRunning(): boolean {

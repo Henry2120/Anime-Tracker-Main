@@ -1,0 +1,737 @@
+# AniVerse — Replace True Live Detection with Local YAMNet and Integrate Six New BlueArchiveModels Assets
+
+You are working on my existing AniVerse project.
+
+**Main repository:** https://github.com/Henry2120/Anime-Tracker-Main  
+**BlueArchiveModels repository:** https://github.com/Henry2120/BlueArchiveModels
+
+The code in the main repository has been reverted to a previous version. Treat the current repository state as the source of truth. Do not assume that previous YAMNet implementations, model files, dependencies, or supporting utilities still exist.
+
+I want two specific improvements:
+
+1. Replace the existing **True Live Detection** implementation with local, browser-side YAMNet inference.
+2. Integrate six new GLB assets from BlueArchiveModels into the appropriate AniVerse systems.
+
+This is a narrowly scoped implementation. Preserve all unrelated functionality.
+
+---
+
+# PART 1 — IMPLEMENT LOCAL YAMNET FOR TRUE LIVE DETECTION
+
+## 1. Required architecture
+
+AniVerse currently has two instrument-analysis modes:
+
+- **Full-Track Analysis:** Uses the existing Gemini-powered analysis implementation.
+- **True Live Detection:** Uses the existing live audio capture and analysis implementation.
+
+I want the following architecture:
+
+| Feature | Required implementation |
+|---|---|
+| Full-Track Analysis | Keep existing Gemini implementation |
+| True Live Detection | Replace with local YAMNet |
+| YAMNet inference | Browser-side, local inference |
+| Audio transmission to backend for YAMNet | None |
+| Gemini usage by YAMNet | None |
+| Instrument timeline | Preserve and integrate |
+| YouTube playback synchronization | Preserve and improve where necessary |
+| Analysis caching | Preserve compatible existing functionality and extend if needed |
+
+**Important: Do not replace Full-Track Analysis with YAMNet.**
+
+Do not remove, rewrite, disable, or otherwise interfere with the existing Gemini Full-Track Analysis implementation.
+
+The existing Full-Track Analysis endpoint, request format, Gemini configuration, result parsing, timeline generation, and caching must remain functional.
+
+YAMNet must replace only the old True Live Detection engine.
+
+## 2. Audit the current implementation before coding
+
+Inspect the current repository and identify:
+
+- `src/components/CharacterViewer/InstrumentAnalysisView.tsx`
+- `src/utils/audioCapture.ts`
+- `src/utils/audioCoverageRecovery.ts`
+- `src/utils/instrumentNormalization.ts`
+- `src/utils/analysisCacheIndexedDB.ts`
+- Any existing YouTube player integration.
+- Any existing instrument timeline and active-instrument highlighting components.
+- Any existing live detection hooks, services, workers, or audio processing utilities.
+
+Also inspect the current dependencies and project configuration.
+
+Do not blindly reuse code from earlier implementations.
+
+Determine which components are shared between Full-Track Analysis and True Live Detection. Preserve shared functionality and avoid modifying shared code in a way that changes Gemini analysis.
+
+Before implementing, establish the actual current data structures for:
+
+- Instrument analysis results.
+- Timestamped segments.
+- Instrument names and normalized labels.
+- Confidence or probability values.
+- YouTube video IDs.
+- Timeline rendering.
+- Active instrument highlighting.
+
+Use the existing structures wherever possible. Introduce adapters only when necessary.
+
+## 3. YAMNet model and runtime
+
+Implement YAMNet as a local inference engine running in the browser.
+
+Preferred approach:
+
+- Use MediaPipe Tasks Audio with a compatible YAMNet model.
+- Keep the inference runtime and model assets locally accessible by AniVerse.
+- Do not depend on a remote inference API.
+- Do not send captured audio to Gemini or another external analysis service.
+- Do not require a Python server to perform inference.
+
+Before selecting the model file, verify that it is genuinely compatible with the chosen runtime.
+
+Do not simply rename a `.tflite` file to `.task` or assume that an arbitrary YAMNet model is compatible with MediaPipe Tasks.
+
+If the selected runtime requires model metadata or a packaged task bundle, provide the correct compatible artifact.
+
+If MediaPipe Tasks Audio cannot reliably support the available model, choose another browser-compatible local inference runtime rather than creating a nonfunctional integration.
+
+The implementation must account for:
+
+- Model initialization.
+- Model loading failures.
+- Model versioning.
+- Inference errors.
+- Browser memory usage.
+- Audio preprocessing.
+- Disposal and cleanup.
+
+Avoid downloading or initializing the model repeatedly for every analysis session. Reuse the loaded model instance when appropriate.
+
+## 4. Audio input and preprocessing
+
+True Live Detection must analyse the audio of the YouTube tab being played.
+
+Use the browser's supported screen/tab capture mechanism, such as:
+
+`navigator.mediaDevices.getDisplayMedia()`
+
+The user should explicitly start the capture through a visible button.
+
+The browser should display its native sharing dialog, allowing the user to select the AniVerse Chrome tab and enable tab audio sharing.
+
+Do not attempt to bypass browser permissions, capture restrictions, or security policies.
+
+The implementation must:
+
+1. Request tab capture only after the user clicks Start.
+2. Request audio capture.
+3. Detect when the user selects a tab without audio.
+4. Handle denied permissions.
+5. Detect when the user stops sharing through Chrome's native sharing controls.
+6. Stop all media tracks when the session ends.
+7. Close or disconnect audio-processing resources when no longer required.
+8. Prevent multiple simultaneous capture sessions.
+
+The audio preprocessing pipeline must convert captured audio into the format required by the selected YAMNet model.
+
+Account for YAMNet's expected audio characteristics:
+
+- Mono audio.
+- 16 kHz sample rate.
+- Correct floating-point input representation.
+- Correct model input window and frame handling.
+
+Do not assume the browser's AudioContext already operates at 16 kHz.
+
+Perform proper resampling when required.
+
+Use an AudioWorklet or another suitable approach for efficient audio processing. Avoid unnecessarily blocking the main UI thread.
+
+Ensure that audio chunks are processed continuously without introducing gaps or overlapping timestamps incorrectly.
+
+## 5. Real-time instrument detection
+
+YAMNet should classify the audio continuously while the user plays a YouTube video.
+
+The expected workflow:
+
+1. User opens Instrument Analysis.
+2. User selects True Live Detection.
+3. User opens or loads a YouTube video.
+4. User clicks Start YAMNet Detection.
+5. Chrome asks which tab to share.
+6. User selects the AniVerse tab and enables audio sharing.
+7. AniVerse receives the audio stream.
+8. YAMNet performs local inference.
+9. AniVerse converts model predictions into normalized instrument labels.
+10. AniVerse generates timestamped instrument segments.
+11. The timeline updates as detection progresses.
+12. Instruments become highlighted only while their corresponding detected segments are active.
+
+Do not present this as instant analysis of an entire YouTube URL.
+
+Browser-side YAMNet needs access to the actual audio stream. It progressively builds its analysis timeline while the video plays.
+
+The application should clearly communicate that analysis is in progress and that the timeline becomes more complete as the video plays.
+
+Do not claim that the entire video has been analysed when only a portion has been captured.
+
+## 6. Instrument classification and normalization
+
+Use YAMNet's actual AudioSet class outputs.
+
+Create or extend an instrument-label mapping layer that converts supported AudioSet labels into AniVerse's canonical instrument names.
+
+Examples of potentially useful classes include:
+
+- Piano.
+- Acoustic guitar.
+- Electric guitar.
+- Bass guitar.
+- Violin.
+- Cello.
+- Harp.
+- Flute.
+- Clarinet.
+- Saxophone.
+- Trumpet.
+- Trombone.
+- Drum kit.
+- Percussion.
+- Synthesizer, where supported by the model's actual labels.
+
+These are examples, not a claim that every instrument is represented by a dedicated YAMNet class.
+
+Do not invent model classes or pretend that YAMNet can reliably distinguish instruments that its output does not support.
+
+In particular, instruments such as erhu and handpan may not have sufficiently specific YAMNet classes. Do not falsely label them based on unsupported assumptions.
+
+Where the model produces a broader class, preserve the distinction between the model's actual prediction and the canonical label used by AniVerse.
+
+### Confidence handling
+
+Preserve my previous preference: do not introduce a hard-coded minimum-confidence cutoff that silently removes lower-confidence instrument predictions.
+
+Use sensible temporal smoothing and duplicate suppression to reduce flickering and unstable classifications.
+
+However, retain the original model scores in the underlying detection results so they can be inspected and evaluated.
+
+Do not silently discard predictions just because their confidence is lower than an arbitrary threshold.
+
+### Segment generation
+
+Convert continuous predictions into timestamped segments.
+
+Each segment should contain the fields required by the existing AniVerse timeline structure, including:
+
+- Start time.
+- End time.
+- Instrument name.
+- Original model class, where useful.
+- Model score or confidence.
+- Detection source (`yamnet`).
+
+Merge adjacent detections when appropriate.
+
+Avoid producing hundreds of tiny overlapping segments for a continuous instrument.
+
+Do not merge separate occurrences across meaningful periods of silence or absence.
+
+Ensure that segments are ordered by timestamp and do not create invalid negative durations.
+
+## 7. YouTube playback synchronization
+
+This is a critical requirement.
+
+The instrument timeline must correspond to the actual YouTube playback position.
+
+Use the YouTube player's actual current playback time rather than relying on elapsed wall-clock time.
+
+Support:
+
+- Play.
+- Pause.
+- Resume.
+- Seeking forward.
+- Seeking backward.
+- Video changes.
+- Video reloads.
+- Playback speed changes where relevant.
+
+When a video is paused, the active-instrument highlighting must stop advancing.
+
+When the user seeks, the highlighting must immediately reflect the instrument segments at the new playback position.
+
+When the video changes, do not display stale detection results from the previous video.
+
+Use the existing YouTube player integration. Do not create a second independent player.
+
+### Highlighting behaviour
+
+Only highlight instruments whose segments are active at the current playback time.
+
+For example:
+
+- Violin: 10–18 seconds.
+- Piano: 15–25 seconds.
+- Cello: 30–42 seconds.
+
+At 12 seconds, highlight violin.
+
+At 17 seconds, highlight violin and piano.
+
+At 22 seconds, highlight piano.
+
+At 35 seconds, highlight cello.
+
+At 45 seconds, do not highlight any of these instruments.
+
+Do not highlight every instrument detected somewhere in the video simultaneously.
+
+Preserve the existing instrument timeline appearance and integrate YAMNet results into it.
+
+## 8. Analysis session lifecycle
+
+Implement reliable session management.
+
+The following cases must be handled:
+
+- User starts detection.
+- User stops detection.
+- User starts detection twice.
+- User denies capture permission.
+- User shares a tab without audio.
+- User stops sharing through Chrome.
+- YouTube video changes.
+- YouTube playback pauses.
+- YouTube playback resumes.
+- YAMNet model fails to load.
+- Audio preprocessing fails.
+- Inference throws an error.
+- User navigates away from Instrument Analysis.
+
+Do not leave microphone, tab-audio, MediaStream, AudioContext, AudioWorklet, or worker resources running after the session ends.
+
+Prevent stale asynchronous results from updating the interface after the user has switched videos or stopped detection.
+
+Provide clear status messages for:
+
+- Loading YAMNet.
+- Waiting for tab sharing.
+- Capturing audio.
+- Analysing.
+- Paused.
+- Stopped.
+- Completed capture.
+- Permission denied.
+- Missing tab audio.
+- Model initialization failure.
+- Processing failure.
+
+Do not display misleading success messages.
+
+## 9. Caching and persistence
+
+Inspect the existing IndexedDB implementation before changing anything.
+
+Preserve compatible caching functionality.
+
+Store YAMNet results separately from Gemini Full-Track Analysis results.
+
+Use a versioned cache schema and identify YAMNet results by:
+
+- Normalized YouTube video ID.
+- Detection engine.
+- Model version.
+- Analysis schema version.
+
+Avoid collisions between Gemini and YAMNet results.
+
+Do not overwrite existing valid Gemini analysis results with YAMNet data.
+
+If a user analyses a video, stops, and later resumes detection, handle previously captured segments safely.
+
+Do not claim that cached results represent a complete video if only part of the video was captured.
+
+If the user replays a video after a successful capture, use the stored timestamped segments for synchronized highlighting without requiring another capture session.
+
+Allow the user to start a new YAMNet capture when they want to update the analysis.
+
+## 10. User interface requirements
+
+Preserve the existing Instrument Analysis design.
+
+Do not redesign the entire Music Lab.
+
+Keep the two analysis modes clearly separated:
+
+- Full-Track Analysis (Gemini).
+- True Live Detection (Local YAMNet).
+
+Update the True Live Detection controls to reflect the new implementation.
+
+Use clear labels such as:
+
+- Start YAMNet Detection.
+- Stop Detection.
+- Loading Model.
+- Waiting for Tab Audio.
+- Analysing Audio.
+- Capture Complete.
+
+Show that YAMNet runs locally in the browser.
+
+Make it clear that Chrome tab-audio sharing is required.
+
+Do not add a separate redundant live-detection mode.
+
+Do not retain the old live detection engine as a hidden fallback that silently sends audio to the backend.
+
+Remove or disconnect the old live detection engine only where it is exclusively used by True Live Detection.
+
+If existing utilities are shared with Full-Track Analysis, preserve them.
+
+### Local audio-file mode
+
+Do not introduce a new local-file analysis mode as part of this implementation.
+
+Keep the requested workflow centred on YouTube audio and the existing YouTube player.
+
+If a local audio-file tab or workflow currently exists exclusively as part of the old live detection implementation, remove it from the True Live Detection user workflow without affecting Full-Track Analysis.
+
+## 11. Deployment and browser compatibility
+
+The deployed AniVerse application runs through HTTPS on Cloud Run.
+
+Test the implementation in the actual deployed environment where possible.
+
+Important browser limitation:
+
+`getDisplayMedia()` is subject to browser security policies and user permission. Embedded previews or restricted iframe contexts may prevent tab-audio capture.
+
+Do not attempt to circumvent these restrictions.
+
+If capture is unavailable in the embedded AI Studio preview, display a useful explanation and direct the user to the standalone deployed HTTPS application.
+
+Do not report this browser restriction as a YAMNet model failure.
+
+---
+
+# PART 2 — INTEGRATE SIX NEW BLUEARCHIVEMODELS ASSETS
+
+Source repository:
+
+https://github.com/Henry2120/BlueArchiveModels/tree/main
+
+The following six files have been verified in the repository.
+
+Use the exact filenames and source URLs.
+
+## 1. Character-performance models
+
+### A. Hinata — Grand Piano
+
+Filename:
+
+`Hinata_Grand_Piano_Exs_Grand_Piano.glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Hinata_Grand_Piano_Exs_Grand_Piano.glb
+
+Size: approximately 12.7 MB.
+
+Intended integration:
+
+- Character: Hinata.
+- Instrument: Grand Piano.
+- Add to the character/model catalogue.
+- Make it available in the appropriate character selection workflow.
+- Inspect its actual animation clips before registering any animation names.
+
+### B. Kisaki — Erhu
+
+Filename:
+
+`Kisaki_Erhu_Exs_Erhu.glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Kisaki_Erhu_Exs_Erhu.glb
+
+Size: approximately 8.1 MB.
+
+Intended integration:
+
+- Character: Kisaki.
+- Instrument: Erhu.
+- Add to the character/model catalogue.
+- Inspect the actual animation clips.
+- Do not invent animation names or assume an animation exists.
+
+### C. Yuuka — Handpan
+
+Filename:
+
+`Yuuka_Handpan_Exs_Handpan.glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Yuuka_Handpan_Exs_Handpan.glb
+
+Size: approximately 8.2 MB.
+
+Intended integration:
+
+- Character: Yuuka.
+- Instrument: Handpan.
+- Add to the character/model catalogue.
+- Inspect actual animation clips and preserve the model's existing structure.
+
+### D. Saori (Dress) — Harp
+
+Exact filename:
+
+`Saori_Dress_Harp_Exs_Harp (1).glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Saori_Dress_Harp_Exs_Harp%20(1).glb
+
+Size: approximately 9.4 MB.
+
+Intended integration:
+
+- Character: Saori (Dress).
+- Instrument: Harp.
+- Add to the character/model catalogue.
+- Inspect actual animation clips.
+- Preserve the correct model identity and avoid accidentally registering it as the existing Saori model.
+
+Important: The source filename includes `(1)`. Do not accidentally construct a URL without the encoded parentheses or silently download a different file.
+
+## 2. Environment and stage assets
+
+These are NOT character models.
+
+Do not add them to the character roster.
+
+### E. Sainte-Chapelle Interior
+
+Filename:
+
+`Sainte_Chapelle_Interior.glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Sainte_Chapelle_Interior.glb
+
+Size: approximately 34.4 MB.
+
+Intended integration:
+
+- Add it to the existing environment-selection or environment-preview system.
+- Make it selectable as an environment.
+- Do not automatically replace the existing default environment.
+- Load it only when selected.
+- Avoid loading the 34.4 MB asset during normal application startup.
+- Dispose of its geometry, materials, textures, and associated resources when it is no longer needed, following the existing viewer architecture.
+
+This asset should be treated as a potentially expensive environment.
+
+Avoid unnecessary duplicate loading or retaining multiple unused copies in memory.
+
+### F. AniVerse Fire Stage
+
+Filename:
+
+`AniVerse_Fire_Stage.glb`
+
+Source:
+
+https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/AniVerse_Fire_Stage.glb
+
+Size: approximately 4.6 MB.
+
+Intended integration:
+
+- Add it to the appropriate environment/stage selection system.
+- Make it manually selectable.
+- Do not automatically replace the default stage.
+- Inspect its actual contents and animations before integrating any special effects.
+- Preserve the ability to select other existing environments and stages.
+
+Do not assume the fire effect is animated unless the GLB actually contains the necessary animation or geometry.
+
+## 3. Character catalogue and manifest integration
+
+Inspect:
+
+- `src/data/blueArchiveManifest.json`
+- `src/data/blueArchiveCharacters.ts`
+- The current model-loading and character-selection implementation.
+
+Add the four character-performance models using the existing catalogue conventions.
+
+Suggested unique IDs, provided they do not conflict with existing IDs:
+
+- `hinata-grand-piano`
+- `kisaki-erhu`
+- `yuuka-handpan`
+- `saori-dress-harp`
+
+Use the existing schema and naming conventions.
+
+If both the manifest and TypeScript catalogue are active sources, update both consistently.
+
+Do not create duplicate character entries.
+
+Do not overwrite existing character variants.
+
+In particular:
+
+- Do not replace the existing Hina piano models or Hina-specific activation logic.
+- Do not replace the existing default character models.
+- Do not change existing character IDs.
+- Do not register an environment or stage as a character.
+
+If the current viewer supports model alternatives or instrument variants, integrate these models into that existing architecture.
+
+If it does not, add them as selectable character-model entries without inventing a new complicated system.
+
+## 4. GLB inspection requirements
+
+Before registering animation clips:
+
+- Inspect the actual GLB files.
+- Identify the available animation clips.
+- Identify the model's relevant nodes and mesh structure where necessary.
+- Determine whether the model is a character performance model or an environment.
+- Use the actual clip names.
+
+Do not assume all four character models contain animations.
+
+Do not rename animation clips in the GLB.
+
+Do not modify model geometry, rigging, or animation data as part of this integration.
+
+If an expected animation is missing, report that clearly rather than assigning an unrelated clip.
+
+## 5. Asset delivery and loading
+
+Follow the existing AniVerse asset-loading architecture.
+
+If the application currently loads models from repository-hosted URLs, use the verified raw GitHub URLs.
+
+If the application expects models in local public directories, download the assets into the corresponding existing directories and update the manifest paths accordingly.
+
+Do not create a second, competing asset-loading architecture.
+
+Do not embed the GLB files as Base64 in source code.
+
+Do not load all six files immediately on startup.
+
+Keep character models and environments lazy-loaded wherever possible.
+
+Preserve the existing loading indicators, error handling, and resource-disposal behaviour.
+
+---
+
+# PART 3 — STRICT SCOPE AND PROTECTED FUNCTIONALITY
+
+This implementation must not become a general AniVerse refactor.
+
+Do not modify:
+
+- MyAnimeList OAuth.
+- MyAnimeList authentication.
+- MyAnimeList data synchronization.
+- Anime tracking functionality.
+- Anime calendar functionality.
+- Gemini Full-Track Analysis.
+- Existing Gemini configuration or model selection.
+- Existing Full-Track Analysis endpoints.
+- Unrelated Music Lab features.
+- Existing YouTube player functionality, except where necessary for synchronization.
+- Existing 3D viewer functionality unrelated to adding the six assets.
+- Existing character activation logic unrelated to these new models.
+- Existing environment defaults.
+- Unrelated UI layouts, themes, or navigation.
+
+Do not introduce new dependencies unless they are necessary for the local YAMNet runtime.
+
+Do not change the project's framework or architecture.
+
+Do not replace existing components wholesale when a targeted modification is sufficient.
+
+Do not delete existing utilities until you have confirmed that they are exclusively used by the replaced live detection implementation.
+
+Do not run a broad manifest-generation script that could incorrectly register environment GLBs as character models.
+
+Preserve all existing working functionality.
+
+---
+
+# PART 4 — VALIDATION AND ACCEPTANCE CRITERIA
+
+After implementation, run the available build, type-check, and relevant tests.
+
+Do not stop after generating code. Verify the actual implementation.
+
+## YAMNet acceptance criteria
+
+- [ ] Full-Track Analysis still uses Gemini.
+- [ ] Existing Gemini Full-Track Analysis endpoint and request flow remain intact.
+- [ ] True Live Detection uses local YAMNet.
+- [ ] YAMNet inference runs in the browser.
+- [ ] Captured audio is not sent to Gemini or the AniVerse backend for YAMNet inference.
+- [ ] Chrome tab-audio capture is initiated by an explicit user action.
+- [ ] Model compatibility with the chosen runtime has been verified.
+- [ ] Audio preprocessing correctly handles mono conversion and 16 kHz resampling.
+- [ ] Detection produces timestamped instrument segments.
+- [ ] Lower-confidence predictions are not silently discarded by an arbitrary hard-coded minimum threshold.
+- [ ] The timeline updates progressively during playback.
+- [ ] Highlighting only occurs for instruments active at the current playback timestamp.
+- [ ] Pause, resume, seeking, and video switching work correctly.
+- [ ] Cached YAMNet results are separated from Gemini results.
+- [ ] Previously captured results can be used for subsequent synchronized playback.
+- [ ] Stopping detection releases all capture and audio-processing resources.
+- [ ] Permission failures and unsupported capture environments produce useful error messages.
+- [ ] The old live detection engine is no longer used by the True Live Detection workflow.
+
+## BlueArchiveModels acceptance criteria
+
+- [ ] Hinata Grand Piano is available in the character catalogue.
+- [ ] Kisaki Erhu is available in the character catalogue.
+- [ ] Yuuka Handpan is available in the character catalogue.
+- [ ] Saori (Dress) Harp is available in the character catalogue.
+- [ ] Exact Saori source filename is respected.
+- [ ] Existing Hina piano models and activation logic remain unchanged.
+- [ ] Sainte-Chapelle Interior is selectable as an environment.
+- [ ] AniVerse Fire Stage is selectable in the appropriate environment/stage workflow.
+- [ ] Environment assets are not added to the character roster.
+- [ ] Large environment assets are not loaded unnecessarily at startup.
+- [ ] Actual GLB animation clips are inspected before registration.
+- [ ] Existing character and environment selections continue working.
+
+## Final report
+
+When finished, provide:
+
+1. A summary of the implementation.
+2. The exact files created.
+3. The exact files modified.
+4. The YAMNet runtime and model artifact selected, including its source and compatibility details.
+5. How YouTube tab-audio capture works.
+6. How timestamped segments and playback synchronization work.
+7. Confirmation that Gemini Full-Track Analysis was preserved.
+8. Confirmation of the six GLB integrations.
+9. Any GLB animations that were missing or could not be registered.
+10. Build and test results.
+11. Any remaining browser limitations or manual setup requirements.
+
+If any requirement cannot be implemented reliably, explain the limitation explicitly. Do not mark an unimplemented requirement as complete.
+
+**Final priority:** preserve the reverted AniVerse codebase, replace only True Live Detection with local YAMNet, retain Gemini Full-Track Analysis, and integrate the six new models into their correct systems without disturbing unrelated features.

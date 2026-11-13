@@ -2158,5 +2158,29 @@
     "displayName": "Reisa (Magical) (Special)",
     "filename": "Reisa (Magical) (Special).glb",
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Reisa%20(Magical)%20(Special).glb"
+  },
+  {
+    "id": "hinata-grand-piano",
+    "displayName": "Hinata (Grand Piano)",
+    "filename": "Hinata_Grand_Piano_Exs_Grand_Piano.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Hinata_Grand_Piano_Exs_Grand_Piano.glb"
+  },
+  {
+    "id": "kisaki-erhu",
+    "displayName": "Kisaki (Erhu)",
+    "filename": "Kisaki_Erhu_Exs_Erhu.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Kisaki_Erhu_Exs_Erhu.glb"
+  },
+  {
+    "id": "yuuka-handpan",
+    "displayName": "Yuuka (Handpan)",
+    "filename": "Yuuka_Handpan_Exs_Handpan.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Yuuka_Handpan_Exs_Handpan.glb"
+  },
+  {
+    "id": "saori-dress-harp",
+    "displayName": "Saori (Dress) with Harp",
+    "filename": "Saori_Dress_Harp_Exs_Harp (1).glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Saori_Dress_Harp_Exs_Harp%20(1).glb"
   }
 ]
