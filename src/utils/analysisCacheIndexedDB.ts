@@ -46,7 +46,7 @@ const YAMNET_STORE_NAME = 'yamnet_live_analyses';
 
 export const YAMNET_CACHE_ENGINE = 'yamnet' as const;
 export const YAMNET_MODEL_VERSION = 'mediapipe-yamnet-float32-v1';
-export const YAMNET_SCHEMA_VERSION = 'v1-local-yamnet';
+export const YAMNET_SCHEMA_VERSION = 'v3-18cat-multilabel-vocals';
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

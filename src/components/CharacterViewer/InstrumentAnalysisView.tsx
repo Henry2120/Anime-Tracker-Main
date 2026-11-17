@@ -974,6 +974,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
               inputRms: frame.rms,
             });
 
+            console.debug('[YAMNet Frame]', frameResult.diagnostics);
             setLiveLastPredictions(frameResult.predictions);
 
             // Track actual captured playback range regardless of silence/instruments
@@ -1283,8 +1284,27 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
     });
 
-    // Also include any dynamically detected instruments from the AI not present in base catalog
+    // Also include any dynamically detected instruments / Vocals not present in base catalog
     allDetectedInstruments.forEach((det) => {
+      if (det.name.trim().toLowerCase() === 'vocals') {
+        const fam: InstrumentFamily = 'Voice & Electronic';
+        const alreadyInList = groups[fam].instruments.some(
+          (i) => i.canonicalName.toLowerCase() === 'vocals'
+        );
+        if (!alreadyInList) {
+          groups[fam].instruments.unshift({
+            id: 'vocals',
+            canonicalName: 'Vocals',
+            family: fam,
+            aliases: [],
+            description:
+              det.description ||
+              'Unified singing voice category (solo lead vocals, harmonies, backing vocals, choir, and synthetic singing)',
+          });
+        }
+        return;
+      }
+
       const normalized = normalizeInstrument(det.name);
       const fam = (normalized.family in groups ? normalized.family : 'Other') as InstrumentFamily;
       const alreadyInList = groups[fam].instruments.some(
@@ -1567,10 +1587,18 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
                   {liveLastPredictions.map((pred) => (
                     <span
                       key={`${pred.canonicalName}-${pred.originalModelClass}`}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/70 dark:bg-black/30 border border-rose-500/25"
-                      title={`Raw AudioSet class: ${pred.originalModelClass} | Raw score: ${pred.rawScore.toFixed(4)} | Smoothed: ${pred.smoothedScore.toFixed(4)}`}
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded-md border ${
+                        pred.isVoice
+                          ? 'bg-pink-500/15 border-pink-500/35 text-pink-900 dark:text-pink-200 font-semibold'
+                          : pred.isFallback
+                          ? 'bg-amber-500/10 border-amber-500/35 text-amber-900 dark:text-amber-200'
+                          : 'bg-white/70 dark:bg-black/30 border-rose-500/25'
+                      }`}
+                      title={`Mode: ${pred.classificationMode} | Raw AudioSet: ${pred.originalModelClass} (${(pred.rawScore * 100).toFixed(1)}%) | Est. Confidence: ${pred.classificationConfidence}% | Evidence: ${pred.selectionEvidence}`}
                     >
-                      {pred.canonicalName} ({pred.originalModelClass}: {(pred.rawScore * 100).toFixed(1)}%)
+                      {pred.isVoice ? '🎙️ ' : ''}
+                      {pred.canonicalName}
+                      {pred.classificationMode !== 'exact' ? ` [${pred.classificationMode === 'best_match' ? 'best-match' : 'inferred'}]` : ''} ({pred.originalModelClass}: {(pred.rawScore * 100).toFixed(1)}%)
                     </span>
                   ))}
                 </div>

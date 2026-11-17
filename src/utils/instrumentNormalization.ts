@@ -38,6 +38,11 @@ export interface InstrumentTimelineSegment {
   source?: 'gemini' | 'yamnet'; // Analysis engine provenance
   originalModelClass?: string; // Raw model label (e.g., AudioSet class name)
   rawScore?: number; // Original unthresholded model probability [0..1]
+  classificationMode?: 'exact' | 'inferred' | 'best_match';
+  selectedInstrument?: string; // Target canonical instrument name chosen by closed-set mapper
+  selectionEvidence?: string; // Reason / co-evidence / acoustic cues explaining selection
+  isFallback?: boolean; // True when ambiguous/broad prediction required best-match fallback
+  classificationConfidence?: number; // Honest 0..100 estimated confidence distinct from rawScore
 }
 
 export interface NormalizedDetectedInstrument {
@@ -916,7 +921,23 @@ export function validateAndMergeTimelineSegments(
     source?: 'gemini' | 'yamnet';
     originalModelClass?: string;
     rawScore?: number;
+    classificationMode?: 'exact' | 'inferred' | 'best_match';
+    selectedInstrument?: string;
+    selectionEvidence?: string;
+    isFallback?: boolean;
+    classificationConfidence?: number;
   }[] = [];
+
+  const VALID_FAMILIES = new Set<InstrumentFamily>([
+    'Strings',
+    'Woodwinds',
+    'Brass',
+    'Keyboards',
+    'Percussion',
+    'Traditional & World',
+    'Voice & Electronic',
+    'Other',
+  ]);
 
   rawSegments.forEach((item) => {
     if (typeof item !== 'object' || item === null) return;
@@ -945,7 +966,12 @@ export function validateAndMergeTimelineSegments(
       confidence = c <= 1 ? Math.round(c * 100) : Math.min(100, Math.round(c));
     }
 
-    const audibility = (item as any).audibility === 'suspected' ? 'suspected' : 'audible';
+    const audibility: 'audible' | 'suspected' | 'uncertain' =
+      (item as any).audibility === 'uncertain'
+        ? 'uncertain'
+        : (item as any).audibility === 'suspected'
+        ? 'suspected'
+        : 'audible';
     const rawEvidence = (item as any).evidence || (item as any).notes;
     const evidence = typeof rawEvidence === 'string' && rawEvidence.trim().length > 0
       ? rawEvidence.trim()
@@ -973,10 +999,42 @@ export function validateAndMergeTimelineSegments(
         ? (item as any).rawScore
         : undefined;
 
+    const rawMode = (item as any).classificationMode;
+    const classificationMode: 'exact' | 'inferred' | 'best_match' | undefined =
+      rawMode === 'exact' || rawMode === 'inferred' || rawMode === 'best_match'
+        ? rawMode
+        : undefined;
+    const selectedInstrument =
+      typeof (item as any).selectedInstrument === 'string'
+        ? (item as any).selectedInstrument
+        : undefined;
+    const selectionEvidence =
+      typeof (item as any).selectionEvidence === 'string'
+        ? (item as any).selectionEvidence
+        : undefined;
+    const isFallback =
+      typeof (item as any).isFallback === 'boolean' ? (item as any).isFallback : undefined;
+    const classificationConfidence =
+      typeof (item as any).classificationConfidence === 'number' &&
+      Number.isFinite((item as any).classificationConfidence)
+        ? Math.round((item as any).classificationConfidence)
+        : undefined;
+
+    // For closed-set YAMNet detections, preserve unified 'Vocals' and authoritative YAMNet family mapping
+    const isUnifiedYamnetVocal = source === 'yamnet' && rawName.trim().toLowerCase() === 'vocals';
+    const providedFamily = (item as any).family as InstrumentFamily;
+    const resolvedName = isUnifiedYamnetVocal ? 'Vocals' : normalized.canonicalName;
+    const resolvedId = isUnifiedYamnetVocal ? 'vocals' : normalized.id;
+    const resolvedFamily: InstrumentFamily = isUnifiedYamnetVocal
+      ? 'Voice & Electronic'
+      : source === 'yamnet' && VALID_FAMILIES.has(providedFamily)
+      ? providedFamily
+      : normalized.family;
+
     validCandidates.push({
-      instrumentName: normalized.canonicalName,
-      family: normalized.family,
-      id: normalized.id,
+      instrumentName: resolvedName,
+      family: resolvedFamily,
+      id: resolvedId,
       startTime,
       endTime,
       confidence,
@@ -987,6 +1045,11 @@ export function validateAndMergeTimelineSegments(
       source,
       originalModelClass,
       rawScore,
+      classificationMode,
+      selectedInstrument,
+      selectionEvidence,
+      isFallback,
+      classificationConfidence,
     });
   });
 
@@ -998,6 +1061,12 @@ export function validateAndMergeTimelineSegments(
     }
     grouped.get(c.instrumentName)!.push(c);
   });
+
+  const MODE_RANK: Record<'exact' | 'inferred' | 'best_match', number> = {
+    exact: 3,
+    inferred: 2,
+    best_match: 1,
+  };
 
   // 3. For each instrument, merge overlapping or contiguous segments (< gapMergeThreshold gap)
   const mergedSegments: InstrumentTimelineSegment[] = [];
@@ -1022,24 +1091,62 @@ export function validateAndMergeTimelineSegments(
         if (typeof current.confidence === 'number') {
           prev.confidence = Math.max(prev.confidence ?? 0, current.confidence);
         }
+        if (typeof current.classificationConfidence === 'number') {
+          prev.classificationConfidence = Math.max(
+            prev.classificationConfidence ?? 0,
+            current.classificationConfidence
+          );
+        }
         if (typeof current.rawScore === 'number') {
           prev.rawScore = Math.max(prev.rawScore ?? 0, current.rawScore);
         }
-        if (current.audibility === 'audible') prev.audibility = 'audible';
+        if (current.audibility === 'audible') {
+          prev.audibility = 'audible';
+        } else if (current.audibility === 'suspected' && prev.audibility === 'uncertain') {
+          prev.audibility = 'suspected';
+        }
         // If one segment is confirmed, the merged segment is confirmed
         if (current.status === 'confirmed' || prev.status === 'confirmed') {
           prev.status = 'confirmed';
         }
+        // Promote classificationMode to the strongest observed mode within the contiguous span
+        if (current.classificationMode) {
+          if (
+            !prev.classificationMode ||
+            MODE_RANK[current.classificationMode] > MODE_RANK[prev.classificationMode]
+          ) {
+            prev.classificationMode = current.classificationMode;
+            prev.isFallback = current.classificationMode === 'best_match';
+          }
+        } else if (current.isFallback === false) {
+          prev.isFallback = false;
+        }
+
         if (
           current.originalModelClass &&
           !prev.originalModelClass?.includes(current.originalModelClass)
         ) {
-          prev.originalModelClass = prev.originalModelClass
-            ? `${prev.originalModelClass}, ${current.originalModelClass}`
-            : current.originalModelClass;
+          const existingParts = prev.originalModelClass ? prev.originalModelClass.split(', ') : [];
+          if (existingParts.length < 3) {
+            prev.originalModelClass = prev.originalModelClass
+              ? `${prev.originalModelClass}, ${current.originalModelClass}`
+              : current.originalModelClass;
+          }
+        }
+        if (
+          current.selectionEvidence &&
+          !prev.selectionEvidence?.includes(current.selectionEvidence)
+        ) {
+          if (!prev.selectionEvidence || prev.selectionEvidence.length < 180) {
+            prev.selectionEvidence = prev.selectionEvidence
+              ? `${prev.selectionEvidence}; ${current.selectionEvidence}`
+              : current.selectionEvidence;
+          }
         }
         if (current.evidence && !prev.evidence?.includes(current.evidence)) {
-          prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
+          if (!prev.evidence || prev.evidence.length < 180) {
+            prev.evidence = prev.evidence ? `${prev.evidence}; ${current.evidence}` : current.evidence;
+          }
         }
       } else {
         // Genuine musical silence/rest between intervals! Keep separate.
@@ -1062,6 +1169,13 @@ export function validateAndMergeTimelineSegments(
         ...(seg.source ? { source: seg.source } : {}),
         ...(seg.originalModelClass ? { originalModelClass: seg.originalModelClass } : {}),
         ...(typeof seg.rawScore === 'number' ? { rawScore: seg.rawScore } : {}),
+        ...(seg.classificationMode ? { classificationMode: seg.classificationMode } : {}),
+        ...(seg.selectedInstrument ? { selectedInstrument: seg.selectedInstrument } : {}),
+        ...(seg.selectionEvidence ? { selectionEvidence: seg.selectionEvidence } : {}),
+        ...(typeof seg.isFallback === 'boolean' ? { isFallback: seg.isFallback } : {}),
+        ...(typeof seg.classificationConfidence === 'number'
+          ? { classificationConfidence: seg.classificationConfidence }
+          : {}),
       });
     });
   });
