@@ -1,0 +1,1432 @@
+import React, { useEffect, useState } from 'react';
+import {
+  BookOpen,
+  Calendar,
+  Clock,
+  Edit3,
+  Eye,
+  EyeOff,
+  History,
+  Layers,
+  Pause,
+  Play,
+  Plus,
+  Quote,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Star,
+  Trash2,
+  Upload,
+  Users,
+  X,
+} from 'lucide-react';
+import type { EnrichedBookRecord } from '../hooks/useLibraryData';
+import { useI18n } from '../i18n/useI18n';
+import { saveLocalCoverBlob } from '../services/covers';
+import { computeLocalDiscoveryRelations } from '../services/discoveryService';
+import {
+  deleteReviewOnly,
+  logOrUpdateReadingSession,
+  saveJournalEntry,
+  saveLoan,
+  savePhysicalCopy,
+  saveReview,
+  softDeleteEntity,
+  startReadingCycle,
+  switchActiveCycle,
+  toggleWorkOnShelf,
+  updateCycleProgress,
+  updateCycleStatus,
+  updateEdition,
+  updateWork,
+  upsertEditionIsbn,
+} from '../services/libraryService';
+import type {
+  AcquisitionMethod,
+  BookFormat,
+  CopyCondition,
+  CurrencyCode,
+  Edition,
+  JournalEntryType,
+  LoanDirection,
+  OwnershipStatus,
+  ReadingSession,
+  ReadingStatus,
+  Shelf,
+  Work,
+} from '../types/domain';
+import { CURRENCY_OPTIONS, formatCurrency } from '../utils/currency';
+import { calculateCycleMetrics, getLocalDateString } from '../utils/statsCalculator';
+import { CoverImage } from './CoverImage';
+
+interface BookDetailModalProps {
+  book: EnrichedBookRecord | null;
+  allWorks: Work[];
+  allEditions: Edition[];
+  shelves: Shelf[];
+  defaultCurrency: CurrencyCode;
+  onClose: () => void;
+  onSelectWork?: (workId: string) => void;
+  onDeletedWork?: (workId: string, title: string) => void;
+}
+
+type DetailTab = 'reading' | 'copies' | 'loans' | 'journal' | 'discovery';
+
+export function BookDetailModal({
+  book,
+  allWorks,
+  allEditions,
+  shelves,
+  defaultCurrency,
+  onClose,
+  onSelectWork,
+  onDeletedWork,
+}: BookDetailModalProps) {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<DetailTab>('reading');
+
+  // Active cycle & progress inputs
+  const [pageInput, setPageInput] = useState('0');
+  const [totalPagesInput, setTotalPagesInput] = useState('0');
+
+  // Live timer state
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Manual / edit session state
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessDate, setSessDate] = useState(getLocalDateString());
+  const [sessStartPage, setSessStartPage] = useState('0');
+  const [sessEndPage, setSessEndPage] = useState('0');
+  const [sessMinutes, setSessMinutes] = useState('25');
+  const [sessNotes, setSessNotes] = useState('');
+
+  // Add copy form state
+  const [showAddCopy, setShowAddCopy] = useState(false);
+  const [copyEditionId, setCopyEditionId] = useState('');
+  const [copyOwnership, setCopyOwnership] = useState<OwnershipStatus>('owned');
+  const [copyFormat, setCopyFormat] = useState<BookFormat>('paperback');
+  const [copyCondition, setCopyCondition] = useState<CopyCondition>('new');
+  const [copyAcq, setCopyAcq] = useState<AcquisitionMethod>('purchased');
+  const [copyPrice, setCopyPrice] = useState('');
+  const [copyCurrency, setCopyCurrency] = useState<CurrencyCode>(defaultCurrency);
+  const [copySeller, setCopySeller] = useState('');
+  const [copyLocation, setCopyLocation] = useState('');
+  const [copyDate, setCopyDate] = useState('');
+  const [copyNotes, setCopyNotes] = useState('');
+
+  // Loan form state
+  const [loanDir, setLoanDir] = useState<LoanDirection>('lent');
+  const [loanPerson, setLoanPerson] = useState('');
+  const [loanDue, setLoanDue] = useState('');
+  const [loanNotes, setLoanNotes] = useState('');
+  const [loanCopyId, setLoanCopyId] = useState('');
+
+  // Review & Journal state
+  const [reviewRating, setReviewRating] = useState('5');
+  const [reviewHeadline, setReviewHeadline] = useState('');
+  const [reviewBody, setReviewBody] = useState('');
+  const [reviewSpoilers, setReviewSpoilers] = useState(false);
+  const [revealedIds, setRevealedIds] = useState<Record<string, boolean>>({});
+
+  const [entryType, setEntryType] = useState<JournalEntryType>('note');
+  const [entryTitle, setEntryTitle] = useState('');
+  const [entryContent, setEntryContent] = useState('');
+  const [entryQuote, setEntryQuote] = useState('');
+  const [entryCharacter, setEntryCharacter] = useState('');
+  const [entryPage, setEntryPage] = useState('');
+  const [entrySpoilers, setEntrySpoilers] = useState(false);
+
+  // Edit Work / Edition metadata state
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [metaTitle, setMetaTitle] = useState('');
+  const [metaAuthors, setMetaAuthors] = useState('');
+  const [metaGenres, setMetaGenres] = useState('');
+  const [metaPages, setMetaPages] = useState('');
+  const [metaPublisher, setMetaPublisher] = useState('');
+  const [newIsbn, setNewIsbn] = useState('');
+
+  useEffect(() => {
+    if (!book) return;
+    const curPage = book.activeProgress?.currentPage ?? 0;
+    const totPage = book.activeProgress?.totalPages ?? book.primaryEdition.pageCount ?? 0;
+    setPageInput(String(curPage));
+    setTotalPagesInput(String(totPage));
+    setSessStartPage(String(curPage));
+    setSessEndPage(String(curPage));
+    setCopyEditionId(book.primaryEdition.id);
+    setCopyCurrency(defaultCurrency);
+    setMetaTitle(book.work.title);
+    setMetaAuthors(book.work.authors.join(', '));
+    setMetaGenres(book.work.genres.join(', '));
+    setMetaPages(book.primaryEdition.pageCount ? String(book.primaryEdition.pageCount) : '');
+    setMetaPublisher(book.primaryEdition.publishers.join(', '));
+  }, [book?.work.id, book?.activeCycle?.id, book?.activeProgress?.currentPage, defaultCurrency]);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const iv = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(iv);
+  }, [timerRunning]);
+
+  if (!book) return null;
+
+  const activeCycle = book.activeCycle;
+  const activeEdition =
+    (activeCycle && book.editions.find((e) => e.id === activeCycle.editionId)) ||
+    book.primaryEdition;
+
+  const metrics = activeCycle
+    ? calculateCycleMetrics(activeCycle, book.activeProgress, activeEdition, book.sessions)
+    : null;
+
+  const discovery = computeLocalDiscoveryRelations({
+    targetWork: book.work,
+    targetEditionId: activeEdition.id,
+    allWorks,
+    allEditions,
+  });
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await saveLocalCoverBlob(activeEdition.id, file);
+  };
+
+  const handleUpdateProgress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCycle) return;
+    await updateCycleProgress({
+      cycleId: activeCycle.id,
+      currentPage: Number(pageInput) || 0,
+      totalPages: Number(totalPagesInput) || 0,
+      markFinishedIfComplete: true,
+    });
+  };
+
+  const handleFinishTimerSession = async () => {
+    if (!activeCycle) return;
+    setTimerRunning(false);
+    const mins = Math.max(1, Math.round(elapsedSeconds / 60));
+    setSessMinutes(String(mins));
+    const endP = Number(sessEndPage) || Number(pageInput) || 0;
+    const startP = Number(sessStartPage) || 0;
+    await logOrUpdateReadingSession({
+      cycleId: activeCycle.id,
+      sessionDate: getLocalDateString(),
+      durationMinutes: mins,
+      startPage: startP,
+      endPage: Math.max(startP, endP),
+      notes: sessNotes || 'Timed reading session',
+    });
+    setElapsedSeconds(0);
+    setSessNotes('');
+  };
+
+  const handleSaveSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCycle) return;
+    await logOrUpdateReadingSession({
+      id: editingSessionId ?? undefined,
+      cycleId: activeCycle.id,
+      sessionDate: sessDate,
+      durationMinutes: Number(sessMinutes) || 0,
+      startPage: Number(sessStartPage) || 0,
+      endPage: Number(sessEndPage) || 0,
+      notes: sessNotes,
+      syncProgressToEndPage: !editingSessionId,
+    });
+    setEditingSessionId(null);
+    setSessNotes('');
+  };
+
+  const beginEditSession = (s: ReadingSession) => {
+    setEditingSessionId(s.id);
+    setSessDate(s.sessionDate);
+    setSessStartPage(String(s.startPage));
+    setSessEndPage(String(s.endPage));
+    setSessMinutes(String(s.durationMinutes));
+    setSessNotes(s.notes ?? '');
+  };
+
+  const handleSaveCopy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await savePhysicalCopy({
+      workId: book.work.id,
+      editionId: copyEditionId || activeEdition.id,
+      ownershipStatus: copyOwnership,
+      format: copyFormat,
+      condition: copyCondition,
+      acquisitionMethod: copyAcq,
+      purchaseDate: copyDate || undefined,
+      purchasePrice: copyPrice ? Number(copyPrice) : null,
+      currency: copyCurrency,
+      seller: copySeller || undefined,
+      shelfLocation: copyLocation || undefined,
+      notes: copyNotes || undefined,
+    });
+    setShowAddCopy(false);
+    setCopyPrice('');
+    setCopySeller('');
+    setCopyLocation('');
+    setCopyNotes('');
+  };
+
+  const handleSaveLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loanPerson.trim()) return;
+    await saveLoan({
+      workId: book.work.id,
+      editionId: activeEdition.id,
+      physicalCopyId: loanDir === 'lent' && loanCopyId ? loanCopyId : null,
+      direction: loanDir,
+      personName: loanPerson.trim(),
+      loanDate: getLocalDateString(),
+      dueDate: loanDue || undefined,
+      status: 'active',
+      notes: loanNotes || undefined,
+    });
+    setLoanPerson('');
+    setLoanDue('');
+    setLoanNotes('');
+  };
+
+  const handleSaveReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveReview({
+      workId: book.work.id,
+      editionId: activeEdition.id,
+      cycleId: activeCycle?.id ?? null,
+      rating: reviewRating ? Number(reviewRating) : null,
+      headline: reviewHeadline,
+      body: reviewBody,
+      hasSpoilers: reviewSpoilers,
+    });
+    setReviewHeadline('');
+    setReviewBody('');
+  };
+
+  const handleSaveJournal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveJournalEntry({
+      workId: book.work.id,
+      editionId: activeEdition.id,
+      cycleId: activeCycle?.id ?? null,
+      entryType,
+      title: entryTitle,
+      content: entryContent,
+      quoteText: entryQuote,
+      characterName: entryCharacter,
+      pageNumber: entryPage ? Number(entryPage) : null,
+      hasSpoilers: entrySpoilers,
+    });
+    setEntryTitle('');
+    setEntryContent('');
+    setEntryQuote('');
+    setEntryCharacter('');
+    setEntryPage('');
+  };
+
+  const handleSaveMetadataEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await updateWork(book.work.id, {
+      title: metaTitle.trim() || book.work.title,
+      authors: metaAuthors
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      genres: metaGenres
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    await updateEdition(activeEdition.id, {
+      pageCount: metaPages ? Number(metaPages) || null : null,
+      publishers: metaPublisher
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    if (newIsbn.trim()) {
+      await upsertEditionIsbn(activeEdition.id, newIsbn.trim());
+      setNewIsbn('');
+    }
+    setEditingMeta(false);
+  };
+
+  const formatTimer = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
+      <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl border border-stone-200 dark:border-slate-800 bg-[#FAF9F6] dark:bg-slate-950 shadow-2xl">
+        {/* Top Summary Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <div className="flex gap-4 min-w-0">
+            <div className="relative w-20 sm:w-24 shrink-0">
+              <CoverImage
+                title={book.work.title}
+                author={book.work.authors[0]}
+                edition={activeEdition}
+              />
+              <label className="mt-1.5 inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-stone-200 dark:border-slate-700 py-1 text-[10px] font-medium text-stone-600 dark:text-slate-300 hover:bg-stone-50 dark:hover:bg-slate-800">
+                <Upload className="h-3 w-3" />
+                Cover
+                <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
+              </label>
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <h2 className="font-editorial text-xl font-semibold text-stone-900 dark:text-slate-100 leading-tight">
+                {book.work.title}
+              </h2>
+              <p className="text-sm text-stone-600 dark:text-slate-400">
+                {book.work.authors.join(', ') || 'Unknown Author'}
+              </p>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500 font-mono tabular-nums">
+                <span>{book.ownedCopiesCount} owned</span>
+                <span>·</span>
+                <span>{book.editions.length} edition(s)</span>
+                {book.isbns[0] && (
+                  <>
+                    <span>·</span>
+                    <span>ISBN {book.isbns[0].isbn13}</span>
+                  </>
+                )}
+                {book.latestRating != null && (
+                  <>
+                    <span>·</span>
+                    <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
+                      <Star className="h-3.5 w-3.5 fill-amber-500" />
+                      {book.latestRating}
+                    </span>
+                  </>
+                )}
+              </div>
+              {shelves.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {shelves.map((s) => {
+                    const active = book.shelfIds.includes(s.id);
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => toggleWorkOnShelf(s.id, book.work.id, activeEdition.id)}
+                        className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                          active
+                            ? 'border-[#C2410C] bg-amber-50 dark:bg-amber-950/40 text-[#C2410C]'
+                            : 'border-stone-200 dark:border-slate-700 text-stone-500'
+                        }`}
+                      >
+                        {active ? '✓ ' : '+ '}
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setEditingMeta((v) => !v)}
+              title="Edit Work Metadata"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 dark:hover:bg-slate-800"
+            >
+              <Edit3 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="Delete Book"
+              onClick={async () => {
+                await softDeleteEntity('works', book.work.id);
+                onDeletedWork?.(book.work.id, book.work.title);
+                onClose();
+              }}
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Inline Metadata Editor */}
+        {editingMeta && (
+          <form
+            onSubmit={handleSaveMetadataEdit}
+            className="border-b border-stone-200 dark:border-slate-800 bg-amber-50/40 dark:bg-slate-900/80 p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
+          >
+            <input
+              value={metaTitle}
+              onChange={(e) => setMetaTitle(e.target.value)}
+              placeholder="Title"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              value={metaAuthors}
+              onChange={(e) => setMetaAuthors(e.target.value)}
+              placeholder="Authors (comma-separated)"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              value={metaGenres}
+              onChange={(e) => setMetaGenres(e.target.value)}
+              placeholder="Genres (comma-separated)"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              value={metaPublisher}
+              onChange={(e) => setMetaPublisher(e.target.value)}
+              placeholder="Publishers"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              type="number"
+              value={metaPages}
+              onChange={(e) => setMetaPages(e.target.value)}
+              placeholder="Page count"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <div className="flex gap-2">
+              <input
+                value={newIsbn}
+                onChange={(e) => setNewIsbn(e.target.value)}
+                placeholder="Add ISBN-13 / 10"
+                className="flex-1 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs font-mono"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                <Save className="h-3.5 w-3.5" />
+                Save
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Section Tabs */}
+        <div className="flex overflow-x-auto border-b border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 gap-1">
+          {(
+            [
+              ['reading', t('book.readingCycles'), BookOpen],
+              ['copies', `${t('book.physicalCopies')} (${book.copies.length})`, Layers],
+              ['loans', `${t('book.loans')} (${book.loans.length})`, Users],
+              ['journal', `${t('book.journal')} (${book.reviews.length + book.journalEntries.length})`, Quote],
+              ['discovery', t('book.discovery'), RefreshCw],
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`flex min-h-[44px] items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold whitespace-nowrap ${
+                tab === id
+                  ? 'border-[#C2410C] text-[#C2410C]'
+                  : 'border-transparent text-stone-600 dark:text-slate-400 hover:text-stone-900'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {tab === 'reading' && (
+            <div className="space-y-5">
+              {/* Reading Cycle Selector & Re-Read */}
+              <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                      Reading Cycles
+                    </span>
+                    {book.cycles.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => switchActiveCycle(book.work.id, c.id)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                          c.id === activeCycle?.id
+                            ? 'border-[#C2410C] bg-amber-50 dark:bg-amber-950/40 text-[#C2410C]'
+                            : 'border-stone-200 dark:border-slate-700 text-stone-600 dark:text-slate-300'
+                        }`}
+                      >
+                        Cycle #{c.cycleNumber} ({c.status.replace('_', ' ')})
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      startReadingCycle({
+                        workId: book.work.id,
+                        editionId: activeEdition.id,
+                        status: 'currently_reading',
+                        totalPages: activeEdition.pageCount ?? 0,
+                      })
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg bg-stone-900 dark:bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {book.cycles.length > 0 ? t('book.reread') : t('book.startNewCycle')}
+                  </button>
+                </div>
+
+                {activeCycle ? (
+                  <div className="space-y-4 pt-2 border-t border-stone-100 dark:border-slate-800">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Cycle Status</label>
+                        <select
+                          value={activeCycle.status}
+                          onChange={(e) =>
+                            updateCycleStatus(activeCycle.id, e.target.value as ReadingStatus)
+                          }
+                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-medium"
+                        >
+                          <option value="want_to_read">Want to Read</option>
+                          <option value="currently_reading">Currently Reading</option>
+                          <option value="finished">Finished</option>
+                          <option value="on_hold">On Hold</option>
+                          <option value="abandoned">Abandoned</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Started</label>
+                        <input
+                          type="date"
+                          value={activeCycle.startedAt ?? ''}
+                          onChange={(e) =>
+                            updateCycleStatus(activeCycle.id, activeCycle.status, {
+                              startedAt: e.target.value || null,
+                            })
+                          }
+                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Finished</label>
+                        <input
+                          type="date"
+                          value={activeCycle.finishedAt ?? ''}
+                          onChange={(e) =>
+                            updateCycleStatus(activeCycle.id, activeCycle.status, {
+                              finishedAt: e.target.value || null,
+                            })
+                          }
+                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Progress & Intentional Rewind */}
+                    <form onSubmit={handleUpdateProgress} className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">Progress</span>
+                        <span className="font-mono tabular-nums text-stone-600 dark:text-slate-300">
+                          {metrics?.currentPage ?? 0} / {metrics?.totalPages ?? 0} pages ({metrics?.percentage ?? 0}%)
+                          {metrics && metrics.pagesPerHour > 0 && ` · ${metrics.pagesPerHour} p/hr`}
+                        </span>
+                      </div>
+                      <div className="h-2.5 w-full overflow-hidden rounded-full bg-stone-200 dark:bg-slate-800">
+                        <div
+                          className="h-full bg-[#C2410C] transition-all"
+                          style={{ width: `${Math.min(100, metrics?.percentage ?? 0)}%` }}
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-end gap-2 pt-1">
+                        <div>
+                          <label className="block text-[11px] text-stone-500">Current Page</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={pageInput}
+                            onChange={(e) => setPageInput(e.target.value)}
+                            className="w-28 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs font-mono tabular-nums"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-stone-500">Total Pages</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={totalPagesInput}
+                            onChange={(e) => setTotalPagesInput(e.target.value)}
+                            className="w-28 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs font-mono tabular-nums"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="min-h-[34px] rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                        >
+                          {t('reading.updatePage')}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-stone-500">{t('book.rewindHint')}</p>
+                    </form>
+                  </div>
+                ) : (
+                  <p className="text-xs text-stone-500">
+                    No reading cycle started yet. Click &ldquo;{t('book.startNewCycle')}&rdquo; to begin tracking.
+                  </p>
+                )}
+              </div>
+
+              {/* Active Timer & Session Logger */}
+              {activeCycle && (
+                <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 dark:border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-[#C2410C]" />
+                      <span className="text-sm font-semibold">Reading Timer</span>
+                      <span className="font-mono text-lg font-bold tabular-nums text-stone-900 dark:text-white ml-2">
+                        {formatTimer(elapsedSeconds)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTimerRunning((r) => !r)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold"
+                      >
+                        {timerRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        {timerRunning ? t('reading.pauseTimer') : t('reading.startTimer')}
+                      </button>
+                      {elapsedSeconds > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleFinishTimerSession}
+                          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
+                        >
+                          {t('reading.finishSave')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSaveSession} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
+                    <div>
+                      <label className="block text-[11px] text-stone-500 mb-1">Date</label>
+                      <input
+                        type="date"
+                        value={sessDate}
+                        onChange={(e) => setSessDate(e.target.value)}
+                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-stone-500 mb-1">Start Page</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sessStartPage}
+                        onChange={(e) => setSessStartPage(e.target.value)}
+                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-stone-500 mb-1">End Page</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sessEndPage}
+                        onChange={(e) => setSessEndPage(e.target.value)}
+                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-stone-500 mb-1">Minutes</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sessMinutes}
+                        onChange={(e) => setSessMinutes(e.target.value)}
+                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="min-h-[34px] rounded-lg bg-stone-900 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      {editingSessionId ? 'Update Session' : t('reading.logSession')}
+                    </button>
+                    <div className="col-span-2 sm:col-span-5">
+                      <input
+                        value={sessNotes}
+                        onChange={(e) => setSessNotes(e.target.value)}
+                        placeholder="Optional session note..."
+                        className="w-full rounded-lg border border-stone-200 dark:border-slate-800 bg-stone-50 dark:bg-slate-950 px-3 py-1.5 text-xs"
+                      />
+                    </div>
+                  </form>
+
+                  {/* Past Sessions List (editable!) */}
+                  <div className="space-y-1.5 pt-2">
+                    <p className="text-xs font-semibold text-stone-500 flex items-center gap-1">
+                      <History className="h-3.5 w-3.5" />
+                      Sessions for this book ({book.sessions.length})
+                    </p>
+                    {book.sessions.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-stone-100 dark:border-slate-800 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-mono font-medium">{s.sessionDate}</span>
+                          <span className="mx-2 text-stone-400">·</span>
+                          <span className="tabular-nums">
+                            p.{s.startPage} → p.{s.endPage} ({s.pagesRead}p in {s.durationMinutes}m)
+                          </span>
+                          {s.notes && <p className="text-stone-500 truncate">{s.notes}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => beginEditSession(s)}
+                            className="p-1.5 text-stone-500 hover:text-stone-900"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => softDeleteEntity('reading_sessions', s.id)}
+                            className="p-1.5 text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'copies' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">
+                  Editions ({book.editions.length}) &amp; Physical Copies ({book.copies.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCopy((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {t('book.addCopy')}
+                </button>
+              </div>
+
+              {showAddCopy && (
+                <form
+                  onSubmit={handleSaveCopy}
+                  className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
+                >
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Edition</label>
+                    <select
+                      value={copyEditionId}
+                      onChange={(e) => setCopyEditionId(e.target.value)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    >
+                      {book.editions.map((ed) => (
+                        <option key={ed.id} value={ed.id}>
+                          {ed.editionName || ed.title} ({ed.language.toUpperCase()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Ownership Status</label>
+                    <select
+                      value={copyOwnership}
+                      onChange={(e) => setCopyOwnership(e.target.value as OwnershipStatus)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    >
+                      <option value="owned">Owned</option>
+                      <option value="wishlist">Wishlist</option>
+                      <option value="ordered">Ordered</option>
+                      <option value="sold">Sold</option>
+                      <option value="given_away">Given Away</option>
+                      <option value="lost">Lost</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Format</label>
+                    <select
+                      value={copyFormat}
+                      onChange={(e) => setCopyFormat(e.target.value as BookFormat)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    >
+                      <option value="paperback">Paperback</option>
+                      <option value="hardcover">Hardcover</option>
+                      <option value="bunko">Bunko</option>
+                      <option value="tankobon">Tankobon</option>
+                      <option value="box_set">Box Set</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Condition</label>
+                    <select
+                      value={copyCondition}
+                      onChange={(e) => setCopyCondition(e.target.value as CopyCondition)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    >
+                      <option value="new">New</option>
+                      <option value="like_new">Like New</option>
+                      <option value="very_good">Very Good</option>
+                      <option value="good">Good</option>
+                      <option value="fair">Fair</option>
+                      <option value="poor">Poor</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Acquisition</label>
+                    <select
+                      value={copyAcq}
+                      onChange={(e) => setCopyAcq(e.target.value as AcquisitionMethod)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    >
+                      <option value="purchased">Purchased</option>
+                      <option value="gift">Gift</option>
+                      <option value="exchange">Exchange</option>
+                      <option value="review_copy">Review Copy</option>
+                      <option value="inherited">Inherited</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Price</label>
+                    <div className="flex gap-1">
+                      <input
+                        type="number"
+                        value={copyPrice}
+                        onChange={(e) => setCopyPrice(e.target.value)}
+                        className="flex-1 min-w-0 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs font-mono"
+                      />
+                      <select
+                        value={copyCurrency}
+                        onChange={(e) => setCopyCurrency(e.target.value as CurrencyCode)}
+                        className="w-20 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 py-2 text-xs font-mono"
+                      >
+                        {CURRENCY_OPTIONS.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <input
+                    value={copySeller}
+                    onChange={(e) => setCopySeller(e.target.value)}
+                    placeholder="Seller / Shop"
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  />
+                  <input
+                    value={copyLocation}
+                    onChange={(e) => setCopyLocation(e.target.value)}
+                    placeholder="Shelf Location"
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  />
+                  <input
+                    type="date"
+                    value={copyDate}
+                    onChange={(e) => setCopyDate(e.target.value)}
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  />
+                  <div className="sm:col-span-2">
+                    <input
+                      value={copyNotes}
+                      onChange={(e) => setCopyNotes(e.target.value)}
+                      placeholder="Notes (obi, signed, dust jacket...)"
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-stone-900 dark:bg-[#C2410C] px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    Save Copy
+                  </button>
+                </form>
+              )}
+
+              {book.copies.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-6 text-center text-xs text-stone-500">
+                  0 physical copies recorded. You can still track reading cycles or borrowed loans for this book.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {book.copies.map((c, idx) => {
+                    const ed = book.editions.find((e) => e.id === c.editionId);
+                    return (
+                      <div
+                        key={c.id}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">
+                              Copy #{idx + 1} · {c.ownershipStatus.replace('_', ' ')}
+                            </span>
+                            <span className="font-mono text-stone-500">
+                              {c.format} · {c.condition.replace('_', ' ')}
+                            </span>
+                            {c.purchasePrice != null && (
+                              <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                                {formatCurrency(c.purchasePrice, c.currency)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-stone-500">
+                            {ed?.editionName || ed?.publishers.join(', ') || ed?.title}
+                            {c.seller ? ` · Seller: ${c.seller}` : ''}
+                            {c.shelfLocation ? ` · Shelf: ${c.shelfLocation}` : ''}
+                            {c.purchaseDate ? ` · ${c.purchaseDate}` : ''}
+                          </p>
+                          {c.notes && <p className="text-stone-600 dark:text-slate-300">{c.notes}</p>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => softDeleteEntity('physical_copies', c.id)}
+                          className="p-1.5 text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'loans' && (
+            <div className="space-y-4">
+              <form
+                onSubmit={handleSaveLoan}
+                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+              >
+                <div>
+                  <label className="block text-xs font-medium mb-1">Direction</label>
+                  <select
+                    value={loanDir}
+                    onChange={(e) => setLoanDir(e.target.value as LoanDirection)}
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  >
+                    <option value="lent">Lent to someone</option>
+                    <option value="borrowed">Borrowed from someone</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Person Name *</label>
+                  <input
+                    required
+                    value={loanPerson}
+                    onChange={(e) => setLoanPerson(e.target.value)}
+                    placeholder="Minh, Linh..."
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={loanDue}
+                    onChange={(e) => setLoanDue(e.target.value)}
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="min-h-[34px] rounded-lg bg-[#C2410C] px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Record Loan
+                </button>
+                {loanDir === 'lent' && book.copies.length > 0 && (
+                  <div className="sm:col-span-2">
+                    <select
+                      value={loanCopyId}
+                      onChange={(e) => setLoanCopyId(e.target.value)}
+                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs"
+                    >
+                      <option value="">Any copy</option>
+                      {book.copies.map((c, i) => (
+                        <option key={c.id} value={c.id}>
+                          Copy #{i + 1} ({c.format})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className={loanDir === 'lent' && book.copies.length > 0 ? 'sm:col-span-2' : 'sm:col-span-4'}>
+                  <input
+                    value={loanNotes}
+                    onChange={(e) => setLoanNotes(e.target.value)}
+                    placeholder="Notes..."
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs"
+                  />
+                </div>
+              </form>
+
+              <div className="space-y-2">
+                {book.loans.map((l) => (
+                  <div
+                    key={l.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-xs"
+                  >
+                    <div>
+                      <p className="font-semibold">
+                        {l.direction === 'lent' ? 'Lent to' : 'Borrowed from'} {l.personName} ·{' '}
+                        <span className="uppercase font-mono text-[#C2410C]">{l.status}</span>
+                      </p>
+                      <p className="text-stone-500 flex items-center gap-1 mt-0.5">
+                        <Calendar className="h-3 w-3" />
+                        Loaned {l.loanDate}
+                        {l.dueDate ? ` · Due ${l.dueDate}` : ''}
+                        {l.returnedDate ? ` · Returned ${l.returnedDate}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      {l.status !== 'returned' && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            saveLoan({
+                              ...l,
+                              status: 'returned',
+                              returnedDate: getLocalDateString(),
+                            })
+                          }
+                          className="rounded-lg border border-emerald-600 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+                        >
+                          Mark Returned
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => softDeleteEntity('loans', l.id)}
+                        className="p-1.5 text-red-500"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'journal' && (
+            <div className="space-y-5">
+              {/* Review editor */}
+              <form
+                onSubmit={handleSaveReview}
+                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-stone-600 dark:text-slate-300">
+                    {t('journal.addReview')}
+                  </span>
+                  <span className="text-[11px] text-stone-500">{t('journal.deleteReviewSafe')}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select
+                    value={reviewRating}
+                    onChange={(e) => setReviewRating(e.target.value)}
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  >
+                    {['5', '4.5', '4', '3.5', '3', '2.5', '2', '1.5', '1', '0.5'].map((v) => (
+                      <option key={v} value={v}>
+                        {v} / 5 Stars
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={reviewHeadline}
+                    onChange={(e) => setReviewHeadline(e.target.value)}
+                    placeholder="Review headline"
+                    className="sm:col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                  />
+                </div>
+                <textarea
+                  rows={3}
+                  value={reviewBody}
+                  onChange={(e) => setReviewBody(e.target.value)}
+                  placeholder="Write your thoughts..."
+                  className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                />
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={reviewSpoilers}
+                      onChange={(e) => setReviewSpoilers(e.target.checked)}
+                    />
+                    Spoiler warning
+                  </label>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-[#C2410C] px-4 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Save Review
+                  </button>
+                </div>
+              </form>
+
+              {/* Journal Entry Editor (Note / Quote / Character / Reflection) */}
+              <form
+                onSubmit={handleSaveJournal}
+                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <select
+                    value={entryType}
+                    onChange={(e) => setEntryType(e.target.value as JournalEntryType)}
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                  >
+                    <option value="note">Reading Note</option>
+                    <option value="quote">Favourite Quote</option>
+                    <option value="character">Favourite Character</option>
+                    <option value="reflection">Personal Reflection</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={entryPage}
+                    onChange={(e) => setEntryPage(e.target.value)}
+                    placeholder="Page #"
+                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs font-mono"
+                  />
+                  {entryType === 'character' ? (
+                    <input
+                      value={entryCharacter}
+                      onChange={(e) => setEntryCharacter(e.target.value)}
+                      placeholder="Character name"
+                      className="col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    />
+                  ) : (
+                    <input
+                      value={entryTitle}
+                      onChange={(e) => setEntryTitle(e.target.value)}
+                      placeholder="Title / Chapter"
+                      className="col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    />
+                  )}
+                </div>
+                {entryType === 'quote' && (
+                  <textarea
+                    rows={2}
+                    value={entryQuote}
+                    onChange={(e) => setEntryQuote(e.target.value)}
+                    placeholder="Exact passage or quote..."
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs italic"
+                  />
+                )}
+                <textarea
+                  rows={2}
+                  value={entryContent}
+                  onChange={(e) => setEntryContent(e.target.value)}
+                  placeholder="Commentary, note, or reflection..."
+                  className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                />
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={entrySpoilers}
+                      onChange={(e) => setEntrySpoilers(e.target.checked)}
+                    />
+                    Spoiler warning
+                  </label>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-stone-900 dark:bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Add Journal Entry
+                  </button>
+                </div>
+              </form>
+
+              {/* Saved Reviews & Entries */}
+              <div className="space-y-2">
+                {book.reviews.map((r) => {
+                  const hidden = r.hasSpoilers && !revealedIds[r.id];
+                  return (
+                    <div
+                      key={r.id}
+                      className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-amber-600">
+                            ★ {r.rating ?? '—'}
+                          </span>
+                          <span className="font-semibold">{r.headline || 'Review'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {r.hasSpoilers && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRevealedIds((p) => ({ ...p, [r.id]: !p[r.id] }))
+                              }
+                              className="inline-flex items-center gap-1 text-amber-700 font-medium"
+                            >
+                              {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                              {hidden ? 'Reveal' : 'Hide'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => deleteReviewOnly(r.id)}
+                            className="p-1 text-red-500 hover:text-red-700"
+                            title="Delete Review Only (preserves reading history)"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      {hidden ? (
+                        <p className="italic text-stone-500">{t('journal.spoilerWarning')}</p>
+                      ) : (
+                        <p className="text-stone-700 dark:text-slate-300 whitespace-pre-wrap">{r.body}</p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {book.journalEntries.map((j) => {
+                  const hidden = j.hasSpoilers && !revealedIds[j.id];
+                  return (
+                    <div
+                      key={j.id}
+                      className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono uppercase text-[11px] text-[#C2410C] font-semibold">
+                          {j.entryType}
+                          {j.pageNumber != null ? ` · p.${j.pageNumber}` : ''}
+                          {j.characterName ? ` · ${j.characterName}` : ''}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {j.hasSpoilers && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRevealedIds((p) => ({ ...p, [j.id]: !p[j.id] }))
+                              }
+                              className="text-amber-700 font-medium"
+                            >
+                              {hidden ? 'Reveal' : 'Hide'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => softDeleteEntity('journal_entries', j.id)}
+                            className="p-1 text-red-500"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      {hidden ? (
+                        <p className="italic text-stone-500">{t('journal.spoilerWarning')}</p>
+                      ) : (
+                        <>
+                          {j.quoteText && (
+                            <blockquote className="border-l-2 border-[#C2410C] pl-3 italic text-stone-700 dark:text-slate-200">
+                              &ldquo;{j.quoteText}&rdquo;
+                            </blockquote>
+                          )}
+                          {j.content && (
+                            <p className="text-stone-700 dark:text-slate-300 whitespace-pre-wrap">
+                              {j.content}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {tab === 'discovery' && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  Other Editions of this Work ({discovery.otherEditionsOfWork.length})
+                </h4>
+                {discovery.otherEditionsOfWork.length === 0 ? (
+                  <p className="text-xs text-stone-500">
+                    Only one edition cataloged for this Work so far.
+                  </p>
+                ) : (
+                  discovery.otherEditionsOfWork.map((ed) => (
+                    <div key={ed.id} className="text-xs border-t border-stone-100 dark:border-slate-800 pt-2">
+                      <p className="font-semibold">{ed.editionName || ed.title}</p>
+                      <p className="text-stone-500">
+                        {ed.language.toUpperCase()} · {ed.format} · {ed.publishers.join(', ') || 'Unknown Publisher'}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {(
+                [
+                  ['Same Author in Your Library', discovery.sameAuthorWorks],
+                  ['Same Publisher', discovery.samePublisherWorks],
+                  ['Similar Genre', discovery.similarGenreWorks],
+                ] as const
+              ).map(([heading, list]) => (
+                <div
+                  key={heading}
+                  className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2"
+                >
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                    {heading} ({list.length})
+                  </h4>
+                  {list.length === 0 ? (
+                    <p className="text-xs text-stone-500">No matches in your library yet.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {list.map((w) => (
+                        <button
+                          key={w.id}
+                          type="button"
+                          onClick={() => onSelectWork?.(w.id)}
+                          className="rounded-lg border border-stone-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium hover:border-[#C2410C]"
+                        >
+                          {w.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
