@@ -9,9 +9,9 @@ import {
 
 export type PerformanceMode = 'automatic' | 'manual';
 
-export type DetectionSourceMode = 'yamnet' | 'ai_full_track' | 'hybrid';
+export type DetectionSourceMode = 'yamnet' | 'ai_full_track';
 
-export type ActivePerformerAudioSource = 'yamnet' | 'ai_full_track' | 'both';
+export type ActivePerformerAudioSource = 'yamnet' | 'ai_full_track';
 
 export type PerformerOrigin = 'auto' | 'manual';
 
@@ -71,6 +71,8 @@ export interface OrchestratorStepInput {
   isStopped: boolean;
   segments: InstrumentTimelineSegment[];
   aiSegments?: InstrumentTimelineSegment[];
+  aiRoster?: PerformerMappingEntry[];
+  prepareAiRoster?: boolean;
   gracePeriodMs: number;
   nowMs: number;
   errorCooldownMs?: number;
@@ -155,10 +157,9 @@ export function evaluateActiveAudioCategories(
 }
 
 /**
- * Combines timestamped detections according to the selected DetectionSourceMode:
+ * Evaluates timestamped detections strictly for the selected DetectionSourceMode:
  * - 'yamnet': Live YAMNet detections only
  * - 'ai_full_track': Reused AI Full-Track Analysis segments only
- * - 'hybrid': Union of both (if either detects an instrument at currentTime, it is active)
  */
 export function evaluateCombinedAudioSources(params: {
   sourceMode: DetectionSourceMode;
@@ -173,15 +174,6 @@ export function evaluateCombinedAudioSources(params: {
 } {
   const { sourceMode, yamnetSegments, aiSegments, currentTime } = params;
 
-  if (sourceMode === 'yamnet') {
-    const y = evaluateActiveAudioCategories(yamnetSegments, currentTime, { allowAiAliases: false });
-    const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
-    for (const inst of y.activeInstruments) {
-      sourceByInstrument[inst] = 'yamnet';
-    }
-    return { ...y, sourceByInstrument };
-  }
-
   if (sourceMode === 'ai_full_track') {
     const a = evaluateActiveAudioCategories(aiSegments, currentTime, { allowAiAliases: true });
     const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
@@ -191,34 +183,12 @@ export function evaluateCombinedAudioSources(params: {
     return { ...a, sourceByInstrument };
   }
 
-  // Hybrid: union across Live YAMNet and AI Full-Track Analysis
   const y = evaluateActiveAudioCategories(yamnetSegments, currentTime, { allowAiAliases: false });
-  const a = evaluateActiveAudioCategories(aiSegments, currentTime, { allowAiAliases: true });
-
-  const yamnetSet = new Set(y.activeInstruments);
-  const aiSet = new Set(a.activeInstruments);
-  const unionSet = new Set<YamnetTargetInstrumentName>([...y.activeInstruments, ...a.activeInstruments]);
-
-  const confidenceByInstrument: Partial<Record<YamnetTargetInstrumentName, number>> = {};
   const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
-
-  for (const inst of unionSet) {
-    const yConf = y.confidenceByInstrument[inst] ?? -1;
-    const aConf = a.confidenceByInstrument[inst] ?? -1;
-    if (Math.max(yConf, aConf) >= 0) {
-      confidenceByInstrument[inst] = Math.max(yConf, aConf);
-    }
-    const inY = yamnetSet.has(inst);
-    const inA = aiSet.has(inst);
-    sourceByInstrument[inst] = inY && inA ? 'both' : inY ? 'yamnet' : 'ai_full_track';
+  for (const inst of y.activeInstruments) {
+    sourceByInstrument[inst] = 'yamnet';
   }
-
-  return {
-    activeInstruments: Array.from(unionSet),
-    activeVocals: y.activeVocals || a.activeVocals,
-    confidenceByInstrument,
-    sourceByInstrument,
-  };
+  return { ...y, sourceByInstrument };
 }
 
 /**
@@ -257,12 +227,18 @@ export function stepPerformanceOrchestrator(
     isStopped,
     segments,
     aiSegments = [],
+    aiRoster = [],
+    prepareAiRoster = false,
     gracePeriodMs,
     nowMs,
     errorCooldownMs = 15000,
   } = input;
 
-  const safeGraceMs = Math.max(0, Number.isFinite(gracePeriodMs) ? gracePeriodMs : 1000);
+  // AI Full-Track follows exact timestamped intervals with zero detection hold lag.
+  const safeGraceMs =
+    detectionSource === 'ai_full_track'
+      ? 0
+      : Math.max(0, Number.isFinite(gracePeriodMs) ? gracePeriodMs : 1000);
   const nextPerformers: Record<string, StagedPerformerRecord> = {};
   const loadRequests: OrchestratorLoadRequest[] = [];
   const removeInstanceIds: string[] = [];
@@ -462,16 +438,17 @@ export function stepPerformanceOrchestrator(
     }
   }
 
-  // 2. Automatic mode: spawn newly detected active instruments that are not staged yet
-  if (mode === 'automatic' && isPlaying) {
-    for (const instName of activeInstruments) {
-      const mapping = getPerformerForInstrument(instName);
-      if (!mapping) continue;
-
+  // 2. Automatic mode spawning:
+  // - In 'ai_full_track' mode: spawn the ENTIRE planned track roster upfront (idle if not playing yet), plus any active fallback.
+  // - In 'yamnet' mode: spawn newly detected active instruments as they appear during playback.
+  if (mode === 'automatic') {
+    const enqueuePerformerLoad = (
+      mapping: PerformerMappingEntry,
+      initialState: 'idle' | 'playing'
+    ) => {
       const key = buildPerformerKey(mapping, mapping.characterId);
       const existing = nextPerformers[key];
 
-      // Also check if another performer with the same characterId is already staged
       const alreadyHasSameCharacter = Object.values(nextPerformers).some(
         (p) =>
           p.characterId.toLowerCase() === mapping.characterId.toLowerCase() ||
@@ -481,9 +458,10 @@ export function stepPerformanceOrchestrator(
       );
 
       if (existing || alreadyHasSameCharacter) {
-        continue;
+        return;
       }
 
+      const instName = mapping.instrumentName;
       nextPerformers[key] = {
         key,
         characterId: mapping.characterId,
@@ -492,17 +470,39 @@ export function stepPerformanceOrchestrator(
         origin: 'auto',
         lifecycle: 'loading',
         instanceId: null,
-        lastDetectedAtMs: nowMs,
+        lastDetectedAtMs: initialState === 'playing' ? nowMs : null,
         graceDeadlineMs: null,
-        activeSource: sourceByInstrument[instName] ?? null,
+        activeSource:
+          initialState === 'playing'
+            ? sourceByInstrument[instName] ?? detectionSource
+            : null,
         confidence: confidenceByInstrument[instName],
       };
 
       loadRequests.push({
         key,
         mapping,
-        initialState: 'playing',
+        initialState,
       });
+    };
+
+    if (
+      detectionSource === 'ai_full_track' &&
+      aiRoster.length > 0 &&
+      (isPlaying || prepareAiRoster)
+    ) {
+      for (const mapping of aiRoster) {
+        const shouldPlayInitial = isPlaying && activeInstrumentSet.has(mapping.instrumentName);
+        enqueuePerformerLoad(mapping, shouldPlayInitial ? 'playing' : 'idle');
+      }
+    }
+
+    if (isPlaying) {
+      for (const instName of activeInstruments) {
+        const mapping = getPerformerForInstrument(instName);
+        if (!mapping) continue;
+        enqueuePerformerLoad(mapping, 'playing');
+      }
     }
   }
 

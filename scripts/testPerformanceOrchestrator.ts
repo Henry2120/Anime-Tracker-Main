@@ -20,6 +20,10 @@ import {
   removePerformerByInstanceId,
   stepPerformanceOrchestrator,
 } from '../src/components/CharacterViewer/performanceOrchestrator';
+import {
+  buildAiConcertPerformancePlan,
+  validateAiAnalysisCompletion,
+} from '../src/components/CharacterViewer/aiConcertPlanner';
 import { getConcertSlotTransform } from '../src/components/CharacterViewer/concertConfig';
 import { BLUE_ARCHIVE_CHARACTERS } from '../src/data/blueArchiveCharacters';
 import manifestJson from '../src/data/blueArchiveManifest.json';
@@ -592,122 +596,247 @@ function run() {
   );
   console.log('PASS [9] AI Full-Track Analysis source spawns persistent performers with alias mapping & Vocals isolation.');
 
-  // 10. Option C — Hybrid (YAMNet + AI Full-Track) Combination & Deduplication
-  const hybridEvalBoth = evaluateCombinedAudioSources({
-    sourceMode: 'hybrid',
-    yamnetSegments: [makeSegment('Violin', 0, 10, { confidence: 0.72 })],
-    aiSegments: [
-      makeSegment('Violin', 0, 10, { confidence: 0.91 }),
-      makeSegment('Cello', 2, 8, { confidence: 0.88 }),
+  // 10. AI Full-Track Virtual Concert Plan, Incomplete Rejection, Upfront Roster Spawning & Deterministic Sync
+  const incompleteCheck = validateAiAnalysisCompletion({
+    success: true,
+    status: 'partial',
+    coverage: {
+      totalDuration: 180,
+      isFullCoverage: false,
+      coveragePercentage: 75,
+      totalWindows: 4,
+      successfulWindows: 3,
+      failedWindows: 1,
+      missingRanges: [{ start: 135, end: 180 }],
+      authoritativeDurationEstablished: true,
+    },
+  });
+  assert.equal(incompleteCheck.isComplete, false, 'Incomplete analysis must NEVER be treated as complete');
+  assert.equal(incompleteCheck.completionStatus, 'incomplete');
+  assert.ok(incompleteCheck.completionReason?.includes('1 of 4'));
+
+  const completePlan = buildAiConcertPerformancePlan({
+    success: true,
+    status: 'detected',
+    videoId: 'vidConcert',
+    title: 'Full Concert Test Track',
+    artist: 'AniVerse Ensemble',
+    coverage: {
+      totalDuration: 180,
+      isFullCoverage: true,
+      coveragePercentage: 100,
+      totalWindows: 4,
+      successfulWindows: 4,
+      failedWindows: 0,
+      missingRanges: [],
+      authoritativeDurationEstablished: true,
+    },
+    instrumentSegments: [
+      makeSegment('Piano', 0, 45),
+      makeSegment('Drum Machine', 15, 175),
+      makeSegment('Vocals', 10, 140, { isVoice: true }),
+      // Late-entering instrument at 02:30 (150s)
+      makeSegment('Violin', 150, 178),
     ],
+  });
+  assert.equal(completePlan.isComplete, true);
+  assert.equal(completePlan.vocalsDetected, true);
+  assert.equal(completePlan.roster.length, 3, 'Complete roster must include late-entering Violin alongside Piano & Drum Kit (excluding Vocals)');
+  assert.deepEqual(
+    completePlan.roster.map((r) => r.instrumentName),
+    ['Piano', 'Drum Kit', 'Violin']
+  );
+
+  const aiEvalCheck = evaluateCombinedAudioSources({
+    sourceMode: 'ai_full_track',
+    yamnetSegments: [makeSegment('Electric Guitar', 0, 180)], // Must NEVER bleed into AI mode
+    aiSegments: completePlan.segments,
     currentTime: 5,
   });
-  assert.deepEqual(hybridEvalBoth.activeInstruments.sort(), ['Cello', 'Violin']);
-  assert.equal(hybridEvalBoth.sourceByInstrument['Violin'], 'both');
-  assert.equal(hybridEvalBoth.sourceByInstrument['Cello'], 'ai_full_track');
+  assert.deepEqual(aiEvalCheck.activeInstruments, ['Piano'], 'AI mode must strictly ignore YAMNet detections');
 
-  let hybState = createInitialOrchestratorState('automatic', 'vidHyb', 'hybrid');
-  let hybStep = stepPerformanceOrchestrator({
-    state: hybState,
+  // Press Play at t=1s: spawns ALL 3 planned roster characters upfront! Piano=playing, Drum Kit=idle, Violin=idle
+  let aiConcertState = createInitialOrchestratorState('automatic', 'vidConcert', 'ai_full_track');
+  const plannedMappings = completePlan.roster.map((r) => r.mapping);
+  let concertStep = stepPerformanceOrchestrator({
+    state: aiConcertState,
     mode: 'automatic',
-    detectionSource: 'hybrid',
-    videoId: 'vidHyb',
-    currentTime: 5,
+    detectionSource: 'ai_full_track',
+    videoId: 'vidConcert',
+    currentTime: 1,
     isPlaying: true,
     isPaused: false,
     isStopped: false,
-    segments: [makeSegment('Violin', 0, 10)],
-    aiSegments: [makeSegment('Violin', 0, 10), makeSegment('Cello', 2, 8)],
-    gracePeriodMs: 1000,
-    nowMs: 5000,
+    segments: [makeSegment('Electric Guitar', 0, 180)],
+    aiSegments: completePlan.segments,
+    aiRoster: plannedMappings,
+    gracePeriodMs: 2500, // Should be bypassed cleanly in AI mode
+    nowMs: 1000,
   });
-  hybState = hybStep.nextState;
-  // Violin is detected by both sources -> MUST spawn ONLY ONE Shiroko (Violin)
-  assert.equal(hybStep.loadRequests.filter((r) => r.mapping.instrumentName === 'Violin').length, 1);
-  assert.equal(hybStep.loadRequests.length, 2);
+  aiConcertState = concertStep.nextState;
+  assert.equal(concertStep.loadRequests.length, 3, 'All planned roster performers spawn upfront on AI Play');
+  assert.equal(
+    concertStep.loadRequests.find((r) => r.mapping.instrumentName === 'Piano')?.initialState,
+    'playing'
+  );
+  assert.equal(
+    concertStep.loadRequests.find((r) => r.mapping.instrumentName === 'Drum Kit')?.initialState,
+    'idle'
+  );
+  assert.equal(
+    concertStep.loadRequests.find((r) => r.mapping.instrumentName === 'Violin')?.initialState,
+    'idle',
+    'Late-entering Violin at 02:30 spawns upfront in idle state'
+  );
 
-  hybState = registerLoadedPerformer(hybState, {
-    instanceId: 'inst-hyb-violin',
+  // Register loaded upfront cast
+  aiConcertState = registerLoadedPerformer(aiConcertState, {
+    instanceId: 'c-piano',
+    characterId: 'hina-dress-with-piano-296',
+    characterName: 'Hina (Dress) with Piano',
+    filename: 'Hina_Dress_with_Piano.glb',
+    origin: 'auto',
+    nowMs: 1100,
+    isPlayingNow: true,
+  });
+  aiConcertState = registerLoadedPerformer(aiConcertState, {
+    instanceId: 'c-drum',
+    characterId: 'natsu-band-no-weapon-183',
+    characterName: 'Natsu (Band) (No Weapon)',
+    filename: 'Natsu (Band) (No Weapon).glb',
+    origin: 'auto',
+    nowMs: 1100,
+    isPlayingNow: false,
+  });
+  aiConcertState = registerLoadedPerformer(aiConcertState, {
+    instanceId: 'c-violin',
     characterId: 'shiroko-violin-297',
     characterName: 'Shiroko (Violin)',
     filename: 'Shiroko_Violin.glb',
     origin: 'auto',
-    nowMs: 5100,
-    isPlayingNow: true,
+    nowMs: 1100,
+    isPlayingNow: false,
   });
-  hybState = registerLoadedPerformer(hybState, {
-    instanceId: 'inst-hyb-cello',
-    characterId: 'yuzu-cello-298',
-    characterName: 'Yuzu with Cello',
-    filename: 'Yuzu_Cello.glb',
+
+  // Forward Seek to 02:35 (155s): Piano becomes idle immediately (0ms AI grace), Drum Kit & Violin play, zero removals!
+  concertStep = stepPerformanceOrchestrator({
+    state: aiConcertState,
+    mode: 'automatic',
+    detectionSource: 'ai_full_track',
+    videoId: 'vidConcert',
+    currentTime: 155,
+    isPlaying: true,
+    isPaused: false,
+    isStopped: false,
+    segments: [],
+    aiSegments: completePlan.segments,
+    aiRoster: plannedMappings,
+    gracePeriodMs: 2500,
+    nowMs: 2000,
+  });
+  aiConcertState = concertStep.nextState;
+  assert.equal(concertStep.reconciledSeek, true);
+  assert.equal(concertStep.removeInstanceIds.length, 0);
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-piano')?.targetState, 'idle');
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-drum')?.targetState, 'playing');
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-violin')?.targetState, 'playing');
+
+  // Backward Seek to t=5s: Piano resumes playing immediately, Drum Kit & Violin return to idle cleanly, zero removals!
+  concertStep = stepPerformanceOrchestrator({
+    state: aiConcertState,
+    mode: 'automatic',
+    detectionSource: 'ai_full_track',
+    videoId: 'vidConcert',
+    currentTime: 5,
+    isPlaying: true,
+    isPaused: false,
+    isStopped: false,
+    segments: [],
+    aiSegments: completePlan.segments,
+    aiRoster: plannedMappings,
+    gracePeriodMs: 2500,
+    nowMs: 2500,
+  });
+  aiConcertState = concertStep.nextState;
+  assert.equal(concertStep.removeInstanceIds.length, 0);
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-piano')?.targetState, 'playing');
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-drum')?.targetState, 'idle');
+  assert.equal(concertStep.animationDirectives.find((d) => d.instanceId === 'c-violin')?.targetState, 'idle');
+
+  // Pause: all staged characters stay on stage and settle immediately to idle
+  concertStep = stepPerformanceOrchestrator({
+    state: aiConcertState,
+    mode: 'automatic',
+    detectionSource: 'ai_full_track',
+    videoId: 'vidConcert',
+    currentTime: 5,
+    isPlaying: false,
+    isPaused: true,
+    isStopped: false,
+    segments: [],
+    aiSegments: completePlan.segments,
+    aiRoster: plannedMappings,
+    gracePeriodMs: 2500,
+    nowMs: 3000,
+  });
+  assert.equal(concertStep.removeInstanceIds.length, 0);
+  assert.ok(concertStep.animationDirectives.every((d) => d.targetState === 'idle'));
+  console.log('PASS [10] AI Full-Track Planner, incomplete rejection, upfront roster spawn & seek/pause sync.');
+
+  // 11. Complete Hybrid Mode Removal & Seek / Strict Clip Verification
+  const orchSrc = fs.readFileSync(path.resolve('src/components/CharacterViewer/performanceOrchestrator.ts'), 'utf8');
+  const directorSrc = fs.readFileSync(path.resolve('src/components/CharacterViewer/AiConcertDirectorPanel.tsx'), 'utf8');
+  for (const [name, src] of [
+    ['performanceOrchestrator.ts', orchSrc],
+    ['Character3DViewer.tsx', viewerSrc],
+    ['SceneDebuggerPanel.tsx', debuggerSrc],
+    ['AiConcertDirectorPanel.tsx', directorSrc],
+  ]) {
+    assert.ok(!src.includes("'hybrid'") && !src.includes('"hybrid"'), `${name} must not contain 'hybrid' mode`);
+    assert.ok(!src.includes("'both'") && !src.includes('"both"'), `${name} must not contain 'both' audio source`);
+    assert.ok(!src.includes('Y+AI'), `${name} must not contain 'Y+AI'`);
+  }
+
+  // Verify YAMNet seek jump clears grace_waiting hold immediately -> instant idle
+  let seekState = registerLoadedPerformer(createInitialOrchestratorState('automatic', 'vidSeekY', 'yamnet'), {
+    instanceId: 'inst-seek-violin',
+    characterId: 'shiroko-violin-297',
+    characterName: 'Shiroko (Violin)',
+    filename: 'Shiroko_Violin.glb',
     origin: 'auto',
-    nowMs: 5100,
+    nowMs: 1000,
     isPlayingNow: true,
   });
-
-  // At t=9s -> Cello stopped in AI, Violin still in YAMNet; both stay on stage, Cello in hold then idle at t=11s
-  hybStep = stepPerformanceOrchestrator({
-    state: hybState,
+  seekState = stepPerformanceOrchestrator({
+    state: seekState,
     mode: 'automatic',
-    detectionSource: 'hybrid',
-    videoId: 'vidHyb',
-    currentTime: 9,
+    detectionSource: 'yamnet',
+    videoId: 'vidSeekY',
+    currentTime: 2,
     isPlaying: true,
     isPaused: false,
     isStopped: false,
     segments: [makeSegment('Violin', 0, 10)],
-    aiSegments: [makeSegment('Violin', 0, 10), makeSegment('Cello', 2, 8)],
-    gracePeriodMs: 1000,
-    nowMs: 9000,
-  });
-  hybState = hybStep.nextState;
-  assert.equal(hybStep.removeInstanceIds.length, 0);
-  hybStep = stepPerformanceOrchestrator({
-    state: hybState,
-    mode: 'automatic',
-    detectionSource: 'hybrid',
-    videoId: 'vidHyb',
-    currentTime: 10.5,
-    isPlaying: true,
-    isPaused: false,
-    isStopped: false,
-    segments: [makeSegment('Violin', 0, 10)],
-    aiSegments: [makeSegment('Violin', 0, 10), makeSegment('Cello', 2, 8)],
-    gracePeriodMs: 1000,
-    nowMs: 10500,
-  });
-  assert.equal(hybStep.removeInstanceIds.length, 0);
-  assert.equal(
-    hybStep.animationDirectives.find((d) => d.instanceId === 'inst-hyb-cello')?.targetState,
-    'idle'
-  );
-  assert.equal(
-    hybStep.animationDirectives.find((d) => d.instanceId === 'inst-hyb-violin')?.targetState,
-    'playing'
-  );
-  console.log('PASS [10] Hybrid source unions YAMNet + AI Full-Track without duplicate spawns.');
-
-  // 11. Seek Forward/Backward Reconciliation + Strict Dedicated Clip Verification
-  // Seek forward jump clears grace_waiting hold immediately -> instant idle
-  let seekState = hybStep.nextState;
+    gracePeriodMs: 2500,
+    nowMs: 10100,
+  }).nextState;
   const seekJumpStep = stepPerformanceOrchestrator({
     state: seekState,
     mode: 'automatic',
-    detectionSource: 'hybrid',
-    videoId: 'vidHyb',
+    detectionSource: 'yamnet',
+    videoId: 'vidSeekY',
     currentTime: 45, // Big jump forward to silent section
     isPlaying: true,
     isPaused: false,
     isStopped: false,
     segments: [makeSegment('Violin', 0, 10)],
-    aiSegments: [makeSegment('Violin', 0, 10), makeSegment('Cello', 2, 8)],
     gracePeriodMs: 2500,
     nowMs: 10600,
   });
   assert.equal(seekJumpStep.reconciledSeek, true);
   assert.equal(seekJumpStep.removeInstanceIds.length, 0);
   assert.equal(
-    seekJumpStep.animationDirectives.find((d) => d.instanceId === 'inst-hyb-violin')?.targetState,
+    seekJumpStep.animationDirectives.find((d) => d.instanceId === 'inst-seek-violin')?.targetState,
     'idle',
     'Seek to silent timestamp must immediately set playing performer to idle'
   );
@@ -740,7 +869,7 @@ function run() {
   );
   assert.equal(hinaSubclipRes.clipName, 'Exs_Cutin');
   assert.equal(hinaSubclipRes.isMissingExpected, false);
-  console.log('PASS [11] Seek jump reconciliation & strict dedicated clip verification (zero silent Cafe_Reaction fallback).');
+  console.log('PASS [11] Hybrid mode completely removed; seek reconciliation & strict dedicated clip checks passed.');
 
   console.log('\nALL ORCHESTRATOR & INTEGRATION CHECKS PASSED CLEANLY!');
 }

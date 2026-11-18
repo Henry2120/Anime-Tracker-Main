@@ -239,11 +239,9 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
               <Activity className="h-3.5 w-3.5" />
               <span>Performance & Detection Sync</span>
             </span>
-            <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-cyan-300 border border-white/10 uppercase">
+            <span className="text-[9.5px] font-bold px-2 py-0.5 rounded bg-white/10 text-cyan-300 border border-white/10 uppercase">
               {data.detectionSource === 'ai_full_track'
                 ? `AI:${data.aiStatus}`
-                : data.detectionSource === 'hybrid'
-                ? 'HYBRID'
                 : data.yamnetStatus}
             </span>
           </div>
@@ -258,11 +256,9 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
             <div className="flex justify-between items-center py-0.5">
               <span className="text-[#94A3B8]">Detection Source:</span>
               <span className="font-bold text-emerald-300 uppercase">
-                {data.detectionSource === 'yamnet'
-                  ? 'Live YAMNet'
-                  : data.detectionSource === 'ai_full_track'
+                {data.detectionSource === 'ai_full_track'
                   ? 'AI Full-Track'
-                  : 'Hybrid (YAMNet + AI)'}
+                  : 'Live YAMNet'}
               </span>
             </div>
             <div className="flex justify-between items-center py-0.5">
@@ -321,7 +317,7 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
                     <span className="flex items-center gap-1 shrink-0">
                       {p.activeSource && (
                         <span className="px-1 rounded bg-white/10 text-cyan-300 uppercase text-[9px]">
-                          {p.activeSource === 'both' ? 'Y+AI' : p.activeSource === 'ai_full_track' ? 'AI' : 'Y'}
+                          {p.activeSource === 'ai_full_track' ? 'AI' : 'Y'}
                         </span>
                       )}
                       <span

@@ -36,6 +36,7 @@ import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
 import { SceneDebuggerPanel, SceneDebuggerData } from './SceneDebuggerPanel';
 import { InstrumentAnalysisView } from './InstrumentAnalysisView';
 import { EnvironmentPreviewPanel } from './EnvironmentPreviewPanel';
+import { AiConcertDirectorPanel } from './AiConcertDirectorPanel';
 import { CompositeEnvironment } from './scenery/CompositeEnvironment';
 import { SceneryConfig, DEFAULT_SCENERY_CONFIG } from './scenery/sceneryTypes';
 import {
@@ -448,7 +449,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     batchUpdateFormationTransforms,
   } = useCharacterLoader();
 
-  // Persistent YouTube, Shared YAMNet & Shared AI Full-Track Context
+  // Persistent YouTube, Shared YAMNet & Independent AI Full-Track Context
   const {
     videoId,
     videoTitle,
@@ -456,10 +457,12 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     isPaused,
     isStopped,
     seekNonce,
+    play,
     stop,
     togglePlay,
     setVideo,
     getCurrentTime,
+    seekTo,
     yamnetVideoId,
     yamnetSegments,
     yamnetStatus,
@@ -473,7 +476,14 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     aiStatus,
     aiError,
     aiTitle,
+    aiPlan,
+    aiProgressMessage,
+    aiIsAnalyzing,
+    analyzeAiFullTrackConcert,
   } = useConcertMusic();
+
+  const [isAiDirectorExpanded, setIsAiDirectorExpanded] = useState<boolean>(true);
+  const [prepareAiRosterFlag, setPrepareAiRosterFlag] = useState<boolean>(false);
 
   const activeCustomConfig = useMemo(() => {
     return isCustomSceneryActive ? previewSceneryConfig : appliedSceneryConfig;
@@ -499,14 +509,27 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const manualClipOverrideRef = useRef<Record<string, string>>({});
   const reportedClipDiagnosticsRef = useRef<Set<string>>(new Set());
 
-  // Only consume YAMNet & AI Full-Track segments belonging strictly to the active videoId
+  // Only consume YAMNet & complete AI Full-Track plans belonging strictly to the active videoId
   const activeYamnetSegments = useMemo(() => {
     return yamnetVideoId === videoId ? yamnetSegments : [];
   }, [yamnetVideoId, videoId, yamnetSegments]);
 
+  const activeAiPlan = useMemo(() => {
+    return aiVideoId === videoId && aiPlan?.isComplete ? aiPlan : null;
+  }, [aiVideoId, videoId, aiPlan]);
+
   const activeAiSegments = useMemo(() => {
-    return aiVideoId === videoId ? aiSegments : [];
-  }, [aiVideoId, videoId, aiSegments]);
+    return aiVideoId === videoId && activeAiPlan ? aiSegments : [];
+  }, [aiVideoId, videoId, activeAiPlan, aiSegments]);
+
+  const activeAiRoster = useMemo(() => {
+    return activeAiPlan ? activeAiPlan.roster.map((entry) => entry.mapping) : [];
+  }, [activeAiPlan]);
+
+  // Reset stage preparation request when active video changes
+  useEffect(() => {
+    setPrepareAiRosterFlag(false);
+  }, [videoId]);
 
   // Clear manual clip overrides when music starts playing or when switching to Automatic mode
   useEffect(() => {
@@ -570,6 +593,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       isStopped,
       segments: activeYamnetSegments,
       aiSegments: activeAiSegments,
+      aiRoster: activeAiRoster,
+      prepareAiRoster: prepareAiRosterFlag,
       gracePeriodMs,
       nowMs,
     });
@@ -577,7 +602,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     orchestratorStateRef.current = step.nextState;
     syncStagedSnapshot(step.nextState);
 
-    setPlaybackTimeSec((prev) => (Math.abs(prev - curTime) >= 0.2 ? curTime : prev));
+    setPlaybackTimeSec((prev) => (Math.abs(prev - curTime) >= 0.05 ? curTime : prev));
     setActiveVocals((prev) => (prev === step.activeVocals ? prev : step.activeVocals));
     setActiveInstruments((prev) => {
       if (
@@ -737,6 +762,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     isStopped,
     activeYamnetSegments,
     activeAiSegments,
+    activeAiRoster,
+    prepareAiRosterFlag,
     gracePeriodMs,
     getCurrentTime,
     loadCharacter,
@@ -804,6 +831,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
 
   const handleClearCharacters = useCallback(() => {
     manualClipOverrideRef.current = {};
+    setPrepareAiRosterFlag(false);
     orchestratorStateRef.current = {
       ...orchestratorStateRef.current,
       performers: {},
@@ -811,6 +839,22 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     syncStagedSnapshot(orchestratorStateRef.current);
     clearCharacters();
   }, [clearCharacters, syncStagedSnapshot]);
+
+  const handlePrepareAiCast = useCallback(() => {
+    if (!activeAiPlan) return;
+    setPerformanceMode('automatic');
+    setDetectionSource('ai_full_track');
+    setPrepareAiRosterFlag(true);
+  }, [activeAiPlan]);
+
+  const handlePlayAiConcert = useCallback(() => {
+    if (!activeAiPlan) return;
+    setPerformanceMode('automatic');
+    setDetectionSource('ai_full_track');
+    setPrepareAiRosterFlag(true);
+    setIsAiDirectorExpanded(false);
+    play();
+  }, [activeAiPlan, play]);
 
   const handleSelectAnimation = useCallback(
     (instanceId: string, animationName: string) => {
@@ -1277,21 +1321,25 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 </button>
               </div>
 
-              {/* Detection Source Selector: Live YAMNet | AI Full-Track | Hybrid */}
+              {/* Detection Source Selector: Live YAMNet | AI Full-Track */}
               <div
                 className="flex items-center p-0.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10"
-                title="Choose which instrument timeline drives performers: Live YAMNet, cached AI Full-Track Analysis, or Hybrid combination of both."
+                title="Choose performance mode: Live YAMNet real-time detection or AI Full-Track pre-analyzed virtual concert."
               >
                 {([
                   { id: 'yamnet', label: 'Live YAMNet' },
                   { id: 'ai_full_track', label: 'AI Full-Track' },
-                  { id: 'hybrid', label: 'Hybrid' },
                 ] as const).map((src) => (
                   <button
                     key={src.id}
                     type="button"
-                    onClick={() => setDetectionSource(src.id)}
-                    className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer ${
+                    onClick={() => {
+                      setDetectionSource(src.id);
+                      if (src.id === 'ai_full_track') {
+                        setIsAiDirectorExpanded(true);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap ${
                       detectionSource === src.id
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
@@ -1302,36 +1350,38 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 ))}
               </div>
 
-              {/* Anti-Flicker Animation Hold Smoothing */}
-              <div
-                className="flex items-center gap-1 px-2 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-[10.5px]"
-                title="Anti-flicker hold before transitioning back to idle on brief gaps (performers always stay on stage)."
-              >
-                <span className="text-[#77747D] dark:text-[#9E9AA6] font-semibold">Hold:</span>
-                {([0, 1000, 2500] as const).map((ms) => (
-                  <button
-                    key={ms}
-                    type="button"
-                    onClick={() => setGracePeriodMs(ms)}
-                    className={`px-1.5 py-0.5 rounded font-mono font-bold transition-colors cursor-pointer ${
-                      gracePeriodMs === ms
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-[#77747D] hover:bg-black/10 dark:hover:bg-white/10'
-                    }`}
-                  >
-                    {ms === 0 ? '0s' : `${ms / 1000}s`}
-                  </button>
-                ))}
-              </div>
+              {/* Anti-Flicker Animation Hold Smoothing (Live YAMNet only) */}
+              {detectionSource === 'yamnet' && (
+                <div
+                  className="flex items-center gap-1 px-2 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-[10.5px]"
+                  title="Anti-flicker hold before transitioning back to idle on brief gaps (performers always stay on stage)."
+                >
+                  <span className="text-[#77747D] dark:text-[#9E9AA6] font-semibold">Hold:</span>
+                  {([0, 1000, 2500] as const).map((ms) => (
+                    <button
+                      key={ms}
+                      type="button"
+                      onClick={() => setGracePeriodMs(ms)}
+                      className={`px-1.5 py-0.5 rounded font-mono font-bold transition-colors cursor-pointer ${
+                        gracePeriodMs === ms
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-[#77747D] hover:bg-black/10 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      {ms === 0 ? '0s' : `${ms / 1000}s`}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {/* Live YAMNet Audio Sync Trigger (available in Live YAMNet & Hybrid sources) */}
-              {detectionSource !== 'ai_full_track' && (
+              {/* Live YAMNet Audio Sync Trigger */}
+              {detectionSource === 'yamnet' && (
                 <button
                   type="button"
                   onClick={() =>
                     isStageYamnetCapturing ? stopStageLiveYamnet() : startStageLiveYamnet()
                   }
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border whitespace-nowrap ${
                     isStageYamnetCapturing
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-xs'
                       : activeYamnetSegments.length > 0
@@ -1340,7 +1390,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                   }`}
                   title="Capture tab audio directly from this stage using local YAMNet"
                 >
-                  <Radio className={`h-3.5 w-3.5 ${isStageYamnetCapturing ? 'animate-pulse' : ''}`} />
+                  <Radio className="h-3.5 w-3.5" />
                   <span>
                     {isStageYamnetCapturing
                       ? 'Live YAMNet ON'
@@ -1348,6 +1398,22 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                       ? 'Re-Capture Live'
                       : 'Start Live YAMNet'}
                   </span>
+                </button>
+              )}
+
+              {/* AI Concert Director Toggle (AI Full-Track mode) */}
+              {detectionSource === 'ai_full_track' && (
+                <button
+                  type="button"
+                  onClick={() => setIsAiDirectorExpanded((v) => !v)}
+                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border whitespace-nowrap ${
+                    isAiDirectorExpanded
+                      ? 'bg-[#7567C7] text-white border-[#7567C7]'
+                      : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/10 dark:border-white/10 hover:bg-[#7567C7] hover:text-white'
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>{isAiDirectorExpanded ? 'Hide Director' : 'Concert Director'}</span>
                 </button>
               )}
 
@@ -1426,38 +1492,29 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 Stage ({loadedCharacters.length}):
               </span>
 
-              {detectionSource !== 'ai_full_track' && activeYamnetSegments.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] border border-emerald-500/25">
-                  YAMNet {activeYamnetSegments.length} segs
+              {detectionSource === 'yamnet' && activeYamnetSegments.length > 0 && (
+                <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300 tabular-nums">
+                  YAMNet · {activeYamnetSegments.length} segs
                 </span>
               )}
 
-              {detectionSource !== 'yamnet' && (
-                activeAiSegments.length > 0 ? (
-                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] border border-indigo-500/25">
-                    AI Full-Track {activeAiSegments.length} segs
-                  </span>
-                ) : aiStatus === 'loading' ? (
-                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[10px] border border-indigo-500/20">
-                    Checking AI cache...
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('analysis')}
-                    className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-200 border border-amber-500/35 text-[10px] font-bold transition-colors cursor-pointer"
-                    title={aiError || 'No AI Full-Track Analysis cached for this track yet — click to open Instrument Analysis'}
-                  >
-                    {aiStatus === 'error'
-                      ? 'AI Error • Open Analysis'
-                      : 'No AI Full-Track yet • Open Analysis'}
-                  </button>
-                )
+              {detectionSource === 'ai_full_track' && (
+                <span className="font-mono text-[10px] tabular-nums text-[#77747D] dark:text-[#A4A1AA]">
+                  {activeAiPlan
+                    ? `AI Plan Ready · ${activeAiPlan.roster.length} cast · ${activeAiSegments.length} segs`
+                    : aiIsAnalyzing
+                    ? 'AI Analyzing Full Track...'
+                    : aiStatus === 'incomplete'
+                    ? 'AI Incomplete'
+                    : aiStatus === 'error'
+                    ? 'AI Error'
+                    : 'AI Plan Needed'}
+                </span>
               )}
 
               {activeVocals && (
                 <span
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-300 border border-rose-500/30 text-[10px] font-bold"
+                  className="flex items-center gap-1 text-rose-600 dark:text-rose-300 text-[10px] font-bold"
                   title="Vocals is tracked independently and never spawns a vocalist character"
                 >
                   <Mic className="h-3 w-3" />
@@ -1465,8 +1522,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 </span>
               )}
 
-              {yamnetError && detectionSource !== 'ai_full_track' && (
-                <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-300 text-[10px] max-w-[200px] truncate">
+              {yamnetError && detectionSource === 'yamnet' && (
+                <span className="text-red-600 dark:text-red-300 text-[10px] max-w-[200px] truncate">
                   {yamnetError}
                 </span>
               )}
@@ -1507,14 +1564,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                 const holdRemSec = isHolding
                   ? Math.max(0, (record!.graceDeadlineMs! - nowMs) / 1000).toFixed(1)
                   : null;
-                const activeSrcTag =
-                  detectionSource === 'hybrid' && (isSounding || isHolding) && record?.activeSource
-                    ? record.activeSource === 'both'
-                      ? 'Y+AI'
-                      : record.activeSource === 'ai_full_track'
-                      ? 'AI'
-                      : 'Y'
-                    : null;
 
                 return (
                   <div
@@ -1546,11 +1595,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
                       {mapping && (
                         <span className="text-[9.5px] opacity-80 hidden sm:inline">
                           • {mapping.instrumentName}
-                        </span>
-                      )}
-                      {activeSrcTag && (
-                        <span className="font-mono text-[8.5px] px-1 rounded bg-black/20">
-                          {activeSrcTag}
                         </span>
                       )}
                       {isHolding && (
@@ -1726,74 +1770,83 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
             </div>
           )}
 
-          {/* Empty Stage Overlay */}
-          {loadedCharacters.length === 0 && !loading && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
-              <div className="px-5 py-4 rounded-3xl bg-white/85 dark:bg-[#14121C]/85 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-xl flex flex-col items-center gap-3 text-center max-w-sm pointer-events-auto">
-                <div className="w-10 h-10 rounded-2xl bg-[#7567C7]/15 flex items-center justify-center text-[#7567C7]">
-                  <Users className="h-5 w-5" />
-                </div>
-                <div className="space-y-1">
-                  <p className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7]">
-                    {performanceMode === 'automatic'
-                      ? detectionSource === 'ai_full_track'
-                        ? 'Ready for AI Full-Track Performance'
-                        : detectionSource === 'hybrid'
-                        ? 'Ready for Hybrid (YAMNet + AI) Performance'
-                        : 'Ready for Automatic YAMNet Performance'
-                      : 'No characters loaded'}
-                  </p>
-                  <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
-                    {performanceMode === 'automatic'
-                      ? detectionSource === 'ai_full_track'
-                        ? activeAiSegments.length > 0
-                          ? `AI Full-Track timeline loaded (${activeAiSegments.length} segments) — press PLAY to spawn persistent performers.`
-                          : 'No AI Full-Track Analysis exists for this YouTube video yet. Open Instrument Analysis to generate it, or switch source to Live YAMNet.'
-                        : detectionSource === 'hybrid'
-                        ? activeAiSegments.length > 0 || activeYamnetSegments.length > 0
-                          ? `Hybrid timelines ready (YAMNet: ${activeYamnetSegments.length} / AI: ${activeAiSegments.length} segs) — press PLAY to auto-stage.`
-                          : 'Press PLAY + Start Live YAMNet or run AI Full-Track Analysis in Instrument Analysis to auto-stage performers.'
-                        : activeYamnetSegments.length > 0
-                        ? 'Cached YAMNet timeline loaded — press PLAY to spawn persistent performers.'
-                        : 'Press PLAY + Start Live YAMNet (or run Instrument Analysis) to auto-stage performers, or open Roster to add manually.'
-                      : 'Open the roster to add Blue Archive performers to the concert stage.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  {performanceMode === 'automatic' &&
-                    detectionSource !== 'ai_full_track' &&
-                    !isStageYamnetCapturing && (
-                      <button
-                        type="button"
-                        onClick={startStageLiveYamnet}
-                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Radio className="h-3.5 w-3.5" />
-                        <span>Start Live YAMNet</span>
-                      </button>
-                    )}
-                  {detectionSource !== 'yamnet' && activeAiSegments.length === 0 && (
+          {/* AI Full-Track Virtual Concert Director (Stages A -> B -> C -> D) */}
+          {detectionSource === 'ai_full_track' && !isMini && (
+            <AiConcertDirectorPanel
+              videoId={videoId}
+              videoTitle={videoTitle}
+              isPlaying={isPlaying}
+              isPaused={isPaused}
+              playbackTimeSec={playbackTimeSec}
+              aiStatus={aiVideoId === videoId ? aiStatus : 'unavailable'}
+              aiError={aiVideoId === videoId ? aiError : null}
+              aiIsAnalyzing={aiIsAnalyzing}
+              aiProgressMessage={aiProgressMessage}
+              aiPlan={activeAiPlan}
+              stagedPerformers={stagedPerformers}
+              loadedCharactersCount={loadedCharacters.length}
+              activeInstruments={activeInstruments}
+              activeVocals={activeVocals}
+              isExpanded={isAiDirectorExpanded}
+              onToggleExpanded={setIsAiDirectorExpanded}
+              onAnalyzeTrack={analyzeAiFullTrackConcert}
+              onPrepareCast={handlePrepareAiCast}
+              onPlayConcert={handlePlayAiConcert}
+              onTogglePlay={togglePlay}
+              onStop={stop}
+              onSeekTo={seekTo}
+              onClearStage={handleClearCharacters}
+            />
+          )}
+
+          {/* Empty Stage Overlay (Live YAMNet & Manual Stage modes) */}
+          {loadedCharacters.length === 0 &&
+            !loading &&
+            (performanceMode === 'manual' || detectionSource === 'yamnet') && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+                <div className="px-5 py-4 rounded-3xl bg-white/85 dark:bg-[#14121C]/85 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-xl flex flex-col items-center gap-3 text-center max-w-sm pointer-events-auto">
+                  <div className="w-10 h-10 rounded-2xl bg-[#7567C7]/15 flex items-center justify-center text-[#7567C7]">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7]">
+                      {performanceMode === 'automatic'
+                        ? 'Ready for Automatic YAMNet Performance'
+                        : 'No characters loaded'}
+                    </p>
+                    <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
+                      {performanceMode === 'automatic'
+                        ? activeYamnetSegments.length > 0
+                          ? 'Cached YAMNet timeline loaded — press PLAY to spawn persistent performers.'
+                          : 'Press PLAY + Start Live YAMNet to auto-stage performers, or switch to AI Full-Track to plan the whole song upfront.'
+                        : 'Open the roster to add Blue Archive performers to the concert stage.'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {performanceMode === 'automatic' &&
+                      detectionSource === 'yamnet' &&
+                      !isStageYamnetCapturing && (
+                        <button
+                          type="button"
+                          onClick={startStageLiveYamnet}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Radio className="h-3.5 w-3.5" />
+                          <span>Start Live YAMNet</span>
+                        </button>
+                      )}
                     <button
                       type="button"
-                      onClick={() => setActiveTab('analysis')}
-                      className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                      onClick={() => setDrawerOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
                     >
-                      <Activity className="h-3.5 w-3.5" />
-                      <span>Open Instrument Analysis</span>
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      <span>Open Roster</span>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setDrawerOpen(true)}
-                    className="px-3.5 py-2 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    <span>Open Roster</span>
-                  </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Loading Progress Notice */}
           {loading && loadingCharacter && (

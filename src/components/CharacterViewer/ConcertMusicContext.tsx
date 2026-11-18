@@ -14,6 +14,8 @@ import {
   mergeYamnetCaptureRanges,
   YamnetCaptureRange,
   getLatestCachedAnalysisByVideoIdFromDB,
+  saveAnalysisToDB,
+  clearCachedAnalysisFromDB,
 } from '../../utils/analysisCacheIndexedDB';
 import { LiveTabAudioCaptureSession } from '../../utils/audioCapture';
 import {
@@ -21,6 +23,10 @@ import {
   mergeYamnetTimelineSegments,
   YamnetCategoryPrediction,
 } from '../../utils/yamnetClassifier';
+import {
+  AiConcertPerformancePlan,
+  buildAiConcertPerformancePlan,
+} from './aiConcertPlanner';
 
 declare global {
   interface Window {
@@ -108,6 +114,7 @@ export type SharedAiAnalysisStatus =
   | 'idle'
   | 'loading'
   | 'ready'
+  | 'incomplete'
   | 'unavailable'
   | 'error';
 
@@ -118,6 +125,7 @@ export interface AiAnalysisSnapshot {
   error?: string | null;
   title?: string | null;
   isFullCoverage?: boolean | null;
+  plan?: AiConcertPerformancePlan | null;
 }
 
 export interface ConcertMusicContextValue {
@@ -167,14 +175,21 @@ export interface ConcertMusicContextValue {
   startStageLiveYamnet: () => Promise<void>;
   stopStageLiveYamnet: () => void;
 
-  // Shared AI Full-Track Analysis State (reused from InstrumentAnalysisView / IndexedDB, zero duplicate API calls)
+  // Independent AI Full-Track Performance Plan & Pre-Analysis Controls
   aiVideoId: string;
   aiSegments: InstrumentTimelineSegment[];
   aiStatus: SharedAiAnalysisStatus;
   aiError: string | null;
   aiTitle: string | null;
   aiIsFullCoverage: boolean | null;
+  aiPlan: AiConcertPerformancePlan | null;
+  aiProgressMessage: string | null;
+  aiIsAnalyzing: boolean;
   publishAiAnalysisState: (payload: AiAnalysisSnapshot) => void;
+  analyzeAiFullTrackConcert: (
+    urlOrId?: string,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<AiConcertPerformancePlan | null>;
 }
 
 const ConcertMusicContext = createContext<ConcertMusicContextValue | null>(null);
@@ -201,14 +216,19 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     useState<YamnetCaptureSummaryState | null>(null);
   const [isStageYamnetCapturing, setIsStageYamnetCapturing] = useState<boolean>(false);
 
-  // Shared AI Full-Track Analysis State synced with InstrumentAnalysisView & IndexedDB
+  // Independent AI Full-Track Performance State & Plan Cache (scoped per videoId)
   const [aiVideoId, setAiVideoId] = useState<string>('dUXIymB78YQ');
   const [aiSegments, setAiSegments] = useState<InstrumentTimelineSegment[]>([]);
   const [aiStatus, setAiStatus] = useState<SharedAiAnalysisStatus>('idle');
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiTitle, setAiTitle] = useState<string | null>(null);
   const [aiIsFullCoverage, setAiIsFullCoverage] = useState<boolean | null>(null);
+  const [aiPlan, setAiPlan] = useState<AiConcertPerformancePlan | null>(null);
+  const [aiProgressMessage, setAiProgressMessage] = useState<string | null>(null);
+  const [aiIsAnalyzing, setAiIsAnalyzing] = useState<boolean>(false);
   const aiByVideoRef = useRef<Map<string, AiAnalysisSnapshot>>(new Map());
+  const aiAnalyzeAbortRef = useRef<AbortController | null>(null);
+  const aiAnalyzeGenRef = useRef<number>(0);
 
   const playerRef = useRef<any>(null);
   const pendingPlayRef = useRef<boolean>(false);
@@ -358,20 +378,22 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
   }, [videoId]);
 
-  // Auto-hydrate cached AI Full-Track Analysis from memory/IndexedDB strictly scoped by videoId
+  // Auto-hydrate cached AI Full-Track Performance Plan from memory/IndexedDB strictly scoped by videoId
   useEffect(() => {
     let cancelled = false;
     const vid = videoId;
 
-    // Immediately clear previous video's AI Full-Track results on videoId change
+    // Immediately clear previous video's AI Full-Track state on videoId change
     const inMemory = aiByVideoRef.current.get(vid);
     if (inMemory) {
       setAiVideoId(vid);
-      setAiSegments(inMemory.segments);
+      setAiSegments(inMemory.status === 'ready' ? inMemory.segments : []);
       setAiStatus(inMemory.status);
       setAiError(inMemory.error ?? null);
       setAiTitle(inMemory.title ?? null);
       setAiIsFullCoverage(inMemory.isFullCoverage ?? null);
+      setAiPlan(inMemory.plan ?? null);
+      setAiProgressMessage(null);
       return;
     }
 
@@ -380,6 +402,8 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     setAiError(null);
     setAiTitle(null);
     setAiIsFullCoverage(null);
+    setAiPlan(null);
+    setAiProgressMessage(null);
     setAiStatus('loading');
 
     const dur =
@@ -397,39 +421,69 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     getLatestCachedAnalysisByVideoIdFromDB(vid, dur)
       .then((cached) => {
         if (cancelled || videoIdRef.current !== vid) return;
-        // Re-check if InstrumentAnalysisView published fresh results while DB lookup was in flight
         const freshInMemory = aiByVideoRef.current.get(vid);
         if (freshInMemory) {
           setAiVideoId(vid);
-          setAiSegments(freshInMemory.segments);
+          setAiSegments(freshInMemory.status === 'ready' ? freshInMemory.segments : []);
           setAiStatus(freshInMemory.status);
           setAiError(freshInMemory.error ?? null);
           setAiTitle(freshInMemory.title ?? null);
           setAiIsFullCoverage(freshInMemory.isFullCoverage ?? null);
+          setAiPlan(freshInMemory.plan ?? null);
           return;
         }
         if (cached && cached.analysisResult) {
-          const segments = cached.analysisResult.instrumentSegments || [];
+          const plan = buildAiConcertPerformancePlan(cached.analysisResult, {
+            videoIdOverride: vid,
+            fromCache: true,
+          });
+          if (!plan.isComplete) {
+            const incompleteSnap: AiAnalysisSnapshot = {
+              videoId: vid,
+              segments: [],
+              status: 'incomplete',
+              error: plan.completionReason || 'Cached analysis did not cover 100% of the track.',
+              title: plan.title,
+              isFullCoverage: false,
+              plan,
+            };
+            aiByVideoRef.current.set(vid, incompleteSnap);
+            setAiVideoId(vid);
+            setAiSegments([]);
+            setAiStatus('incomplete');
+            setAiError(incompleteSnap.error ?? null);
+            setAiTitle(plan.title);
+            setAiIsFullCoverage(false);
+            setAiPlan(plan);
+            return;
+          }
+
           const snapshot: AiAnalysisSnapshot = {
             videoId: vid,
-            segments,
+            segments: plan.segments,
             status: 'ready',
             error: null,
-            title: cached.analysisResult.title || null,
-            isFullCoverage: cached.analysisResult.coverage?.isFullCoverage ?? null,
+            title: plan.title,
+            isFullCoverage: true,
+            plan,
           };
           aiByVideoRef.current.set(vid, snapshot);
           setAiVideoId(vid);
-          setAiSegments(segments);
+          setAiSegments(plan.segments);
           setAiStatus('ready');
           setAiError(null);
-          setAiTitle(snapshot.title ?? null);
-          setAiIsFullCoverage(snapshot.isFullCoverage ?? null);
+          setAiTitle(plan.title);
+          setAiIsFullCoverage(true);
+          setAiPlan(plan);
+          if (plan.title) {
+            setVideoTitle(plan.title);
+          }
         } else {
           setAiVideoId(vid);
           setAiSegments([]);
           setAiStatus('unavailable');
           setAiError(null);
+          setAiPlan(null);
         }
       })
       .catch(() => {
@@ -437,6 +491,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
           setAiVideoId(vid);
           setAiSegments([]);
           setAiStatus('unavailable');
+          setAiPlan(null);
         }
       });
 
@@ -469,14 +524,59 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
   const publishAiAnalysisState = useCallback((payload: AiAnalysisSnapshot) => {
     const cleanId = payload.videoId?.trim();
     if (!cleanId) return;
-    aiByVideoRef.current.set(cleanId, { ...payload, videoId: cleanId });
+
+    let normalizedStatus = payload.status;
+    let normalizedPlan = payload.plan ?? null;
+    let normalizedSegments = payload.segments;
+    let normalizedError = payload.error ?? null;
+
+    if (normalizedStatus === 'ready' && payload.isFullCoverage === false) {
+      normalizedStatus = 'incomplete';
+      normalizedSegments = [];
+      normalizedError =
+        normalizedError || 'Analysis is incomplete and cannot be used for full-track concert playback.';
+    } else if (normalizedStatus === 'ready' && !normalizedPlan && payload.isFullCoverage === true) {
+      normalizedPlan = buildAiConcertPerformancePlan(
+        {
+          success: true,
+          status: 'detected',
+          videoId: cleanId,
+          title: payload.title || `YouTube Track (${cleanId})`,
+          coverage: {
+            totalDuration:
+              payload.segments.reduce((m, s) => Math.max(m, s.endTime), 0) || 1,
+            isFullCoverage: true,
+            coveragePercentage: 100,
+            totalWindows: 1,
+            successfulWindows: 1,
+            failedWindows: 0,
+            missingRanges: [],
+            authoritativeDurationEstablished: true,
+          },
+          instrumentSegments: payload.segments,
+        },
+        { videoIdOverride: cleanId, fromCache: true }
+      );
+    }
+
+    const stored: AiAnalysisSnapshot = {
+      ...payload,
+      videoId: cleanId,
+      status: normalizedStatus,
+      segments: normalizedStatus === 'ready' ? normalizedSegments : [],
+      error: normalizedError,
+      plan: normalizedPlan,
+    };
+
+    aiByVideoRef.current.set(cleanId, stored);
     if (cleanId === videoIdRef.current) {
       setAiVideoId(cleanId);
-      setAiSegments(payload.segments);
-      setAiStatus(payload.status);
-      setAiError(payload.error ?? null);
-      setAiTitle(payload.title ?? null);
-      setAiIsFullCoverage(payload.isFullCoverage ?? null);
+      setAiSegments(stored.segments);
+      setAiStatus(stored.status);
+      setAiError(stored.error ?? null);
+      setAiTitle(stored.title ?? null);
+      setAiIsFullCoverage(stored.isFullCoverage ?? null);
+      setAiPlan(stored.plan ?? null);
     }
   }, []);
 
@@ -785,11 +885,265 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }, [getCurrentTime, getDuration, persistStageYamnet]);
 
+  const analyzeAiFullTrackConcert = useCallback(
+    async (
+      urlOrId?: string,
+      options: { forceRefresh?: boolean } = {}
+    ): Promise<AiConcertPerformancePlan | null> => {
+      const rawInput = (urlOrId || videoIdRef.current || '').trim();
+      const targetVideoId = extractYouTubeVideoId(rawInput) || rawInput;
+      if (!targetVideoId || !/^[a-zA-Z0-9_-]{11}$/.test(targetVideoId)) {
+        setAiStatus('error');
+        setAiError('Please enter a valid YouTube URL or 11-character video ID.');
+        setAiIsAnalyzing(false);
+        return null;
+      }
+
+      if (aiAnalyzeAbortRef.current) {
+        aiAnalyzeAbortRef.current.abort();
+      }
+      const abortController = new AbortController();
+      aiAnalyzeAbortRef.current = abortController;
+      aiAnalyzeGenRef.current += 1;
+      const genId = aiAnalyzeGenRef.current;
+
+      const forceRefresh = Boolean(options.forceRefresh);
+      const isVideoSwitch = targetVideoId !== videoIdRef.current;
+      if (isVideoSwitch) {
+        setVideo(targetVideoId, undefined, false);
+      }
+
+      setAiVideoId(targetVideoId);
+      setAiSegments([]);
+      setAiError(null);
+      setAiPlan(null);
+      setAiIsFullCoverage(null);
+      setAiStatus('loading');
+      setAiIsAnalyzing(true);
+      setAiProgressMessage('Preparing video metadata...');
+
+      // Give freshly cued YouTube iframe a short moment to report authoritative duration if ready
+      let knownDuration = getDuration();
+      if ((!knownDuration || knownDuration <= 0) && playerRef.current) {
+        for (let i = 0; i < 6; i++) {
+          if (genId !== aiAnalyzeGenRef.current) return null;
+          await new Promise((r) => setTimeout(r, 200));
+          const d = getDuration();
+          if (d > 0 && videoIdRef.current === targetVideoId) {
+            knownDuration = d;
+            break;
+          }
+        }
+      }
+
+      if (genId !== aiAnalyzeGenRef.current) return null;
+
+      if (forceRefresh) {
+        await clearCachedAnalysisFromDB(targetVideoId).catch(() => {});
+        aiByVideoRef.current.delete(targetVideoId);
+      } else {
+        try {
+          const cached = await getLatestCachedAnalysisByVideoIdFromDB(
+            targetVideoId,
+            knownDuration > 0 ? knownDuration : undefined
+          );
+          if (genId !== aiAnalyzeGenRef.current) return null;
+          if (cached && cached.analysisResult) {
+            const cachedPlan = buildAiConcertPerformancePlan(cached.analysisResult, {
+              videoIdOverride: targetVideoId,
+              fromCache: true,
+            });
+            if (cachedPlan.isComplete) {
+              const snap: AiAnalysisSnapshot = {
+                videoId: targetVideoId,
+                segments: cachedPlan.segments,
+                status: 'ready',
+                error: null,
+                title: cachedPlan.title,
+                isFullCoverage: true,
+                plan: cachedPlan,
+              };
+              aiByVideoRef.current.set(targetVideoId, snap);
+              if (videoIdRef.current === targetVideoId) {
+                setAiVideoId(targetVideoId);
+                setAiSegments(cachedPlan.segments);
+                setAiStatus('ready');
+                setAiError(null);
+                setAiTitle(cachedPlan.title);
+                setAiIsFullCoverage(true);
+                setAiPlan(cachedPlan);
+                setAiProgressMessage(null);
+                setAiIsAnalyzing(false);
+                if (cachedPlan.title) setVideoTitle(cachedPlan.title);
+              }
+              return cachedPlan;
+            }
+          }
+        } catch {
+          // Proceed to server analysis
+        }
+      }
+
+      if (genId !== aiAnalyzeGenRef.current) return null;
+      setAiProgressMessage('Analyzing full audio windows with Gemini AI (this may take a moment)...');
+
+      try {
+        const res = await fetch('/api/music/analyze-youtube', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            videoId: targetVideoId,
+            url: `https://www.youtube.com/watch?v=${targetVideoId}`,
+            duration: knownDuration > 0 ? knownDuration : undefined,
+            forceRefresh,
+          }),
+        });
+
+        if (genId !== aiAnalyzeGenRef.current) return null;
+        if (!res.ok) {
+          throw new Error(`Analysis server returned HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (genId !== aiAnalyzeGenRef.current) return null;
+
+        const plan = buildAiConcertPerformancePlan(data, {
+          videoIdOverride: targetVideoId,
+          fromCache: Boolean(data?.cached),
+        });
+
+        if (!data?.success) {
+          const errMsg =
+            data?.error ||
+            plan.completionReason ||
+            'AI Full-Track analysis failed for this YouTube video.';
+          const failSnap: AiAnalysisSnapshot = {
+            videoId: targetVideoId,
+            segments: [],
+            status: 'error',
+            error: errMsg,
+            title: plan.title,
+            isFullCoverage: false,
+            plan: null,
+          };
+          aiByVideoRef.current.set(targetVideoId, failSnap);
+          if (videoIdRef.current === targetVideoId) {
+            setAiStatus('error');
+            setAiError(errMsg);
+            setAiSegments([]);
+            setAiPlan(null);
+            setAiIsFullCoverage(false);
+            setAiProgressMessage(null);
+            setAiIsAnalyzing(false);
+          }
+          return null;
+        }
+
+        if (!plan.isComplete) {
+          const incompleteSnap: AiAnalysisSnapshot = {
+            videoId: targetVideoId,
+            segments: [],
+            status: 'incomplete',
+            error:
+              plan.completionReason ||
+              'Track analysis did not achieve 100% coverage and cannot start concert playback.',
+            title: plan.title,
+            isFullCoverage: false,
+            plan,
+          };
+          aiByVideoRef.current.set(targetVideoId, incompleteSnap);
+          if (videoIdRef.current === targetVideoId) {
+            setAiStatus('incomplete');
+            setAiError(incompleteSnap.error ?? null);
+            setAiSegments([]);
+            setAiPlan(plan);
+            setAiTitle(plan.title);
+            setAiIsFullCoverage(false);
+            setAiProgressMessage(null);
+            setAiIsAnalyzing(false);
+          }
+          return plan;
+        }
+
+        // Validated 100% complete plan
+        const readySnap: AiAnalysisSnapshot = {
+          videoId: targetVideoId,
+          segments: plan.segments,
+          status: 'ready',
+          error: null,
+          title: plan.title,
+          isFullCoverage: true,
+          plan,
+        };
+        aiByVideoRef.current.set(targetVideoId, readySnap);
+
+        if (videoIdRef.current === targetVideoId) {
+          setAiVideoId(targetVideoId);
+          setAiSegments(plan.segments);
+          setAiStatus('ready');
+          setAiError(null);
+          setAiTitle(plan.title);
+          setAiIsFullCoverage(true);
+          setAiPlan(plan);
+          setAiProgressMessage(null);
+          setAiIsAnalyzing(false);
+          if (plan.title) {
+            setVideoTitle(plan.title);
+          }
+        }
+
+        const cacheDuration = plan.duration > 0 ? plan.duration : knownDuration;
+        if (cacheDuration > 0) {
+          saveAnalysisToDB(
+            { videoId: targetVideoId, duration: cacheDuration },
+            {
+              ...data,
+              instrumentSegments: plan.segments,
+            }
+          ).catch((e) => console.warn('[IndexedDB Cache] Save warning:', e));
+        }
+
+        return plan;
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || genId !== aiAnalyzeGenRef.current) {
+          return null;
+        }
+        const errMsg =
+          err?.message ||
+          'Failed to reach the AI Full-Track analysis service. Please try again.';
+        const errSnap: AiAnalysisSnapshot = {
+          videoId: targetVideoId,
+          segments: [],
+          status: 'error',
+          error: errMsg,
+          isFullCoverage: false,
+          plan: null,
+        };
+        aiByVideoRef.current.set(targetVideoId, errSnap);
+        if (videoIdRef.current === targetVideoId) {
+          setAiStatus('error');
+          setAiError(errMsg);
+          setAiSegments([]);
+          setAiPlan(null);
+          setAiIsFullCoverage(false);
+          setAiProgressMessage(null);
+          setAiIsAnalyzing(false);
+        }
+        return null;
+      }
+    },
+    [getDuration, setVideo]
+  );
+
   useEffect(() => {
     return () => {
       if (stageCaptureSessionRef.current) {
         stageCaptureSessionRef.current.stop();
         stageCaptureSessionRef.current = null;
+      }
+      if (aiAnalyzeAbortRef.current) {
+        aiAnalyzeAbortRef.current.abort();
       }
     };
   }, []);
@@ -831,7 +1185,11 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     aiError,
     aiTitle,
     aiIsFullCoverage,
+    aiPlan,
+    aiProgressMessage,
+    aiIsAnalyzing,
     publishAiAnalysisState,
+    analyzeAiFullTrackConcert,
   };
 
   return (
