@@ -24,7 +24,7 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
   // Keys
   {
     matchFilenames: ['Airi (Band).glb'],
-    matchIds: ['airi-band', 'airi-band-3'],
+    matchIds: ['airi-band', 'airi-band-1', 'airi-band-3'],
     matchNames: ['Airi (Band)'],
     role: {
       roleTag: 'Electric Piano',
@@ -38,7 +38,7 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
     matchIds: ['hina-dress-with-piano', 'hina-dress-with-piano-296'],
     matchNames: ['Hina (Dress) with Piano', 'Hina (Dress)'],
     role: {
-      roleTag: 'Grand Piano',
+      roleTag: 'Piano',
       category: 'Keys',
       iconType: 'piano',
       colorClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30',
@@ -55,10 +55,21 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
       colorClass: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',
     },
   },
+  {
+    matchFilenames: ['Saori_Synthesizer_Exs_Synthesizer.glb'],
+    matchIds: ['saori-synthesizer'],
+    matchNames: ['Saori (Synthesizer)'],
+    role: {
+      roleTag: 'Synthesizer',
+      category: 'Keys',
+      iconType: 'piano',
+      colorClass: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',
+    },
+  },
   // Strings
   {
     matchFilenames: ['Kazusa (Band).glb'],
-    matchIds: ['kazusa-band', 'kazusa-band-92'],
+    matchIds: ['kazusa-band', 'kazusa-band-92', 'kazusa-band-108'],
     matchNames: ['Kazusa (Band)'],
     role: {
       roleTag: 'Bass',
@@ -69,7 +80,7 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
   },
   {
     matchFilenames: ['Yoshimi (Band).glb'],
-    matchIds: ['yoshimi-band', 'yoshimi-band-280'],
+    matchIds: ['yoshimi-band', 'yoshimi-band-276', 'yoshimi-band-280'],
     matchNames: ['Yoshimi (Band)'],
     role: {
       roleTag: 'Electric Guitar',
@@ -102,7 +113,7 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
   },
   {
     matchFilenames: ['Shiroko_Violin.glb'],
-    matchIds: ['shiroko-violin', 'shiroko_violin'],
+    matchIds: ['shiroko-violin', 'shiroko-violin-297', 'shiroko_violin'],
     matchNames: ['Shiroko with Violin', 'Shiroko (Violin)'],
     role: {
       roleTag: 'Violin',
@@ -147,7 +158,14 @@ export const CHARACTER_ROLE_REGISTRY: CharacterRoleEntry[] = [
   // Percussion
   {
     matchFilenames: ['Natsu (Band).glb', 'Natsu (Band) (No Weapon).glb'],
-    matchIds: ['natsu-band', 'natsu-band-167', 'natsu-band-no-weapon-166'],
+    matchIds: [
+      'natsu-band',
+      'natsu-band-167',
+      'natsu-band-184',
+      'natsu-band-no-weapon',
+      'natsu-band-no-weapon-166',
+      'natsu-band-no-weapon-183',
+    ],
     matchNames: ['Natsu (Band)', 'Natsu (Band) (No Weapon)'],
     role: {
       roleTag: 'Drums',

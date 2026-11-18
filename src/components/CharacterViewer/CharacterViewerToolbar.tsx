@@ -11,15 +11,12 @@ import {
   Pause,
   Film,
   ChevronDown,
-  Moon,
-  Waves,
   Eye,
   EyeOff,
   Bug,
 } from 'lucide-react';
 import { ViewerCameraPreset, ViewerEnvironment, LoadedCharacterInstance } from './types';
 import { AppTheme } from '../../types/theme';
-import { MeadowEnvironmentLayers, DEFAULT_MEADOW_LAYERS } from './NightBeachScene';
 
 interface CharacterViewerToolbarProps {
   theme: AppTheme;
@@ -39,20 +36,14 @@ interface CharacterViewerToolbarProps {
   onTogglePlayPause?: (instanceId: string) => void;
   isConcertPlaying?: boolean;
   onToggleConcertMusic?: () => void;
-  isSpecialSceneActive?: boolean;
   isToolbarVisible?: boolean;
   onToggleToolbarVisible?: () => void;
   isDebuggerOpen?: boolean;
   onToggleDebugger?: () => void;
-  meadowLayers?: MeadowEnvironmentLayers;
-  onUpdateMeadowLayers?: (layers: Partial<MeadowEnvironmentLayers>) => void;
-  onResetMeadowLayers?: () => void;
-  specialEnvironmentEnabled?: boolean;
-  onToggleSpecialEnvironment?: () => void;
 }
 
 export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
-  theme,
+  theme: _theme,
   loadedCharacters,
   selectedInstanceId,
   cameraPreset,
@@ -69,16 +60,10 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
   onTogglePlayPause,
   isConcertPlaying,
   onToggleConcertMusic,
-  isSpecialSceneActive = false,
   isToolbarVisible: externalToolbarVisible,
   onToggleToolbarVisible,
   isDebuggerOpen = false,
   onToggleDebugger,
-  meadowLayers = DEFAULT_MEADOW_LAYERS,
-  onUpdateMeadowLayers,
-  onResetMeadowLayers,
-  specialEnvironmentEnabled = true,
-  onToggleSpecialEnvironment,
 }) => {
   const [internalToolbarVisible, setInternalToolbarVisible] = useState(true);
   const isToolbarVisible =
@@ -94,25 +79,20 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
   const [animDropdownOpen, setAnimDropdownOpen] = useState(false);
   const [showCameraPresets, setShowCameraPresets] = useState(true);
-  const [layersPopoverOpen, setLayersPopoverOpen] = useState(false);
   const animDropdownRef = useRef<HTMLDivElement>(null);
-  const layersPopoverRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdowns on outside click
+  // Close dropdown on outside click
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
       if (animDropdownRef.current && !animDropdownRef.current.contains(e.target as Node)) {
         setAnimDropdownOpen(false);
       }
-      if (layersPopoverRef.current && !layersPopoverRef.current.contains(e.target as Node)) {
-        setLayersPopoverOpen(false);
-      }
     };
-    if (animDropdownOpen || layersPopoverOpen) {
+    if (animDropdownOpen) {
       document.addEventListener('mousedown', handleOutside);
     }
     return () => document.removeEventListener('mousedown', handleOutside);
-  }, [animDropdownOpen, layersPopoverOpen]);
+  }, [animDropdownOpen]);
 
   // If toolbar is hidden by the master toggle, show the clean floating Show Toolbar button
   if (!isToolbarVisible) {
@@ -126,12 +106,6 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
         >
           <Eye className="h-4 w-4 text-[#7567C7] group-hover:scale-110 transition-transform" />
           <span>Show Toolbar</span>
-          {isSpecialSceneActive && (
-            <span className="flex h-2 w-2 relative ml-0.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
-            </span>
-          )}
         </button>
       </div>
     );
@@ -145,14 +119,6 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 p-1.5 rounded-2xl bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-xl max-w-[95vw] select-none text-xs">
-      {/* Special Scene Indicator in Toolbar */}
-      {isSpecialSceneActive && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-950/80 via-teal-950/80 to-slate-900/80 border border-emerald-500/50 text-xs font-bold text-emerald-200 shadow-md">
-          <Sparkles className="h-3.5 w-3.5 text-emerald-300" />
-          <span>Night Meadow Performance</span>
-        </div>
-      )}
-
       {/* Browse Roster Button */}
       <button
         type="button"
@@ -175,8 +141,8 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
           }`}
           title={
             isConcertPlaying
-              ? 'Stop Concert Music (Switches all 10 to Cafe_Idle)'
-              : 'Play Concert Music (Switches all 10 to Cafe_Reaction)'
+              ? 'Pause Concert Music'
+              : 'Play Concert Music'
           }
         >
           {isConcertPlaying ? (
@@ -195,12 +161,9 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
 
-      {/* =========================================================================
-          DYNAMIC ANIMATION SELECTOR & CONTROLS (Part 6, 7, 8)
-          ========================================================================= */}
+      {/* Dynamic Animation Selector & Controls */}
       {hasAnimations && (
         <div className="relative flex items-center gap-1" ref={animDropdownRef}>
-          {/* Play/Pause Button */}
           {onTogglePlayPause && (
             <button
               type="button"
@@ -216,7 +179,6 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
             </button>
           )}
 
-          {/* Animation Selector Dropdown Trigger */}
           <button
             type="button"
             onClick={() => setAnimDropdownOpen((prev) => !prev)}
@@ -233,7 +195,6 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
             <ChevronDown className="h-3 w-3 opacity-60" />
           </button>
 
-          {/* Animation Popover List */}
           {animDropdownOpen && (
             <div className="absolute bottom-full left-0 mb-2 w-56 max-h-64 overflow-y-auto bg-white dark:bg-[#1C192E] rounded-2xl shadow-2xl border border-[#E7E3DF] dark:border-[#2D2A4A] p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
               <div className="px-2.5 py-1.5 border-b border-black/5 dark:border-white/5 mb-1 flex items-center justify-between text-[10px] font-bold text-[#77747D] uppercase tracking-wider">
@@ -244,7 +205,7 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
               <div className="space-y-0.5">
                 {activeChar.availableAnimations.map((clip) => {
                   const isCurrent = activeChar.currentAnimationName === clip.name;
-                  const isCafeReaction = clip.name === 'Cafe_Reaction';
+                  const isSpecialClip = clip.name.startsWith('Exs_') || clip.name === 'Drum' || clip.name.startsWith('NonWeapon_');
 
                   return (
                     <button
@@ -261,12 +222,12 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-1.5 truncate">
-                        {isCafeReaction && (
+                        {isSpecialClip && (
                           <Sparkles className={`h-3 w-3 ${isCurrent ? 'text-amber-300' : 'text-amber-500'}`} />
                         )}
                         <span className="truncate">{clip.name}</span>
                       </div>
-                      <span className={`text-[9px] font-mono shrink-0 opacity-70`}>
+                      <span className="text-[9px] font-mono shrink-0 opacity-70">
                         {clip.duration}s
                       </span>
                     </button>
@@ -327,7 +288,7 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
 
       <div className="h-4 w-px bg-black/10 dark:bg-white/10 mx-0.5 hidden sm:block" />
 
-      {/* Environment / Mood Selector */}
+      {/* Backdrop Selector */}
       <div className="flex items-center gap-0.5">
         <Sun className="h-3.5 w-3.5 ml-1 mr-0.5 text-amber-500 hidden sm:block" />
         {(
@@ -391,158 +352,12 @@ export const CharacterViewerToolbar: React.FC<CharacterViewerToolbarProps> = ({
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
 
-        {/* Meadow Environment Layers Popover Trigger */}
-        <div className="relative" ref={layersPopoverRef}>
-          <button
-            type="button"
-            onClick={() => setLayersPopoverOpen((prev) => !prev)}
-            title="Meadow Environment Layers Visibility & Controls"
-            className={`px-2 py-1 rounded-xl transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
-              layersPopoverOpen
-                ? 'bg-[#7567C7] text-white shadow-sm ring-1 ring-[#7567C7]/40'
-                : isSpecialSceneActive
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                : 'text-[#77747D] hover:text-[#25242A] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
-            }`}
-          >
-            <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Meadow Layers</span>
-            <span className="text-[9.5px] px-1 py-0.2 rounded bg-black/10 dark:bg-white/10 font-mono">
-              {Object.values(meadowLayers).filter(Boolean).length}/6
-            </span>
-          </button>
-
-          {/* Meadow Environment Layers Popover Menu */}
-          {layersPopoverOpen && (
-            <div className="absolute bottom-full right-0 sm:left-1/2 sm:-translate-x-1/2 mb-2 w-72 sm:w-80 bg-white dark:bg-[#1A1828] rounded-2xl shadow-2xl border border-black/10 dark:border-white/15 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl space-y-3">
-              {/* Popover Header */}
-              <div className="flex items-center justify-between pb-2 border-b border-black/5 dark:border-white/10">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4 text-[#7567C7]" />
-                  <span className="font-bold text-xs text-[#25242A] dark:text-white">
-                    Meadow Environment Layers
-                  </span>
-                </div>
-                {onResetMeadowLayers && (
-                  <button
-                    type="button"
-                    onClick={onResetMeadowLayers}
-                    className="text-[10px] text-[#7567C7] dark:text-[#A898F8] hover:underline font-semibold cursor-pointer"
-                  >
-                    Reset All
-                  </button>
-                )}
-              </div>
-
-              {/* Special Environment Master Switch */}
-              {onToggleSpecialEnvironment && (
-                <div className="p-2.5 rounded-xl bg-purple-500/10 dark:bg-purple-500/15 border border-purple-500/25 flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[11px] font-bold text-purple-900 dark:text-purple-200">
-                      Hina Piano Special Environment
-                    </p>
-                    <p className="text-[9.5px] text-purple-700/80 dark:text-purple-300/80 leading-tight">
-                      Activates meadow when Dress Hina plays solo
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onToggleSpecialEnvironment}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      specialEnvironmentEnabled
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-black/10 dark:bg-white/10 text-[#77747D]'
-                    }`}
-                  >
-                    {specialEnvironmentEnabled ? 'ON' : 'OFF'}
-                  </button>
-                </div>
-              )}
-
-              {/* 6 Independent Meadow Visual Layer Controls */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] uppercase font-bold text-[#77747D] tracking-wider px-1">
-                  Visual Layers ({Object.values(meadowLayers).filter(Boolean).length}/6 ON)
-                </p>
-
-                {(
-                  [
-                    {
-                      key: 'skyAndStarfield' as const,
-                      label: 'Night Sky and Starfield',
-                      desc: 'Procedural sky dome, celestial twilight gradient & twinkling stars',
-                    },
-                    {
-                      key: 'baseGround' as const,
-                      label: 'Base Ground / Meadow Terrain',
-                      desc: 'Lush turf mesh, rolling mounds, horizon ring & contact shadow',
-                    },
-                    {
-                      key: 'grassBlades' as const,
-                      label: '3D Grass Blades',
-                      desc: '2,200 instanced three-dimensional grass blade meshes',
-                    },
-                    {
-                      key: 'grassTufts' as const,
-                      label: 'Grass Tufts and Vegetation',
-                      desc: 'Layered cross-quad natural vegetation tuft clumps',
-                    },
-                    {
-                      key: 'fireflies' as const,
-                      label: 'Fireflies',
-                      desc: 'Floating bioluminescent golden-green glowing orbs & light',
-                    },
-                    {
-                      key: 'meadowLighting' as const,
-                      label: 'Meadow Lighting',
-                      desc: 'Dedicated starlight key, rim silhouette & piano illumination',
-                    },
-                  ]
-                ).map((layer) => {
-                  const isEnabled = meadowLayers[layer.key];
-                  return (
-                    <div
-                      key={layer.key}
-                      className={`p-2 rounded-xl transition-all flex items-center justify-between gap-2 border ${
-                        isEnabled
-                          ? 'bg-black/[0.02] dark:bg-white/[0.04] border-black/5 dark:border-white/5'
-                          : 'bg-black/[0.01] dark:bg-white/[0.01] border-transparent opacity-50'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-1">
-                        <p className="text-[11px] font-bold text-[#25242A] dark:text-white leading-tight">
-                          {layer.label}
-                        </p>
-                        <p className="text-[9.5px] text-[#77747D] dark:text-[#9E9AA6] truncate">
-                          {layer.desc}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onUpdateMeadowLayers?.({ [layer.key]: !isEnabled })}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
-                          isEnabled
-                            ? 'bg-[#7567C7] text-white shadow-xs'
-                            : 'bg-black/10 dark:bg-white/10 text-[#77747D] hover:bg-black/20'
-                        }`}
-                      >
-                        {isEnabled ? 'ON' : 'OFF'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Scene Debugger Toggle Button */}
         {onToggleDebugger && (
           <button
             type="button"
             onClick={onToggleDebugger}
-            title={isDebuggerOpen ? 'Close Scene Debugger' : 'Open 3D Scene Debugger Panel'}
+            title={isDebuggerOpen ? 'Close Scene Debugger' : 'Open 3D Scene & Performance Debugger'}
             className={`px-2 py-1 rounded-xl transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
               isDebuggerOpen
                 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 ring-1 ring-emerald-500/30'

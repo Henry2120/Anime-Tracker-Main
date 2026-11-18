@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { LoadedCharacterInstance } from './types';
@@ -29,6 +29,15 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   const isHinaPiano = isHinaPianoPerformer(instance.manifestEntry, instance.scene);
   const weaponObjectsRef = useRef<THREE.Object3D[]>([]);
 
+  // Initialize exact spawn transform once per instance mount so subsequent slot changes glide via damp
+  useLayoutEffect(() => {
+    if (!groupRef.current) return;
+    groupRef.current.position.copy(instance.position);
+    groupRef.current.rotation.copy(instance.rotation);
+    groupRef.current.scale.copy(instance.scale);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id]);
+
   // Discover and enforce weapon hidden state for Hina with Piano
   useEffect(() => {
     if (!instance.scene) return;
@@ -49,13 +58,28 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
   }, [instance.scene, isHinaPiano]);
 
   // =========================================================================
-  // ANIMATION MIXER FRAME UPDATE (Part 4)
-  // Each character instance updates its own independent mixer using delta time
+  // ANIMATION MIXER & SMOOTH FORMATION DAMPING FRAME UPDATE
+  // Each character instance updates its own independent mixer and smoothly
+  // glides when curved-arc formation slots shift.
   // =========================================================================
   useFrame((_, delta) => {
+    const safeDelta = Math.min(delta, 0.1);
+
+    if (groupRef.current) {
+      const grp = groupRef.current;
+      const targetPos = instance.position;
+      if (
+        Math.abs(grp.position.x - targetPos.x) > 0.0005 ||
+        Math.abs(grp.position.y - targetPos.y) > 0.0005 ||
+        Math.abs(grp.position.z - targetPos.z) > 0.0005
+      ) {
+        grp.position.x = THREE.MathUtils.damp(grp.position.x, targetPos.x, 8, safeDelta);
+        grp.position.y = THREE.MathUtils.damp(grp.position.y, targetPos.y, 8, safeDelta);
+        grp.position.z = THREE.MathUtils.damp(grp.position.z, targetPos.z, 8, safeDelta);
+      }
+    }
+
     if (instance.mixer && instance.visible) {
-      // Clamp delta to avoid huge time jumps when switching tabs
-      const safeDelta = Math.min(delta, 0.1);
       instance.mixer.update(safeDelta);
 
       // Guarantee the detached weapon remains hidden across every animation frame
@@ -108,7 +132,6 @@ export const CharacterInstanceMesh: React.FC<CharacterInstanceMeshProps> = ({
     <group
       ref={groupRef}
       name={instance.id}
-      position={[instance.position.x, instance.position.y, instance.position.z]}
       rotation={[instance.rotation.x, instance.rotation.y, instance.rotation.z]}
       scale={[instance.scale.x, instance.scale.y, instance.scale.z]}
     >

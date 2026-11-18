@@ -1,57 +1,60 @@
 import React, { Suspense, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
-  User,
   Users,
-  Maximize2,
   RefreshCw,
   AlertCircle,
   FolderOpen,
   Play,
   Pause,
-  Film,
   Square,
   X,
   Youtube,
   Disc3,
   Plus,
   Trash2,
-  Moon,
-  Waves,
-  Sparkles,
   Activity,
   Box,
   Compass,
+  Mic,
+  Radio,
+  Sparkles,
+  Hand,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
-import {
-  CharacterManifestEntry,
-  BLUE_ARCHIVE_CHARACTERS,
-  getCharacterById,
-} from '../../data/blueArchiveCharacters';
-import { LoadedCharacterInstance, ViewerCameraPreset, ViewerEnvironment } from './types';
-import { useCharacterLoader } from './useCharacterLoader';
+import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
+import { ViewerCameraPreset, ViewerEnvironment } from './types';
+import { useCharacterLoader, getLoaderCacheStats } from './useCharacterLoader';
 import { CharacterInstanceMesh } from './CharacterInstanceMesh';
 import { CharacterBrowserDrawer } from './CharacterBrowserDrawer';
 import { CharacterViewerToolbar } from './CharacterViewerToolbar';
 import { getConcertSlotTransform } from './concertConfig';
 import { useConcertMusic, extractYouTubeVideoId } from './ConcertMusicContext';
-import {
-  NightBeachScene,
-  MeadowEnvironmentLayers,
-  DEFAULT_MEADOW_LAYERS,
-} from './NightBeachScene';
 import { SceneDebuggerPanel, SceneDebuggerData } from './SceneDebuggerPanel';
 import { InstrumentAnalysisView } from './InstrumentAnalysisView';
 import { EnvironmentPreviewPanel } from './EnvironmentPreviewPanel';
 import { CompositeEnvironment } from './scenery/CompositeEnvironment';
+import { SceneryConfig, DEFAULT_SCENERY_CONFIG } from './scenery/sceneryTypes';
 import {
-  SceneryConfig,
-  DEFAULT_SCENERY_CONFIG,
-} from './scenery/sceneryTypes';
+  resolvePerformerClipName,
+  resolvePerformerMapping,
+  toCharacterManifestEntry,
+} from './performerRegistry';
+import {
+  OrchestratorState,
+  PerformanceMode,
+  StagedPerformerRecord,
+  createInitialOrchestratorState,
+  findDuplicateStagedPerformer,
+  markPerformerLoadFailed,
+  registerLoadedPerformer,
+  removePerformerByInstanceId,
+  stepPerformanceOrchestrator,
+} from './performanceOrchestrator';
+import { YamnetTargetInstrumentName } from '../../utils/yamnetLabelMap';
 
 interface Character3DViewerProps {
   theme?: AppTheme;
@@ -64,8 +67,7 @@ interface Character3DViewerProps {
 }
 
 /**
- * Procedural Studio Contact Shadow Texture generator for standard stage environments.
- * Renders as a lightweight native Three.js mesh, completely bypassing buggy ContactShadows render passes.
+ * Procedural Studio Contact Shadow Texture generator for neutral stage environments.
  */
 function createStudioContactShadowTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
@@ -81,10 +83,10 @@ function createStudioContactShadowTexture(): THREE.CanvasTexture | null {
   const radius = size * 0.46;
 
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  grad.addColorStop(0, 'rgba(12, 10, 24, 0.65)');
-  grad.addColorStop(0.28, 'rgba(14, 12, 28, 0.42)');
-  grad.addColorStop(0.58, 'rgba(16, 14, 32, 0.16)');
-  grad.addColorStop(0.85, 'rgba(20, 18, 38, 0.03)');
+  grad.addColorStop(0, 'rgba(12, 10, 24, 0.55)');
+  grad.addColorStop(0.28, 'rgba(14, 12, 28, 0.34)');
+  grad.addColorStop(0.58, 'rgba(16, 14, 32, 0.12)');
+  grad.addColorStop(0.85, 'rgba(20, 18, 38, 0.02)');
   grad.addColorStop(1, 'rgba(20, 18, 38, 0)');
 
   ctx.fillStyle = grad;
@@ -115,7 +117,7 @@ const StudioContactShadow: React.FC<{ opacity: number; scale?: number }> = ({ op
 };
 
 /**
- * Lighting & Environment System (Physical Stage Platform Removed)
+ * Uniform 3-Point Studio Lighting System (Zero Environment GLBs Loaded)
  */
 const ViewerEnvironment3D: React.FC<{
   environment: ViewerEnvironment;
@@ -129,7 +131,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.6,
       rimColor: '#E6E6FA',
       rimIntensity: 1.0,
-      shadowOpacity: 0, // Uniform pure white background without floor shadow gradient
+      shadowOpacity: 0.28,
     },
     dark: {
       ambientIntensity: 0.75,
@@ -139,7 +141,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.5,
       rimColor: '#BCA8F8',
       rimIntensity: 1.4,
-      shadowOpacity: 0.65,
+      shadowOpacity: 0.6,
     },
     sakura: {
       ambientIntensity: 0.95,
@@ -149,7 +151,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.7,
       rimColor: '#F472B6',
       rimIntensity: 1.2,
-      shadowOpacity: 0,
+      shadowOpacity: 0.25,
     },
     sunset: {
       ambientIntensity: 0.8,
@@ -159,7 +161,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.6,
       rimColor: '#FB923C',
       rimIntensity: 1.3,
-      shadowOpacity: 0.5,
+      shadowOpacity: 0.48,
     },
     clean: {
       ambientIntensity: 1.15,
@@ -169,7 +171,7 @@ const ViewerEnvironment3D: React.FC<{
       fillIntensity: 0.5,
       rimColor: '#FFFFFF',
       rimIntensity: 0.8,
-      shadowOpacity: 0,
+      shadowOpacity: 0.2,
     },
   }[environment];
 
@@ -177,7 +179,6 @@ const ViewerEnvironment3D: React.FC<{
     <>
       <ambientLight intensity={envConfigs.ambientIntensity} />
 
-      {/* Key Directional Light with Soft Shadows */}
       <directionalLight
         position={[3.0, 7.0, 5.0]}
         intensity={envConfigs.keyIntensity}
@@ -194,100 +195,107 @@ const ViewerEnvironment3D: React.FC<{
         shadow-bias={-0.0005}
       />
 
-      {/* Soft Fill Light */}
       <directionalLight
         position={[-5.0, 4.0, -2.0]}
         intensity={envConfigs.fillIntensity}
         color={envConfigs.fillColor}
       />
 
-      {/* Rim Silhouette Backlight */}
       <directionalLight
         position={[0, 6.0, -5.0]}
         intensity={envConfigs.rimIntensity}
         color={envConfigs.rimColor}
       />
 
-      {/* Soft Contact Shadows on the floor under standing performers */}
       <StudioContactShadow opacity={envConfigs.shadowOpacity} scale={16.0} />
     </>
   );
 };
 
 /**
+ * Lightweight FPS / Frame-time sampler running inside Canvas without triggering React re-renders.
+ */
+const StagePerformanceMonitor: React.FC<{
+  metricsRef: React.MutableRefObject<{ fps: number; frameTimeMs: number }>;
+}> = ({ metricsRef }) => {
+  const accumTimeRef = useRef(0);
+  const frameCountRef = useRef(0);
+
+  useFrame((_, delta) => {
+    frameCountRef.current += 1;
+    accumTimeRef.current += Math.min(delta, 0.25);
+
+    if (accumTimeRef.current >= 0.5) {
+      const avgFrameSec = accumTimeRef.current / frameCountRef.current;
+      metricsRef.current = {
+        fps: Math.max(1, Math.round(1 / Math.max(0.001, avgFrameSec))),
+        frameTimeMs: Math.round(avgFrameSec * 10000) / 10,
+      };
+      accumTimeRef.current = 0;
+      frameCountRef.current = 0;
+    }
+  });
+
+  return null;
+};
+
+/**
  * Camera Auto-Framer for Free-Standing Curved Concert Formation
- * - Frames actual loaded character models only (no stage bounds)
- * - Preserves user's manual zoom and rotation (does NOT fight OrbitControls)
+ * - Respects manual orbit/zoom (stops overriding once user manipulates controls)
+ * - Re-frames on preset changes or explicit Reset Camera clicks
  */
 const DynamicCameraAutoFramer: React.FC<{
-  loadedCharacters: LoadedCharacterInstance[];
+  loadedCharactersCount: number;
+  calculateBounds: () => {
+    center: THREE.Vector3;
+    minY: number;
+    maxY: number;
+    height: number;
+    width: number;
+    depth: number;
+    radius: number;
+  };
   cameraPreset: ViewerCameraPreset;
+  presetResetNonce: number;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  userAdjustedCameraRef: React.MutableRefObject<boolean>;
   isMini?: boolean;
-  isSpecialSceneActive?: boolean;
 }> = ({
-  loadedCharacters,
+  loadedCharactersCount,
+  calculateBounds,
   cameraPreset,
+  presetResetNonce,
   controlsRef,
+  userAdjustedCameraRef,
   isMini = false,
-  isSpecialSceneActive = false,
 }) => {
   const { camera, size } = useThree();
   const lastFramedKeyRef = useRef<string>('');
 
-  const calculateBounds = useCallback(() => {
-    const collectiveBox = new THREE.Box3();
-    let visibleCount = 0;
-
-    loadedCharacters.forEach((char) => {
-      if (char.visible && char.scene) {
-        const box = char.boundingBox ? char.boundingBox.clone() : new THREE.Box3().setFromObject(char.scene);
-        box.translate(char.position);
-        collectiveBox.union(box);
-        visibleCount++;
-      }
-    });
-
-    if (visibleCount === 0) {
-      return {
-        center: new THREE.Vector3(0, 0.8, 0),
-        minY: 0,
-        maxY: 1.6,
-        height: 1.6,
-        width: 2.0,
-        depth: 1.0,
-        radius: 1.5,
-      };
-    }
-
-    const center = new THREE.Vector3();
-    collectiveBox.getCenter(center);
-    const sphere = new THREE.Sphere();
-    collectiveBox.getBoundingSphere(sphere);
-
-    const height = Math.max(0.6, collectiveBox.max.y - collectiveBox.min.y);
-    const width = Math.max(1.0, collectiveBox.max.x - collectiveBox.min.x);
-    const depth = Math.max(1.0, collectiveBox.max.z - collectiveBox.min.z);
-
-    return {
-      center,
-      minY: collectiveBox.min.y,
-      maxY: collectiveBox.max.y,
-      height,
-      width,
-      depth,
-      radius: Math.max(1.5, sphere.radius),
-    };
-  }, [loadedCharacters]);
-
-  // Adjust camera only when preset changes, character count changes, or presentation/scene mode changes
+  // Explicit preset selection or Reset Camera clears user-override flag
   useEffect(() => {
-    const frameKey = `${cameraPreset}-${loadedCharacters.length}-${isMini ? 'mini' : 'full'}-${
-      isSpecialSceneActive ? 'beach' : 'stage'
-    }`;
+    userAdjustedCameraRef.current = false;
+  }, [cameraPreset, presetResetNonce, userAdjustedCameraRef]);
+
+  useEffect(() => {
+    const frameKey = `${cameraPreset}-${loadedCharactersCount}-${isMini ? 'mini' : 'full'}-${presetResetNonce}`;
     if (lastFramedKeyRef.current === frameKey) {
       return;
     }
+
+    // If only performer count changed while user already orbited/zoomed, don't fight manual view
+    const prevParts = lastFramedKeyRef.current.split('-');
+    const onlyCountChanged =
+      prevParts.length === 4 &&
+      prevParts[0] === cameraPreset &&
+      prevParts[2] === (isMini ? 'mini' : 'full') &&
+      prevParts[3] === String(presetResetNonce);
+
+    if (onlyCountChanged && userAdjustedCameraRef.current) {
+      lastFramedKeyRef.current = frameKey;
+      return;
+    }
+
     lastFramedKeyRef.current = frameKey;
 
     const { center, minY, height, width, radius } = calculateBounds();
@@ -300,9 +308,8 @@ const DynamicCameraAutoFramer: React.FC<{
     const distX = (width * 1.3) / (2 * Math.tan(fovRad / 2) * aspect);
     const distSphere = radius * 2.0;
 
-    const baseDistance = Math.max(distY, distX, distSphere, isMini ? 4.2 : 4.6);
-    const distance = isSpecialSceneActive ? (isMini ? 4.2 : 4.6) : baseDistance;
-    const targetY = isSpecialSceneActive ? 0.85 : minY + height * (isMini ? 0.5 : 0.45);
+    const distance = Math.max(distY, distX, distSphere, isMini ? 4.2 : 4.6);
+    const targetY = minY + height * (isMini ? 0.5 : 0.45);
     const target = new THREE.Vector3(center.x, targetY, center.z);
 
     const controls = controlsRef.current;
@@ -341,15 +348,15 @@ const DynamicCameraAutoFramer: React.FC<{
       controls.update();
     }
   }, [
-    loadedCharacters.length,
+    loadedCharactersCount,
     cameraPreset,
+    presetResetNonce,
     camera,
     size.width,
     size.height,
     controlsRef,
     calculateBounds,
     isMini,
-    isSpecialSceneActive,
   ]);
 
   return null;
@@ -360,9 +367,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   className = '',
   presentationMode = 'full',
   isSuspended = false,
-  onReturnToEnsemble,
-  onExpand: _onExpand,
-  onCloseMini: _onCloseMini,
 }) => {
   const isMini = presentationMode === 'mini';
   const isDark = isDarkThemeFamily(theme || 'light');
@@ -372,6 +376,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [youtubeInput, setYoutubeInput] = useState('');
   const [cameraPreset, setCameraPreset] = useState<ViewerCameraPreset>('front');
+  const [presetResetNonce, setPresetResetNonce] = useState<number>(0);
   const [environment, setEnvironment] = useState<ViewerEnvironment>(
     isDark ? 'dark' : isSakura ? 'sakura' : 'studio'
   );
@@ -380,19 +385,22 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   const [isDebuggerOpen, setIsDebuggerOpen] = useState(false);
   const [runtimeErrors, setRuntimeErrors] = useState<{ timestamp: string; subsystem: string; message: string }[]>([]);
 
-  // Standalone Feature Tabs: 'viewer' (3D Viewer) vs 'analysis' (Instrument Analysis) vs 'environment' (Environment Preview)
+  // Stage Performance Orchestrator Settings (Mode A: Automatic vs Mode B: Manual)
+  const [performanceMode, setPerformanceMode] = useState<PerformanceMode>('automatic');
+  const [gracePeriodMs, setGracePeriodMs] = useState<number>(2500);
+  const [stagedPerformers, setStagedPerformers] = useState<StagedPerformerRecord[]>([]);
+  const [activeInstruments, setActiveInstruments] = useState<YamnetTargetInstrumentName[]>([]);
+  const [activeVocals, setActiveVocals] = useState<boolean>(false);
+  const [playbackTimeSec, setPlaybackTimeSec] = useState<number>(0);
+  const [stageNotice, setStageNotice] = useState<string | null>(null);
+
+  // Standalone Feature Tabs: 'viewer' vs 'analysis' vs 'environment' (ALL preserved)
   const [activeTab, setActiveTab] = useState<'viewer' | 'analysis' | 'environment'>('viewer');
 
-  // Independent Custom Scenery Configuration & Preview States
+  // Independent Custom Scenery Configuration (for explicit Environment Preview tab only)
   const [previewSceneryConfig, setPreviewSceneryConfig] = useState<SceneryConfig>(DEFAULT_SCENERY_CONFIG);
   const [appliedSceneryConfig, setAppliedSceneryConfig] = useState<SceneryConfig>(DEFAULT_SCENERY_CONFIG);
   const [isCustomSceneryActive, setIsCustomSceneryActive] = useState<boolean>(false);
-
-  // Independent Meadow Environment Layers (all default to OFF = false)
-  const [meadowLayers, setMeadowLayers] = useState<MeadowEnvironmentLayers>(DEFAULT_MEADOW_LAYERS);
-
-  // Special Hina Piano Environment master toggle (defaults to OFF = false)
-  const [specialEnvironmentEnabled, setSpecialEnvironmentEnabled] = useState<boolean>(false);
 
   const handleApplyEnvironment = useCallback(() => {
     setAppliedSceneryConfig({ ...previewSceneryConfig });
@@ -403,8 +411,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     setPreviewSceneryConfig(DEFAULT_SCENERY_CONFIG);
     setAppliedSceneryConfig(DEFAULT_SCENERY_CONFIG);
     setIsCustomSceneryActive(false);
-    setSpecialEnvironmentEnabled(false);
-    setMeadowLayers(DEFAULT_MEADOW_LAYERS);
   }, []);
 
   const handleEnterViewportPreview = useCallback(() => {
@@ -412,24 +418,16 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     setActiveTab('viewer');
   }, []);
 
-  const handleUpdateMeadowLayers = useCallback((updated: Partial<MeadowEnvironmentLayers>) => {
-    setMeadowLayers((prev) => ({ ...prev, ...updated }));
-  }, []);
-
-  const handleResetMeadowLayers = useCallback(() => {
-    setMeadowLayers(DEFAULT_MEADOW_LAYERS);
-  }, []);
-
-  const handleToggleSpecialEnvironment = useCallback(() => {
-    setSpecialEnvironmentEnabled((prev) => !prev);
-  }, []);
-
-  // WebGL Render loop guard: demand frameloop whenever view is hidden or suspended
   const isCanvasActive = !isSuspended && (activeTab === 'viewer' || isMini);
-
   const orbitControlsRef = useRef<OrbitControlsImpl>(null);
+  const userAdjustedCameraRef = useRef<boolean>(false);
+  const perfMetricsRef = useRef<{ fps: number; frameTimeMs: number }>({ fps: 60, frameTimeMs: 16.7 });
+  const [debuggerMetrics, setDebuggerMetrics] = useState<{ fps: number; frameTimeMs: number }>({
+    fps: 60,
+    frameTimeMs: 16.7,
+  });
 
-  // Multi-GLB Character Loader with Concert Animation Support (Starts empty with 0 characters)
+  // Character Loader
   const {
     loadedCharacters,
     selectedInstanceId,
@@ -440,51 +438,33 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     error,
     loadCharacter,
     playAnimation,
-    setAllCharactersAnimation,
     togglePlayPauseAnimation,
     removeCharacter,
     clearCharacters,
     updateCharacterTransform,
+    batchUpdateFormationTransforms,
   } = useCharacterLoader();
 
-  // Persistent YouTube Music Controller (Single Source of Truth)
+  // Persistent YouTube & Shared YAMNet Context
   const {
     videoId,
     videoTitle,
     isPlaying,
     isPaused,
     isStopped,
-    isConcertActive,
     stop,
     togglePlay,
     setVideo,
+    getCurrentTime,
+    yamnetVideoId,
+    yamnetSegments,
+    yamnetStatus,
+    yamnetError,
+    yamnetUsingWorker,
+    isStageYamnetCapturing,
+    startStageLiveYamnet,
+    stopStageLiveYamnet,
   } = useConcertMusic();
-
-  // Check if loaded character is Dress Hina and she is the only character placed in the 3D viewer
-  const isDressHinaAlone = useMemo(() => {
-    if (loadedCharacters.length !== 1) return false;
-    const char = loadedCharacters[0];
-    if (!char || !char.manifestEntry) return false;
-
-    const id = (char.manifestEntry.id || '').toLowerCase();
-    const filename = (char.manifestEntry.filename || '').toLowerCase();
-    const name = (char.manifestEntry.name || '').toLowerCase();
-
-    const isHina =
-      (id.includes('hina') && !id.includes('hinata')) ||
-      (filename.includes('hina') && !filename.includes('hinata')) ||
-      (name.includes('hina') && !name.includes('hinata'));
-    const isDress = id.includes('dress') || filename.includes('dress') || name.includes('dress');
-
-    return isHina && isDress;
-  }, [loadedCharacters]);
-
-  // Activate the meadow only when all conditions are satisfied:
-  // 1. Dress Hina is the only character placed in the 3D viewer.
-  // 2. The existing music player reports that music is actively playing.
-  // 3. The special environment manual switch is enabled.
-  // When any condition becomes false, disable the meadow and restore the normal viewer environment immediately.
-  const isSpecialSceneActive = isDressHinaAlone && isPlaying && specialEnvironmentEnabled;
 
   const activeCustomConfig = useMemo(() => {
     return isCustomSceneryActive ? previewSceneryConfig : appliedSceneryConfig;
@@ -495,138 +475,450 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
   }, [isCustomSceneryActive, activeCustomConfig]);
 
   const loadedCharactersRef = useRef(loadedCharacters);
-  useEffect(() => {
-    loadedCharactersRef.current = loadedCharacters;
-  }, [loadedCharacters]);
+  loadedCharactersRef.current = loadedCharacters;
 
-  // Synchronized animation state machine for performance & ensemble concert:
-  // 1. Dress Hina Piano Performance:
-  //    When Dress Hina is alone on stage and YouTube music is playing (isPlaying === true),
-  //    she performs her grand piano cut-in (Exs_Cutin) with her grand piano.
-  //    When music stops or pauses (isPlaying === false), she gracefully returns to Cafe_Idle.
-  // 2. Ensemble performers:
-  //    YouTube PLAYING (isPlaying === true)  -> Cafe_Reaction
-  //    YouTube PAUSED/STOPPED (isPlaying === false) -> Cafe_Idle
-  useEffect(() => {
-    const chars = loadedCharactersRef.current;
-    if (chars.length === 0) return;
+  const videoIdRef = useRef(videoId);
+  videoIdRef.current = videoId;
 
-    if (isDressHinaAlone) {
-      const hina = chars[0];
-      if (!hina) return;
-      const targetAnim = isPlaying ? 'Exs_Cutin' : 'Cafe_Idle';
-      if (hina.currentAnimationName !== targetAnim) {
-        const hasTarget = hina.animations.some((a) => a.name === targetAnim);
-        if (hasTarget) {
-          playAnimation(hina.id, targetAnim);
-        }
+  const performanceModeRef = useRef(performanceMode);
+  performanceModeRef.current = performanceMode;
+
+  const orchestratorStateRef = useRef<OrchestratorState>(
+    createInitialOrchestratorState('automatic', videoId)
+  );
+  const inFlightKeysRef = useRef<Set<string>>(new Set());
+  const manualClipOverrideRef = useRef<Record<string, string>>({});
+
+  // Only consume YAMNet segments belonging to the active videoId
+  const activeYamnetSegments = useMemo(() => {
+    return yamnetVideoId === videoId ? yamnetSegments : [];
+  }, [yamnetVideoId, videoId, yamnetSegments]);
+
+  // Clear manual clip overrides when music starts playing or when switching to Automatic mode
+  useEffect(() => {
+    if (performanceMode === 'automatic' || isPlaying) {
+      manualClipOverrideRef.current = {};
+    }
+  }, [performanceMode, isPlaying]);
+
+  // Auto-dismiss transient stage notice
+  useEffect(() => {
+    if (!stageNotice) return;
+    const t = setTimeout(() => setStageNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [stageNotice]);
+
+  // Poll FPS metrics at 2Hz only while Debugger panel is open
+  useEffect(() => {
+    if (!isDebuggerOpen) return;
+    setDebuggerMetrics(perfMetricsRef.current);
+    const id = setInterval(() => {
+      setDebuggerMetrics({ ...perfMetricsRef.current });
+    }, 500);
+    return () => clearInterval(id);
+  }, [isDebuggerOpen]);
+
+  // Helper to commit orchestrator UI snapshot cleanly without redundant React updates
+  const syncStagedSnapshot = useCallback((state: OrchestratorState) => {
+    const nextList = Object.values(state.performers);
+    setStagedPerformers((prev) => {
+      if (
+        prev.length === nextList.length &&
+        prev.every(
+          (p, i) =>
+            p.key === nextList[i].key &&
+            p.lifecycle === nextList[i].lifecycle &&
+            p.origin === nextList[i].origin &&
+            p.instanceId === nextList[i].instanceId &&
+            p.graceDeadlineMs === nextList[i].graceDeadlineMs
+        )
+      ) {
+        return prev;
       }
-      return;
+      return nextList;
+    });
+  }, []);
+
+  // Reconcile orchestrator step: spawn / remove / animate performers against live/cached YAMNet
+  const runOrchestratorTick = useCallback(() => {
+    const nowMs = performance.now();
+    const curTime = getCurrentTime();
+
+    const step = stepPerformanceOrchestrator({
+      state: orchestratorStateRef.current,
+      mode: performanceMode,
+      videoId,
+      currentTime: curTime,
+      isPlaying,
+      isPaused,
+      isStopped,
+      segments: activeYamnetSegments,
+      gracePeriodMs,
+      nowMs,
+    });
+
+    orchestratorStateRef.current = step.nextState;
+    syncStagedSnapshot(step.nextState);
+
+    setPlaybackTimeSec((prev) => (Math.abs(prev - curTime) >= 0.2 ? curTime : prev));
+    setActiveVocals((prev) => (prev === step.activeVocals ? prev : step.activeVocals));
+    setActiveInstruments((prev) => {
+      if (
+        prev.length === step.activeInstruments.length &&
+        prev.every((v, i) => v === step.activeInstruments[i])
+      ) {
+        return prev;
+      }
+      return step.activeInstruments;
+    });
+
+    // Execute removals cleanly
+    if (step.removeInstanceIds.length > 0) {
+      for (const instId of step.removeInstanceIds) {
+        delete manualClipOverrideRef.current[instId];
+        removeCharacter(instId);
+      }
     }
 
-    const targetAnim = isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle';
-    chars.forEach((char) => {
-      const isExs =
-        char.currentAnimationName === 'Exs_Cutin' ||
-        char.currentAnimationName === 'exs_cutin';
-      if (isExs || char.currentAnimationName === targetAnim) return;
+    // Execute idle <-> playing animation directives with clip fallback resolution
+    if (step.animationDirectives.length > 0) {
+      const currentChars = loadedCharactersRef.current;
+      for (const dir of step.animationDirectives) {
+        if (performanceMode === 'manual' && manualClipOverrideRef.current[dir.instanceId]) {
+          continue;
+        }
+        const char = currentChars.find((c) => c.id === dir.instanceId);
+        if (!char) continue;
 
-      const hasTarget = char.animations.some((a) => a.name === targetAnim);
-      if (hasTarget) {
-        playAnimation(char.id, targetAnim);
+        const mapping = dir.mapping || resolvePerformerMapping(char);
+        const preferred =
+          dir.targetState === 'playing'
+            ? mapping?.playingClip || 'Cafe_Reaction'
+            : mapping?.idleClip || 'Cafe_Idle';
+        const fallbacks =
+          dir.targetState === 'playing'
+            ? mapping?.playingFallbacks || ['Cafe_Reaction', 'Cafe_Idle']
+            : mapping?.idleFallbacks || ['Cafe_Idle', 'Formation_Idle', 'Normal_Idle', 'Idle'];
+
+        const resolvedClip = resolvePerformerClipName(char.availableAnimations, preferred, fallbacks);
+        if (resolvedClip && char.currentAnimationName !== resolvedClip) {
+          playAnimation(char.id, resolvedClip);
+        }
       }
-    });
-  }, [isPlaying, isDressHinaAlone, playAnimation]);
+    }
 
-  // Dynamically recalculate formation positions for all loaded characters whenever count changes
+    // Execute asynchronous GLB spawns cleanly with abort & failure isolation
+    if (step.loadRequests.length > 0) {
+      for (const req of step.loadRequests) {
+        if (inFlightKeysRef.current.has(req.key)) continue;
+        inFlightKeysRef.current.add(req.key);
+
+        const reqVideoId = videoId;
+        const manifestEntry = toCharacterManifestEntry(req.mapping);
+        const initialClip =
+          req.initialState === 'playing' ? req.mapping.playingClip : req.mapping.idleClip;
+
+        loadCharacter(manifestEntry, {
+          replace: false,
+          initialAnimation: initialClip,
+          abortCheck: () =>
+            videoIdRef.current !== reqVideoId ||
+            !orchestratorStateRef.current.performers[req.key],
+        })
+          .then((loadedInst) => {
+            inFlightKeysRef.current.delete(req.key);
+
+            // Double-check if removed/switched right as load finished
+            if (
+              videoIdRef.current !== reqVideoId ||
+              !orchestratorStateRef.current.performers[req.key]
+            ) {
+              removeCharacter(loadedInst.id);
+              return;
+            }
+
+            orchestratorStateRef.current = registerLoadedPerformer(orchestratorStateRef.current, {
+              instanceId: loadedInst.id,
+              characterId: req.mapping.characterId,
+              characterName: req.mapping.characterName,
+              filename: req.mapping.filename,
+              origin: performanceModeRef.current === 'automatic' ? 'auto' : 'manual',
+              nowMs: performance.now(),
+              isPlayingNow: req.initialState === 'playing',
+            });
+            syncStagedSnapshot(orchestratorStateRef.current);
+          })
+          .catch((err) => {
+            inFlightKeysRef.current.delete(req.key);
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!msg.includes('Load cancelled')) {
+              orchestratorStateRef.current = markPerformerLoadFailed(
+                orchestratorStateRef.current,
+                req.key,
+                msg,
+                performance.now()
+              );
+              syncStagedSnapshot(orchestratorStateRef.current);
+              setStageNotice(`Could not load ${req.mapping.characterName}: ${msg}`);
+              setRuntimeErrors((prev) => [
+                ...prev.slice(-19),
+                {
+                  timestamp: new Date().toLocaleTimeString(),
+                  subsystem: 'Performer_Spawn',
+                  message: `${req.mapping.characterName} (${req.mapping.instrumentName}): ${msg}`,
+                },
+              ]);
+            }
+          });
+      }
+    }
+  }, [
+    performanceMode,
+    videoId,
+    isPlaying,
+    isPaused,
+    isStopped,
+    activeYamnetSegments,
+    gracePeriodMs,
+    getCurrentTime,
+    loadCharacter,
+    playAnimation,
+    removeCharacter,
+    syncStagedSnapshot,
+  ]);
+
+  // Run immediately whenever key orchestration dependencies change
+  useEffect(() => {
+    runOrchestratorTick();
+  }, [runOrchestratorTick]);
+
+  // Poll at 10Hz whenever music is playing OR grace timers / loads are active
+  const hasPendingTimersOrLoads = stagedPerformers.some(
+    (p) => p.lifecycle === 'grace_waiting' || p.lifecycle === 'loading'
+  );
+  useEffect(() => {
+    if (!isPlaying && !hasPendingTimersOrLoads) return;
+    const intervalId = setInterval(() => {
+      runOrchestratorTick();
+    }, 100);
+    return () => clearInterval(intervalId);
+  }, [isPlaying, hasPendingTimersOrLoads, runOrchestratorTick]);
+
+  // Dynamically recalculate footprint-aware curved formation whenever loaded characters change
   useEffect(() => {
     const total = loadedCharacters.length;
     if (total === 0) return;
 
-    loadedCharacters.forEach((char, index) => {
-      const transform = getConcertSlotTransform(index, total);
-      if (
-        Math.abs(char.position.x - transform.position.x) > 0.01 ||
-        Math.abs(char.position.y - transform.position.y) > 0.01 ||
-        Math.abs(char.position.z - transform.position.z) > 0.01 ||
-        char.slotIndex !== index
-      ) {
-        updateCharacterTransform(char.id, {
-          position: transform.position,
-          rotation: transform.rotation,
-          scale: transform.scale,
-        });
-        char.slotIndex = index;
-        char.stageRow = transform.row;
-      }
-    });
-  }, [loadedCharacters.length, updateCharacterTransform]);
+    const footprintWidths = loadedCharacters.map(
+      (char) => resolvePerformerMapping(char)?.stageFootprintWidth ?? 1.45
+    );
 
-  // Handle adding or replacing characters from the 295 Blue Archive roster drawer
+    const updates = loadedCharacters.map((char, index) => {
+      const transform = getConcertSlotTransform(index, total, footprintWidths);
+      return {
+        id: char.id,
+        position: transform.position,
+        rotation: transform.rotation,
+        scale: transform.scale,
+        slotIndex: index,
+        stageRow: transform.row,
+      };
+    });
+
+    batchUpdateFormationTransforms(updates);
+  }, [loadedCharacters, batchUpdateFormationTransforms]);
+
+  // Safe User Actions synced cleanly with Orchestrator state
+  const handleRemoveCharacter = useCallback(
+    (instanceId: string) => {
+      delete manualClipOverrideRef.current[instanceId];
+      orchestratorStateRef.current = removePerformerByInstanceId(
+        orchestratorStateRef.current,
+        instanceId
+      );
+      syncStagedSnapshot(orchestratorStateRef.current);
+      removeCharacter(instanceId);
+    },
+    [removeCharacter, syncStagedSnapshot]
+  );
+
+  const handleClearCharacters = useCallback(() => {
+    manualClipOverrideRef.current = {};
+    orchestratorStateRef.current = {
+      ...orchestratorStateRef.current,
+      performers: {},
+    };
+    syncStagedSnapshot(orchestratorStateRef.current);
+    clearCharacters();
+  }, [clearCharacters, syncStagedSnapshot]);
+
+  const handleSelectAnimation = useCallback(
+    (instanceId: string, animationName: string) => {
+      if (performanceMode === 'manual') {
+        manualClipOverrideRef.current[instanceId] = animationName;
+      }
+      playAnimation(instanceId, animationName);
+    },
+    [performanceMode, playAnimation]
+  );
+
+  // Adding or replacing characters from the Roster drawer (with duplicate prevention in Add mode)
   const handleSelectFromDrawer = useCallback(
     async (character: CharacterManifestEntry, mode: 'replace' | 'add') => {
-      const isReplace = mode === 'replace' && loadedCharacters.length > 0 && selectedInstanceId !== null;
+      if (mode === 'add') {
+        const duplicate = findDuplicateStagedPerformer(orchestratorStateRef.current, character);
+        if (duplicate) {
+          setStageNotice(
+            `${character.name} is already on stage (${duplicate.characterName}${
+              duplicate.instrumentName ? ` • ${duplicate.instrumentName}` : ''
+            }). Duplicates are prevented.`
+          );
+          return;
+        }
+      }
+
+      const isReplace = mode === 'replace' && loadedCharacters.length > 0;
+      const targetInstanceId =
+        isReplace ? selectedInstanceId || loadedCharacters[0]?.id : null;
       let targetSlot = loadedCharacters.length;
 
-      if (isReplace) {
-        const activeChar = loadedCharacters.find((c) => c.id === selectedInstanceId);
+      if (isReplace && targetInstanceId) {
+        const activeChar = loadedCharacters.find((c) => c.id === targetInstanceId);
         targetSlot = activeChar?.slotIndex ?? 0;
+        orchestratorStateRef.current = removePerformerByInstanceId(
+          orchestratorStateRef.current,
+          targetInstanceId
+        );
       }
 
       const projectedTotal = isReplace ? loadedCharacters.length : loadedCharacters.length + 1;
       const transform = getConcertSlotTransform(targetSlot, projectedTotal);
+      const mapping = resolvePerformerMapping(character);
+
+      const initialClip = mapping
+        ? isPlaying && activeInstruments.includes(mapping.instrumentName)
+          ? mapping.playingClip
+          : mapping.idleClip
+        : isPlaying
+        ? 'Cafe_Reaction'
+        : 'Cafe_Idle';
 
       try {
-        await loadCharacter(character, {
+        const loadedInst = await loadCharacter(character, {
           replace: isReplace,
           slotIndex: targetSlot,
           stageRow: transform.row,
           position: transform.position,
           rotation: transform.rotation,
           scale: transform.scale,
-          initialAnimation: isPlaying ? 'Cafe_Reaction' : 'Cafe_Idle',
+          initialAnimation: initialClip,
         });
+
+        orchestratorStateRef.current = registerLoadedPerformer(orchestratorStateRef.current, {
+          instanceId: loadedInst.id,
+          characterId: character.id,
+          characterName: character.name,
+          filename: character.filename,
+          origin: performanceMode === 'automatic' ? 'auto' : 'manual',
+          nowMs: performance.now(),
+          isPlayingNow: Boolean(
+            isPlaying && mapping && activeInstruments.includes(mapping.instrumentName)
+          ),
+        });
+        syncStagedSnapshot(orchestratorStateRef.current);
       } catch (err) {
-        console.error(`[Concert] Failed to load character ${character.name}:`, err);
+        const msg = err instanceof Error ? err.message : String(err);
+        setStageNotice(`Failed to load ${character.name}: ${msg}`);
       }
     },
-    [loadedCharacters, selectedInstanceId, isPlaying, loadCharacter]
+    [
+      loadedCharacters,
+      selectedInstanceId,
+      isPlaying,
+      activeInstruments,
+      performanceMode,
+      loadCharacter,
+      syncStagedSnapshot,
+    ]
   );
 
-  // Handle loading YouTube URL/ID from direct input
   const handleLoadYouTube = useCallback(() => {
     const trimmed = youtubeInput.trim();
     if (!trimmed) return;
     const extracted = extractYouTubeVideoId(trimmed) || trimmed;
-    setVideo(extracted, undefined, false); // Load/cue without auto-playing
+    setVideo(extracted, undefined, false);
     setYoutubeInput('');
   }, [youtubeInput, setVideo]);
 
-  // Reset Camera Framing
   const handleResetCamera = useCallback(() => {
     setCameraPreset('front');
+    setPresetResetNonce((n) => n + 1);
   }, []);
 
-  // Selected character details for status bar
+  const handleSelectCameraPreset = useCallback((preset: ViewerCameraPreset) => {
+    setCameraPreset(preset);
+    setPresetResetNonce((n) => n + 1);
+  }, []);
+
+  const calculateStageBounds = useCallback(() => {
+    const collectiveBox = new THREE.Box3();
+    let visibleCount = 0;
+
+    loadedCharactersRef.current.forEach((char) => {
+      if (char.visible && char.scene) {
+        const box = char.boundingBox ? char.boundingBox.clone() : new THREE.Box3().setFromObject(char.scene);
+        box.translate(char.position);
+        collectiveBox.union(box);
+        visibleCount++;
+      }
+    });
+
+    if (visibleCount === 0) {
+      return {
+        center: new THREE.Vector3(0, 0.8, 0),
+        minY: 0,
+        maxY: 1.6,
+        height: 1.6,
+        width: 2.0,
+        depth: 1.0,
+        radius: 1.5,
+      };
+    }
+
+    const center = new THREE.Vector3();
+    collectiveBox.getCenter(center);
+    const sphere = new THREE.Sphere();
+    collectiveBox.getBoundingSphere(sphere);
+
+    return {
+      center,
+      minY: collectiveBox.min.y,
+      maxY: collectiveBox.max.y,
+      height: Math.max(0.6, collectiveBox.max.y - collectiveBox.min.y),
+      width: Math.max(1.0, collectiveBox.max.x - collectiveBox.min.x),
+      depth: Math.max(1.0, collectiveBox.max.z - collectiveBox.min.z),
+      radius: Math.max(1.5, sphere.radius),
+    };
+  }, []);
+
+  const highlightedInstanceIds = useMemo(() => {
+    const ids = new Set<string>();
+    stagedPerformers.forEach((p) => {
+      if (p.lifecycle === 'playing' && p.instanceId) {
+        ids.add(p.instanceId);
+      }
+    });
+    return ids;
+  }, [stagedPerformers]);
+
   const selectedCharacter = useMemo(() => {
     return loadedCharacters.find((c) => c.id === selectedInstanceId) || loadedCharacters[0];
   }, [loadedCharacters, selectedInstanceId]);
 
-  // Quick trigger to load/stage Hina (Dress with Piano)
-  const handleEquipHinaWithPiano = useCallback(async () => {
-    const hinaWithPiano =
-      getCharacterById('hina-dress-with-piano-296') ||
-      BLUE_ARCHIVE_CHARACTERS.find((c) => c.filename === 'Hina_Dress_with_Piano.glb');
-    if (hinaWithPiano) {
-      await handleSelectFromDrawer(hinaWithPiano, 'replace');
-    }
-  }, [handleSelectFromDrawer]);
-
-  // Log runtime loader errors for debugger diagnostics
   useEffect(() => {
     if (error) {
       setRuntimeErrors((prev) => [
-        ...prev,
+        ...prev.slice(-19),
         {
           timestamp: new Date().toLocaleTimeString(),
           subsystem: 'GLTF_Loader',
@@ -636,7 +928,6 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     }
   }, [error]);
 
-  // ESC key shortcut closes open debugger panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isDebuggerOpen) {
@@ -647,59 +938,47 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDebuggerOpen]);
 
-  // Compute live scene debugger diagnostics
   const debuggerData: SceneDebuggerData = useMemo(() => {
-    const bgMode = isSpecialSceneActive
-      ? 'PERFORMANCE_MEADOW'
-      : environment === 'studio'
-      ? 'STUDIO_WHITE'
-      : environment.toUpperCase();
-
-    const activeBgColor = isSpecialSceneActive
-      ? '#050814'
-      : environment === 'studio' || environment === 'clean'
-      ? '#FFFFFF'
-      : isDark
-      ? '#14121C'
-      : isSakura
-      ? '#FDF6F8'
-      : environment === 'sunset'
-      ? '#2A1D2D'
-      : '#FFFFFF';
-
-    const activeSceneName = isSpecialSceneActive
-      ? 'Night Meadow Performance'
-      : environment === 'studio'
-      ? 'Clean Studio Stage'
-      : environment === 'dark'
-      ? 'Dark Stage'
-      : environment === 'sakura'
-      ? 'Sakura Stage'
-      : environment === 'sunset'
-      ? 'Sunset Stage'
-      : 'Clean Stage';
-
-    const selectionReason = isSpecialSceneActive
-      ? 'Dress Hina is the sole performer and YouTube concert music is actively playing in the viewer.'
-      : isDressHinaAlone && !isPlaying
-      ? 'Dress Hina is staged alone. Start music playback or YouTube concert to activate Night Meadow.'
-      : loadedCharacters.length > 1
-      ? `Standard Ensemble Stage (${loadedCharacters.length} performers on stage). Special solo performance disabled.`
-      : loadedCharacters.length === 0
-      ? 'No performers loaded on stage.'
-      : `Standard Character Stage with active environment preset: ${environment}`;
+    const bgMode =
+      environment === 'studio' ? 'STUDIO_WHITE' : environment.toUpperCase();
+    const activeBgColor =
+      environment === 'studio' || environment === 'clean'
+        ? '#FFFFFF'
+        : isDark
+        ? '#14121C'
+        : isSakura
+        ? '#FDF6F8'
+        : environment === 'sunset'
+        ? '#2A1D2D'
+        : '#FFFFFF';
+    const activeSceneName =
+      environment === 'studio'
+        ? 'Clean Studio Backdrop'
+        : environment === 'dark'
+        ? 'Dark Backdrop'
+        : environment === 'sakura'
+        ? 'Sakura Backdrop'
+        : environment === 'sunset'
+        ? 'Sunset Backdrop'
+        : 'Clean Backdrop';
 
     return {
       environment,
-      isSpecialSceneActive,
-      isDressHinaAlone,
       activeSceneName,
       sceneStatus: loading ? 'LOADING' : error ? 'ERROR' : 'READY',
-      sceneTransition: loading ? 'LOADING_ASSETS' : isSpecialSceneActive ? 'NIGHT_MEADOW_ACTIVE' : 'IDLE',
       backgroundMode: bgMode,
       activeBackgroundColor: activeBgColor,
-      selectionReason,
-      fallbackActive: false,
+      performanceMode,
+      gracePeriodMs,
+      yamnetStatus,
+      yamnetUsingWorker,
+      yamnetSegmentsCount: activeYamnetSegments.length,
+      activeInstruments,
+      activeVocals,
+      stagedPerformers,
+      fps: debuggerMetrics.fps,
+      frameTimeMs: debuggerMetrics.frameTimeMs,
+      cacheStats: getLoaderCacheStats(),
       loadedCharacters,
       selectedInstanceId,
       loading,
@@ -710,7 +989,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       isPlaying,
       isPaused,
       isStopped,
-      isConcertActive,
+      playbackTimeSec,
       cameraPreset,
       showGrid,
       showWireframe,
@@ -719,10 +998,19 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     };
   }, [
     environment,
-    isSpecialSceneActive,
-    isDressHinaAlone,
+    isDark,
+    isSakura,
     loading,
     error,
+    performanceMode,
+    gracePeriodMs,
+    yamnetStatus,
+    yamnetUsingWorker,
+    activeYamnetSegments.length,
+    activeInstruments,
+    activeVocals,
+    stagedPerformers,
+    debuggerMetrics,
     loadedCharacters,
     selectedInstanceId,
     loadingProgress,
@@ -732,38 +1020,33 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
     isPlaying,
     isPaused,
     isStopped,
-    isConcertActive,
+    playbackTimeSec,
     cameraPreset,
     showGrid,
     showWireframe,
     runtimeErrors,
-    isDark,
-    isSakura,
   ]);
 
-  // Matching container background to current Anime Tracker theme family (or night meadow if special scene active)
-  // Ensures crisp White Background Consistency (#FFFFFF) across Studio and clean viewer modes
-  const containerBg = isSpecialSceneActive
-    ? 'bg-[#050814] text-[#F4F2F7]'
-    : environment === 'studio' || environment === 'clean'
-    ? 'bg-white text-[#25242A]'
-    : environment === 'dark'
-    ? 'bg-[#14121C] text-[#F4F2F7]'
-    : environment === 'sakura'
-    ? 'bg-[#FDF6F8] text-[#25242A]'
-    : environment === 'sunset'
-    ? 'bg-[#2A1D2D] text-[#F4F2F7]'
-    : isDark
-    ? 'bg-[#14121C] text-[#F4F2F7]'
-    : 'bg-white text-[#25242A]';
+  const containerBg =
+    environment === 'studio' || environment === 'clean'
+      ? 'bg-white text-[#25242A]'
+      : environment === 'dark'
+      ? 'bg-[#14121C] text-[#F4F2F7]'
+      : environment === 'sakura'
+      ? 'bg-[#FDF6F8] text-[#25242A]'
+      : environment === 'sunset'
+      ? 'bg-[#2A1D2D] text-[#F4F2F7]'
+      : isDark
+      ? 'bg-[#14121C] text-[#F4F2F7]'
+      : 'bg-white text-[#25242A]';
+
+  const nowMs = performance.now();
 
   return (
     <div
       className={`relative w-full h-full min-h-0 flex-1 overflow-hidden flex flex-col select-none ${containerBg} ${className}`}
     >
-      {/* =========================================================================
-          TOP NAVIGATION TABS: 3D VIEWER vs INSTRUMENT ANALYSIS
-          ========================================================================= */}
+      {/* Top Navigation Tabs (Preserved intact) */}
       {!isMini && (
         <div className="shrink-0 z-30 px-3 sm:px-4 py-2 bg-white/95 dark:bg-[#161422]/95 backdrop-blur-md border-b border-black/10 dark:border-white/10 flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5">
@@ -810,7 +1093,8 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
           <div className="hidden sm:flex items-center gap-2 text-xs text-[#77747D] dark:text-[#9E9AA6]">
             {activeTab === 'viewer' ? (
               <span className="font-semibold">
-                {loadedCharacters.length} Performer{loadedCharacters.length !== 1 ? 's' : ''} on Stage
+                {loadedCharacters.length} Performer{loadedCharacters.length !== 1 ? 's' : ''} •{' '}
+                {performanceMode === 'automatic' ? 'Auto Sync' : 'Manual Stage'}
               </span>
             ) : activeTab === 'analysis' ? (
               <span className="font-semibold text-emerald-600 dark:text-emerald-400">
@@ -826,9 +1110,7 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
       )}
 
       {/* Standalone Instrument Analysis Tab Panel */}
-      {activeTab === 'analysis' && !isMini && (
-        <InstrumentAnalysisView theme={theme} />
-      )}
+      {activeTab === 'analysis' && !isMini && <InstrumentAnalysisView theme={theme} />}
 
       {/* Standalone Environment Preview Tab Panel */}
       {activeTab === 'environment' && !isMini && (
@@ -844,448 +1126,576 @@ export const Character3DViewer: React.FC<Character3DViewerProps> = ({
         />
       )}
 
-      {/* 3D Viewer Stage Container (Kept in DOM so WebGL canvas & performers persist seamlessly) */}
+      {/* 3D Viewer Stage Container */}
       <div
         className={`flex-1 min-h-0 w-full h-full flex-col overflow-hidden relative ${
           activeTab === 'viewer' || isMini ? 'flex' : 'hidden'
         }`}
       >
-        {/* =========================================================================
-            FULL PRESENTATION MODE: TOP YOUTUBE INPUT & CONTROL BAR
-            ========================================================================= */}
+        {/* Top YouTube, Transport & Performance Mode Control Bar */}
         {!isMini && (
-          <div className="shrink-0 z-20 px-3 sm:px-4 py-2.5 bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-2.5">
-          {/* Direct YouTube Input Bar */}
-          <div className="flex flex-1 items-center gap-2 min-w-[260px] max-w-xl">
-            <div className="relative flex-1">
-              <input
-                type="text"
-                value={youtubeInput}
-                onChange={(e) => setYoutubeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleLoadYouTube();
-                }}
-                placeholder="Paste YouTube URL or video ID (e.g. dUXIymB78YQ)..."
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#7567C7] focus:outline-none transition-all placeholder:text-[#9E9AA6]"
-              />
-              <Youtube className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500" />
-            </div>
-            <button
-              type="button"
-              onClick={handleLoadYouTube}
-              disabled={!youtubeInput.trim()}
-              className="px-3.5 py-1.5 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] disabled:opacity-40 text-white text-xs font-bold transition-all cursor-pointer shrink-0"
-            >
-              Load
-            </button>
-          </div>
-
-          {/* Transport Controls & Status */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Special Scene Active Indicator Badge */}
-            {isSpecialSceneActive && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-emerald-950/70 via-teal-950/70 to-slate-900/70 border border-emerald-400/40 text-xs font-bold text-emerald-100 shadow-md">
-                <Sparkles className="h-4 w-4 text-emerald-300" />
-                <span className="hidden sm:inline">Night Meadow Performance</span>
+          <div className="shrink-0 z-20 px-3 sm:px-4 py-2 bg-white/90 dark:bg-[#161422]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-2">
+            {/* YouTube Input Bar */}
+            <div className="flex flex-1 items-center gap-2 min-w-[230px] max-w-md">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={youtubeInput}
+                  onChange={(e) => setYoutubeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleLoadYouTube();
+                  }}
+                  placeholder="Paste YouTube URL or video ID..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#7567C7] focus:outline-none transition-all placeholder:text-[#9E9AA6]"
+                />
+                <Youtube className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500" />
               </div>
-            )}
-
-            {/* Quick Trigger Button when J3cg4tFLm7A is loaded but Hina with Piano is not on stage */}
-            {videoId === 'J3cg4tFLm7A' && !isSpecialSceneActive && (
               <button
                 type="button"
-                onClick={handleEquipHinaWithPiano}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer ring-2 ring-purple-400/30"
-                title="Stage Hina (Dress with Piano) to activate the Night Meadow Piano Performance"
+                onClick={handleLoadYouTube}
+                disabled={!youtubeInput.trim()}
+                className="px-3 py-1.5 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] disabled:opacity-40 text-white text-xs font-bold transition-all cursor-pointer shrink-0"
               >
-                <Sparkles className="h-3.5 w-3.5 text-yellow-300" />
-                <span>Stage Hina (Dress with Piano)</span>
+                Load
               </button>
-            )}
-
-            {/* Current Track Badge */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-xs">
-              <Disc3 className={`h-3.5 w-3.5 ${isPlaying ? 'text-emerald-500 animate-spin' : 'text-[#7567C7]'}`} />
-              <span className="font-semibold text-xs truncate max-w-[170px] text-[#25242A] dark:text-[#F4F2F7]">
-                {videoTitle || (videoId ? `ID: ${videoId}` : 'No track loaded')}
-              </span>
             </div>
 
-            {/* Play / Pause Toggle */}
-            <button
-              type="button"
-              onClick={togglePlay}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm ${
-                isPlaying
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/40 animate-pulse'
-                  : 'bg-[#7567C7] hover:bg-[#6556B8] text-white'
-              }`}
-              title={isPlaying ? 'Pause music (performers switch to Cafe_Idle)' : 'Play music (performers switch to Cafe_Reaction)'}
-            >
-              {isPlaying ? (
-                <>
-                  <Pause className="h-3.5 w-3.5 fill-white" />
-                  <span>PAUSE</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-3.5 w-3.5 fill-white" />
-                  <span>PLAY</span>
-                </>
-              )}
-            </button>
-
-            {/* Stop Button */}
-            <button
-              type="button"
-              onClick={stop}
-              className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-red-500 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
-              title="Stop YouTube Playback"
-            >
-              <Square className="h-3.5 w-3.5 fill-current" />
-              <span className="hidden sm:inline">STOP</span>
-            </button>
-
-            {/* Roster Button */}
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-black/5 dark:border-white/5"
-            >
-              <Users className="h-3.5 w-3.5 text-[#7567C7]" />
-              <span>Roster ({loadedCharacters.length})</span>
-            </button>
-
-            {/* Clear All Button */}
-            {loadedCharacters.length > 0 && (
-              <button
-                type="button"
-                onClick={clearCharacters}
-                className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-red-500/10 text-[#77747D] hover:text-red-500 text-xs transition-colors cursor-pointer border border-black/5 dark:border-white/5"
-                title="Clear all performers from stage"
+            {/* Staging Mode, Live YAMNet Sync & Transport Controls */}
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {/* Auto / Manual Mode Switcher */}
+              <div
+                className="flex items-center p-0.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10"
+                title="Mode A: Automatically add/remove characters from YAMNet. Mode B: Persistent manual roster animated by YAMNet."
               >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          FULL PRESENTATION MODE: PERFORMER SLOT STRIP (Derived from loadedCharacters)
-          ========================================================================= */}
-      {!isMini && (
-        <div className="shrink-0 z-10 px-3 py-1.5 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between overflow-x-auto text-[11px] font-semibold gap-2 scrollbar-none">
-          <div className="flex items-center gap-1.5 shrink-0 text-[#77747D] dark:text-[#A4A1AA]">
-            <span className="text-[10px] uppercase font-bold tracking-wider">
-              Performers ({loadedCharacters.length}):
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {loadedCharacters.map((char, slotIdx) => {
-              const isSelected = selectedCharacter?.id === char.id;
-              const isElevated = char.stageRow === 'back';
-
-              return (
-                <div
-                  key={char.id}
-                  className={`group pl-2 pr-1.5 py-0.5 rounded-lg transition-all flex items-center gap-1.5 shrink-0 border ${
-                    isSelected
-                      ? 'bg-[#7567C7] text-white border-[#7567C7] shadow-xs'
-                      : isElevated
-                      ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20'
-                      : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/5 dark:border-white/5'
+                <button
+                  type="button"
+                  onClick={() => setPerformanceMode('automatic')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    performanceMode === 'automatic'
+                      ? 'bg-[#7567C7] text-white shadow-xs'
+                      : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedInstanceId(char.id);
-                    }}
-                    className="flex items-center gap-1 cursor-pointer text-left"
-                    title={`Slot ${slotIdx + 1}: ${char.manifestEntry.name} (${
-                      isElevated ? 'Back Row Elevated' : 'Front Row'
-                    })`}
-                  >
-                    <span className="font-mono text-[9.5px] opacity-75">[{slotIdx + 1}]</span>
-                    <span className="truncate max-w-[80px] font-bold">{char.manifestEntry.name}</span>
-                    {isElevated && <span className="text-[8.5px] opacity-75">▲</span>}
-                  </button>
+                  <Sparkles className="h-3 w-3" />
+                  <span>Auto Stage</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPerformanceMode('manual')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    performanceMode === 'manual'
+                      ? 'bg-[#7567C7] text-white shadow-xs'
+                      : 'text-[#77747D] dark:text-[#A4A1AA] hover:text-[#25242A] dark:hover:text-white'
+                  }`}
+                >
+                  <Hand className="h-3 w-3" />
+                  <span>Manual Stage</span>
+                </button>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => removeCharacter(char.id)}
-                    className="p-0.5 rounded hover:bg-black/20 dark:hover:bg-white/20 text-current transition-colors cursor-pointer"
-                    title={`Remove ${char.manifestEntry.name} from stage`}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+              {/* Grace Period Selector (Mode A only) */}
+              {performanceMode === 'automatic' && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-[10.5px]">
+                  <span className="text-[#77747D] dark:text-[#9E9AA6] font-semibold">Grace:</span>
+                  {([0, 2500, 5000] as const).map((ms) => (
+                    <button
+                      key={ms}
+                      type="button"
+                      onClick={() => setGracePeriodMs(ms)}
+                      className={`px-1.5 py-0.5 rounded font-mono font-bold transition-colors cursor-pointer ${
+                        gracePeriodMs === ms
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-[#77747D] hover:bg-black/10 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      {ms === 0 ? '0s' : `${ms / 1000}s`}
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
+              )}
 
-            {/* Quick Add Performer Trigger */}
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(true)}
-              className="px-2 py-0.5 rounded-lg border border-dashed border-[#7567C7]/40 text-[#7567C7] dark:text-[#A898F8] hover:bg-[#7567C7]/10 flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer shrink-0"
-              title="Add character from roster"
-            >
-              <Plus className="h-3 w-3" />
-              <span>Add Performer</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          3D CANVAS VIEWPORT (Free-Standing Curved Formation & Shadows)
-          ========================================================================= */}
-      <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden">
-        <Canvas
-          shadows
-          frameloop={isCanvasActive ? 'always' : 'demand'}
-          camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 150 }}
-          style={{ width: '100%', height: '100%', display: 'block' }}
-        >
-          <Suspense fallback={null}>
-            {/* White Background Consistency for standard viewer modes when no custom sky/environment */}
-            {!isSpecialSceneActive && !isCustomEnvActive && (
-              <color
-                attach="background"
-                args={[
-                  environment === 'studio' || environment === 'clean'
-                    ? '#FFFFFF'
-                    : isDark
-                    ? '#14121C'
-                    : isSakura
-                    ? '#FDF6F8'
-                    : environment === 'sunset'
-                    ? '#2A1D2D'
-                    : '#FFFFFF',
-                ]}
-              />
-            )}
-
-            {isCustomEnvActive ? (
-              <CompositeEnvironment
-                config={activeCustomConfig}
-                isPlaying={isPlaying}
-                characterPosition={loadedCharacters[0]?.position}
-              />
-            ) : isSpecialSceneActive ? (
-              <NightBeachScene
-                characterPosition={loadedCharacters[0]?.position}
-                character={loadedCharacters[0]}
-                isPlaying={isPlaying}
-                isMini={isMini}
-                layers={meadowLayers}
-              />
-            ) : (
-              <ViewerEnvironment3D environment={environment} />
-            )}
-
-            {/* Interactive OrbitControls: Full 360° horizontal and vertical inspection, zoom & pan */}
-            <OrbitControls
-              ref={orbitControlsRef}
-              enableDamping
-              dampingFactor={0.08}
-              minDistance={0.8}
-              maxDistance={35.0}
-              minPolarAngle={0.05}
-              maxPolarAngle={Math.PI - 0.05}
-              enablePan={true}
-              target={[0, 0.85, 0]}
-              enabled={true}
-            />
-
-            {/* Render all loaded character instances in curved formation */}
-            {loadedCharacters.map((char) => (
-              <CharacterInstanceMesh
-                key={char.id}
-                instance={char}
-                isSelected={
-                  selectedInstanceId === char.id &&
-                  loadedCharacters.length > 1 &&
-                  !isMini &&
-                  !isSpecialSceneActive
+              {/* Live YAMNet Audio Sync Trigger */}
+              <button
+                type="button"
+                onClick={() =>
+                  isStageYamnetCapturing ? stopStageLiveYamnet() : startStageLiveYamnet()
                 }
-                wireframe={showWireframe}
-              />
-            ))}
+                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  isStageYamnetCapturing
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-xs'
+                    : activeYamnetSegments.length > 0
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                    : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/10 dark:border-white/10 hover:bg-[#7567C7] hover:text-white'
+                }`}
+                title="Capture tab audio directly from this stage using local YAMNet"
+              >
+                <Radio className={`h-3.5 w-3.5 ${isStageYamnetCapturing ? 'animate-pulse' : ''}`} />
+                <span>
+                  {isStageYamnetCapturing
+                    ? 'Live YAMNet ON'
+                    : activeYamnetSegments.length > 0
+                    ? 'Re-Capture Live'
+                    : 'Start Live YAMNet'}
+                </span>
+              </button>
 
-            {/* Ground Grid (Full mode and regular stage only) */}
-            {showGrid && !isMini && !isSpecialSceneActive && (
-              <gridHelper
-                args={[16, 32, '#7567C7', '#9A8BF0']}
-                position={[0, 0, 0]}
-              />
-            )}
-
-            {/* Dynamic Camera Auto-Framer */}
-            <DynamicCameraAutoFramer
-              loadedCharacters={loadedCharacters}
-              cameraPreset={cameraPreset}
-              controlsRef={orbitControlsRef}
-              isMini={isMini}
-              isSpecialSceneActive={isSpecialSceneActive}
-            />
-          </Suspense>
-        </Canvas>
-
-        {/* Floating Custom Scenery Preview Overlay Chip */}
-        {isCustomEnvActive && activeTab === 'viewer' && !isMini && (
-          <div className="absolute top-4 right-4 z-20 px-3.5 py-2 rounded-2xl bg-white/95 dark:bg-[#1A1828]/95 backdrop-blur-xl border border-purple-500/30 shadow-xl flex items-center gap-2.5 text-xs animate-in fade-in">
-            <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-bold">
-              <Compass className="h-3.5 w-3.5 text-purple-500" />
-              <span>Environment Preview</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/15 font-mono">
-                {Object.values(activeCustomConfig).filter(Boolean).length} Active
-              </span>
-            </div>
-            <div className="h-3.5 w-px bg-black/10 dark:bg-white/10" />
-            <button
-              type="button"
-              onClick={handleApplyEnvironment}
-              className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-              title="Apply previewed environment to stage"
-            >
-              Apply
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('environment')}
-              className="text-[11px] font-bold text-[#7567C7] dark:text-[#A898F8] hover:underline cursor-pointer"
-            >
-              Customize
-            </button>
-            <button
-              type="button"
-              onClick={handleResetEnvironment}
-              className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-red-500 transition-colors cursor-pointer"
-              title="Exit preview and restore stage"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* =======================================================================
-            EMPTY STAGE STATE OVERLAY (When 0 characters are loaded)
-            ======================================================================= */}
-        {loadedCharacters.length === 0 && !loading && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
-            <div className="px-5 py-4 rounded-3xl bg-white/80 dark:bg-[#14121C]/80 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-xl flex flex-col items-center gap-3 text-center max-w-sm pointer-events-auto">
-              <div className="w-10 h-10 rounded-2xl bg-[#7567C7]/15 flex items-center justify-center text-[#7567C7]">
-                <Users className="h-5 w-5" />
+              {/* Current Track Badge */}
+              <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-xs">
+                <Disc3 className={`h-3.5 w-3.5 ${isPlaying ? 'text-emerald-500 animate-spin' : 'text-[#7567C7]'}`} />
+                <span className="font-semibold text-xs truncate max-w-[150px] text-[#25242A] dark:text-[#F4F2F7]">
+                  {videoTitle || (videoId ? `ID: ${videoId}` : 'No track')}
+                </span>
               </div>
-              <div className="space-y-1">
-                <p className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7]">
-                  No characters loaded
-                </p>
-                <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
-                  Open the roster to add Blue Archive performers to the concert stage.
-                </p>
-              </div>
+
+              {/* Play / Pause Toggle */}
+              <button
+                type="button"
+                onClick={togglePlay}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-sm ${
+                  isPlaying
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/40'
+                    : 'bg-[#7567C7] hover:bg-[#6556B8] text-white'
+                }`}
+              >
+                {isPlaying ? (
+                  <>
+                    <Pause className="h-3.5 w-3.5 fill-white" />
+                    <span>PAUSE</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3.5 w-3.5 fill-white" />
+                    <span>PLAY</span>
+                  </>
+                )}
+              </button>
+
+              {/* Stop Button */}
+              <button
+                type="button"
+                onClick={stop}
+                className="px-2.5 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-red-500 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border border-black/5 dark:border-white/5"
+                title="Stop YouTube Playback"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+
+              {/* Roster Button */}
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}
-                className="px-4 py-2 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[#25242A] dark:text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-black/5 dark:border-white/5"
               >
-                <FolderOpen className="h-3.5 w-3.5" />
-                <span>Open Character Roster</span>
+                <Users className="h-3.5 w-3.5 text-[#7567C7]" />
+                <span>Roster ({loadedCharacters.length})</span>
+              </button>
+
+              {/* Clear All Button */}
+              {loadedCharacters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearCharacters}
+                  className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-red-500/10 text-[#77747D] hover:text-red-500 text-xs transition-colors cursor-pointer border border-black/5 dark:border-white/5"
+                  title="Clear all performers from stage"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Performer & Active YAMNet Detection Strip */}
+        {!isMini && (
+          <div className="shrink-0 z-10 px-3 py-1.5 bg-black/5 dark:bg-white/5 border-b border-black/5 dark:border-white/5 flex items-center justify-between overflow-x-auto text-[11px] font-semibold gap-3 scrollbar-none">
+            {/* Live Audio Sync Status Badges (Instruments + Independent Vocals) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-[#77747D] dark:text-[#A4A1AA]">
+                Stage ({loadedCharacters.length}):
+              </span>
+
+              {activeYamnetSegments.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] border border-emerald-500/25">
+                  {activeYamnetSegments.length} segs
+                </span>
+              )}
+
+              {activeVocals && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-300 border border-rose-500/30 text-[10px] font-bold"
+                  title="Vocals is tracked independently and never spawns a vocalist character"
+                >
+                  <Mic className="h-3 w-3" />
+                  <span>Vocals Active (Independent)</span>
+                </span>
+              )}
+
+              {yamnetError && (
+                <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-300 text-[10px] max-w-[200px] truncate">
+                  {yamnetError}
+                </span>
+              )}
+            </div>
+
+            {/* Active Staged Performers with Lifecycle State */}
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {stagedPerformers
+                .filter((p) => p.lifecycle === 'loading' || p.lifecycle === 'error')
+                .map((pending) => (
+                  <div
+                    key={pending.key}
+                    className={`px-2 py-0.5 rounded-lg flex items-center gap-1.5 shrink-0 border text-[10.5px] ${
+                      pending.lifecycle === 'error'
+                        ? 'bg-red-500/10 text-red-600 dark:text-red-300 border-red-500/30'
+                        : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'
+                    }`}
+                  >
+                    {pending.lifecycle === 'loading' ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <AlertCircle className="h-3 w-3" />
+                    )}
+                    <span className="font-bold truncate max-w-[110px]">{pending.characterName}</span>
+                    <span className="opacity-75 text-[9.5px]">
+                      {pending.instrumentName || 'Manual'} • {pending.lifecycle}
+                    </span>
+                  </div>
+                ))}
+
+              {loadedCharacters.map((char, slotIdx) => {
+                const isSelected = selectedCharacter?.id === char.id;
+                const isElevated = char.stageRow === 'back';
+                const mapping = resolvePerformerMapping(char);
+                const record = stagedPerformers.find((p) => p.instanceId === char.id);
+                const isGrace = record?.lifecycle === 'grace_waiting' && record.graceDeadlineMs !== null;
+                const isSounding = record?.lifecycle === 'playing';
+                const graceRemSec = isGrace
+                  ? Math.max(0, (record!.graceDeadlineMs! - nowMs) / 1000).toFixed(1)
+                  : null;
+
+                return (
+                  <div
+                    key={char.id}
+                    className={`group pl-2 pr-1.5 py-0.5 rounded-lg transition-all flex items-center gap-1.5 shrink-0 border ${
+                      isSounding
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                        : isGrace
+                        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40'
+                        : isSelected
+                        ? 'bg-[#7567C7] text-white border-[#7567C7] shadow-xs'
+                        : isElevated
+                        ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                        : 'bg-black/5 dark:bg-white/5 text-[#25242A] dark:text-white border-black/5 dark:border-white/5'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedInstanceId(char.id)}
+                      className="flex items-center gap-1 cursor-pointer text-left"
+                      title={`Slot ${slotIdx + 1}: ${char.manifestEntry.name}${
+                        mapping ? ` (${mapping.instrumentName})` : ''
+                      } • Clip: ${char.currentAnimationName || 'Idle'}`}
+                    >
+                      <span className="font-mono text-[9.5px] opacity-75">[{slotIdx + 1}]</span>
+                      <span className="truncate max-w-[90px] font-bold">{char.manifestEntry.name}</span>
+                      {mapping && (
+                        <span className="text-[9.5px] opacity-80 hidden sm:inline">
+                          • {mapping.instrumentName}
+                        </span>
+                      )}
+                      {isGrace && (
+                        <span className="font-mono text-[9px] px-1 rounded bg-black/15">
+                          Grace {graceRemSec}s
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCharacter(char.id)}
+                      className="p-0.5 rounded hover:bg-black/20 dark:hover:bg-white/20 text-current transition-colors cursor-pointer"
+                      title={`Remove ${char.manifestEntry.name} from stage`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                className="px-2 py-0.5 rounded-lg border border-dashed border-[#7567C7]/40 text-[#7567C7] dark:text-[#A898F8] hover:bg-[#7567C7]/10 flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer shrink-0"
+                title="Add character from roster"
+              >
+                <Plus className="h-3 w-3" />
+                <span>Add Performer</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Loading Progress Notice */}
-        {loading && loadingCharacter && (
-          <div className="absolute top-4 left-4 z-30 px-3.5 py-2 rounded-2xl bg-white/90 dark:bg-[#1A1824]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-lg flex items-center gap-2.5 text-xs text-[#25242A] dark:text-white animate-in fade-in">
-            <RefreshCw className="h-4 w-4 animate-spin text-[#7567C7]" />
-            <div className="flex flex-col">
-              <span className="font-bold">Loading {loadingCharacter.name}</span>
-              <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
-                {loadingProgress > 0 ? `${loadingProgress}% downloaded` : 'Fetching remote GLB...'}
-              </span>
-            </div>
-          </div>
-        )}
+        {/* 3D Canvas Viewport */}
+        <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden">
+          <Canvas
+            shadows
+            frameloop={isCanvasActive ? 'always' : 'demand'}
+            camera={{ position: [0.0, 2.5, 7.5], fov: 40, near: 0.1, far: 150 }}
+            style={{ width: '100%', height: '100%', display: 'block' }}
+          >
+            <Suspense fallback={null}>
+              {!isCustomEnvActive && (
+                <color
+                  attach="background"
+                  args={[
+                    environment === 'studio' || environment === 'clean'
+                      ? '#FFFFFF'
+                      : isDark
+                      ? '#14121C'
+                      : isSakura
+                      ? '#FDF6F8'
+                      : environment === 'sunset'
+                      ? '#2A1D2D'
+                      : '#FFFFFF',
+                  ]}
+                />
+              )}
 
-        {/* Error Notice */}
-        {error && (
-          <div className="absolute top-4 left-4 z-30 px-3.5 py-2.5 rounded-2xl bg-red-500/10 dark:bg-red-500/20 backdrop-blur-md border border-red-500/30 shadow-lg flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400 max-w-sm">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-bold">Failed to load {error.character.name}</p>
-              <p className="text-[10.5px] opacity-80 break-words">{error.message}</p>
-            </div>
-          </div>
-        )}
+              {isCustomEnvActive ? (
+                <CompositeEnvironment
+                  config={activeCustomConfig}
+                  isPlaying={isPlaying}
+                  characterPosition={loadedCharacters[0]?.position}
+                />
+              ) : (
+                <ViewerEnvironment3D environment={environment} />
+              )}
 
-        {/* Bottom Viewport Toolbar (Full mode only) */}
-        {!isMini && (
-          <CharacterViewerToolbar
+              <StagePerformanceMonitor metricsRef={perfMetricsRef} />
+
+              <OrbitControls
+                ref={orbitControlsRef}
+                enableDamping
+                dampingFactor={0.08}
+                minDistance={0.8}
+                maxDistance={35.0}
+                minPolarAngle={0.05}
+                maxPolarAngle={Math.PI - 0.05}
+                enablePan={true}
+                target={[0, 0.85, 0]}
+                enabled={true}
+                onStart={() => {
+                  userAdjustedCameraRef.current = true;
+                }}
+              />
+
+              {loadedCharacters.map((char) => (
+                <CharacterInstanceMesh
+                  key={char.id}
+                  instance={char}
+                  isSelected={
+                    selectedInstanceId === char.id &&
+                    loadedCharacters.length > 1 &&
+                    !isMini
+                  }
+                  isHighlighted={highlightedInstanceIds.has(char.id)}
+                  wireframe={showWireframe}
+                />
+              ))}
+
+              {showGrid && !isMini && (
+                <gridHelper
+                  args={[16, 32, '#7567C7', '#9A8BF0']}
+                  position={[0, 0, 0]}
+                />
+              )}
+
+              <DynamicCameraAutoFramer
+                loadedCharactersCount={loadedCharacters.length}
+                calculateBounds={calculateStageBounds}
+                cameraPreset={cameraPreset}
+                presetResetNonce={presetResetNonce}
+                controlsRef={orbitControlsRef}
+                userAdjustedCameraRef={userAdjustedCameraRef}
+                isMini={isMini}
+              />
+            </Suspense>
+          </Canvas>
+
+          {/* Non-blocking Stage Notice Toast (duplicate guard or load failure notice) */}
+          {stageNotice && !isMini && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-2 rounded-xl bg-[#1C192E]/95 text-white border border-white/15 shadow-xl text-xs font-medium flex items-center gap-2 max-w-md animate-in fade-in">
+              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="truncate">{stageNotice}</span>
+              <button
+                type="button"
+                onClick={() => setStageNotice(null)}
+                className="p-0.5 rounded hover:bg-white/10 text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Floating Custom Scenery Preview Overlay Chip (Environment Preview tab feature) */}
+          {isCustomEnvActive && activeTab === 'viewer' && !isMini && (
+            <div className="absolute top-4 right-4 z-20 px-3.5 py-2 rounded-2xl bg-white/95 dark:bg-[#1A1828]/95 backdrop-blur-xl border border-purple-500/30 shadow-xl flex items-center gap-2.5 text-xs animate-in fade-in">
+              <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-bold">
+                <Compass className="h-3.5 w-3.5 text-purple-500" />
+                <span>Environment Preview</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/15 font-mono">
+                  {Object.values(activeCustomConfig).filter(Boolean).length} Active
+                </span>
+              </div>
+              <div className="h-3.5 w-px bg-black/10 dark:bg-white/10" />
+              <button
+                type="button"
+                onClick={handleApplyEnvironment}
+                className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('environment')}
+                className="text-[11px] font-bold text-[#7567C7] dark:text-[#A898F8] hover:underline cursor-pointer"
+              >
+                Customize
+              </button>
+              <button
+                type="button"
+                onClick={handleResetEnvironment}
+                className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-[#77747D] hover:text-red-500 transition-colors cursor-pointer"
+                title="Exit preview and restore stage"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Empty Stage Overlay */}
+          {loadedCharacters.length === 0 && !loading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+              <div className="px-5 py-4 rounded-3xl bg-white/85 dark:bg-[#14121C]/85 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-xl flex flex-col items-center gap-3 text-center max-w-sm pointer-events-auto">
+                <div className="w-10 h-10 rounded-2xl bg-[#7567C7]/15 flex items-center justify-center text-[#7567C7]">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-xs text-[#25242A] dark:text-[#F4F2F7]">
+                    {performanceMode === 'automatic'
+                      ? 'Ready for Automatic YAMNet Performance'
+                      : 'No characters loaded'}
+                  </p>
+                  <p className="text-[11px] text-[#77747D] dark:text-[#A4A1AA]">
+                    {performanceMode === 'automatic'
+                      ? activeYamnetSegments.length > 0
+                        ? 'Cached YAMNet timeline loaded — press PLAY to spawn performers automatically.'
+                        : 'Press PLAY + Start Live YAMNet (or run Instrument Analysis) to auto-stage performers, or open Roster to add manually.'
+                      : 'Open the roster to add Blue Archive performers to the concert stage.'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {performanceMode === 'automatic' && !isStageYamnetCapturing && (
+                    <button
+                      type="button"
+                      onClick={startStageLiveYamnet}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Radio className="h-3.5 w-3.5" />
+                      <span>Start Live YAMNet</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-[#7567C7] hover:bg-[#6556B8] text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    <span>Open Roster</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Loading Progress Notice */}
+          {loading && loadingCharacter && (
+            <div className="absolute top-4 left-4 z-30 px-3.5 py-2 rounded-2xl bg-white/90 dark:bg-[#1A1824]/90 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-lg flex items-center gap-2.5 text-xs text-[#25242A] dark:text-white animate-in fade-in">
+              <RefreshCw className="h-4 w-4 animate-spin text-[#7567C7]" />
+              <div className="flex flex-col">
+                <span className="font-bold">Loading {loadingCharacter.name}</span>
+                <span className="text-[10px] text-[#77747D] dark:text-[#A4A1AA]">
+                  {loadingProgress > 0 ? `${loadingProgress}% downloaded` : 'Fetching remote GLB...'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Error Notice */}
+          {error && (
+            <div className="absolute top-4 left-4 z-30 px-3.5 py-2.5 rounded-2xl bg-red-500/10 dark:bg-red-500/20 backdrop-blur-md border border-red-500/30 shadow-lg flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400 max-w-sm">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold">Failed to load {error.character.name}</p>
+                <p className="text-[10.5px] opacity-80 break-words">{error.message}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Viewport Toolbar */}
+          {!isMini && (
+            <CharacterViewerToolbar
+              theme={theme}
+              loadedCharacters={loadedCharacters}
+              selectedInstanceId={selectedInstanceId}
+              cameraPreset={cameraPreset}
+              onSelectCameraPreset={handleSelectCameraPreset}
+              environment={environment}
+              onSelectEnvironment={setEnvironment}
+              showGrid={showGrid}
+              onToggleGrid={() => setShowGrid(!showGrid)}
+              showWireframe={showWireframe}
+              onToggleWireframe={() => setShowWireframe(!showWireframe)}
+              onOpenBrowser={() => setDrawerOpen(true)}
+              onResetCamera={handleResetCamera}
+              onSelectAnimation={handleSelectAnimation}
+              onTogglePlayPause={togglePlayPauseAnimation}
+              isConcertPlaying={isPlaying}
+              onToggleConcertMusic={togglePlay}
+              isDebuggerOpen={isDebuggerOpen}
+              onToggleDebugger={() => setIsDebuggerOpen((prev) => !prev)}
+            />
+          )}
+
+          {/* Performance & YAMNet Scene Debugger */}
+          <SceneDebuggerPanel
+            isOpen={isDebuggerOpen && !isMini}
+            onClose={() => setIsDebuggerOpen(false)}
+            data={debuggerData}
+            onSelectAnimation={handleSelectAnimation}
+          />
+
+          {/* 296+ Character Roster Browser Drawer */}
+          <CharacterBrowserDrawer
             theme={theme}
+            isOpen={drawerOpen && !isMini}
+            onClose={() => setDrawerOpen(false)}
             loadedCharacters={loadedCharacters}
             selectedInstanceId={selectedInstanceId}
-            cameraPreset={cameraPreset}
-            onSelectCameraPreset={setCameraPreset}
-            environment={environment}
-            onSelectEnvironment={setEnvironment}
-            showGrid={showGrid}
-            onToggleGrid={() => setShowGrid(!showGrid)}
-            showWireframe={showWireframe}
-            onToggleWireframe={() => setShowWireframe(!showWireframe)}
-            onOpenBrowser={() => setDrawerOpen(true)}
-            onResetCamera={handleResetCamera}
-            onSelectAnimation={playAnimation}
-            onTogglePlayPause={togglePlayPauseAnimation}
-            isConcertPlaying={isPlaying}
-            onToggleConcertMusic={togglePlay}
-            isSpecialSceneActive={isSpecialSceneActive}
-            isDebuggerOpen={isDebuggerOpen}
-            onToggleDebugger={() => setIsDebuggerOpen((prev) => !prev)}
-            meadowLayers={meadowLayers}
-            onUpdateMeadowLayers={handleUpdateMeadowLayers}
-            onResetMeadowLayers={handleResetMeadowLayers}
-            specialEnvironmentEnabled={specialEnvironmentEnabled}
-            onToggleSpecialEnvironment={handleToggleSpecialEnvironment}
+            loading={loading}
+            loadingCharacter={loadingCharacter}
+            error={error}
+            onSelectCharacter={handleSelectFromDrawer}
+            onRemoveInstance={handleRemoveCharacter}
+            onToggleInstanceVisibility={(id) => {
+              const char = loadedCharacters.find((c) => c.id === id);
+              if (char) updateCharacterTransform(id, { visible: !char.visible });
+            }}
+            onSelectInstance={(id) => setSelectedInstanceId(id)}
+            onClearAll={handleClearCharacters}
           />
-        )}
-
-        {/* 3D Scene Debugger Diagnostic Console */}
-        <SceneDebuggerPanel
-          isOpen={isDebuggerOpen && !isMini}
-          onClose={() => setIsDebuggerOpen(false)}
-          data={debuggerData}
-          onSelectAnimation={playAnimation}
-        />
-
-        {/* 295 Character Roster Browser Drawer */}
-        <CharacterBrowserDrawer
-          theme={theme}
-          isOpen={drawerOpen && !isMini}
-          onClose={() => setDrawerOpen(false)}
-          loadedCharacters={loadedCharacters}
-          selectedInstanceId={selectedInstanceId}
-          loading={loading}
-          loadingCharacter={loadingCharacter}
-          error={error}
-          onSelectCharacter={handleSelectFromDrawer}
-          onRemoveInstance={removeCharacter}
-          onToggleInstanceVisibility={(id) => {
-            const char = loadedCharacters.find((c) => c.id === id);
-            if (char) updateCharacterTransform(id, { visible: !char.visible });
-          }}
-          onSelectInstance={(id) => {
-            setSelectedInstanceId(id);
-          }}
-          onClearAll={clearCharacters}
-        />
+        </div>
       </div>
     </div>
-  </div>
   );
 };

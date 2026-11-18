@@ -797,3 +797,199 @@ export function mergeYamnetTimelineSegments(
     gapMergeThreshold: 1.2,
   });
 }
+
+/**
+ * Offloads MediaPipe AudioClassifier + Stage B temporal tracking to a dedicated
+ * Web Worker with zero-copy Float32Array transfer, falling back transparently to
+ * main-thread inference if Web Workers or WASM-in-Worker are unavailable.
+ */
+export class YamnetWorkerClient {
+  private worker: Worker | null = null;
+  private reqId = 0;
+  private pending = new Map<
+    number,
+    { resolve: (val: any) => void; reject: (err: Error) => void; timeoutId?: any }
+  >();
+  private useFallback = false;
+  private initPromise: Promise<void> | null = null;
+  private fallbackTracker = new YamnetTemporalTracker();
+  private fallbackClassifier: AudioClassifier | null = null;
+
+  public isUsingWorker(): boolean {
+    return !this.useFallback && this.worker !== null;
+  }
+
+  public async init(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      if (typeof Worker === 'undefined' || typeof window === 'undefined') {
+        this.useFallback = true;
+        this.fallbackClassifier = await getOrInitializeYamnetClassifier();
+        return;
+      }
+
+      try {
+        const w = new Worker(new URL('./yamnetWorker.ts', import.meta.url), {
+          type: 'module',
+        });
+
+        w.onmessage = (event: MessageEvent) => {
+          const data = event.data;
+          if (!data || typeof data.id !== 'number') return;
+          const entry = this.pending.get(data.id);
+          if (!entry) return;
+          this.pending.delete(data.id);
+          if (entry.timeoutId) clearTimeout(entry.timeoutId);
+          if (data.ok) {
+            entry.resolve(data.result);
+          } else {
+            entry.reject(new Error(data.error || 'YAMNet worker error'));
+          }
+        };
+
+        w.onerror = (ev) => {
+          console.warn('[YAMNet Worker] Runtime error, switching to main-thread fallback:', ev?.message || ev);
+          this.switchToFallback();
+        };
+
+        this.worker = w;
+        await this.postRequest({ type: 'init' }, undefined, 12000);
+      } catch (workerErr) {
+        console.warn('[YAMNet Worker] Worker initialization failed; using main-thread fallback:', workerErr);
+        this.switchToFallback();
+        this.fallbackClassifier = await getOrInitializeYamnetClassifier();
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  private switchToFallback(): void {
+    this.useFallback = true;
+    if (this.worker) {
+      try {
+        this.worker.terminate();
+      } catch {}
+      this.worker = null;
+    }
+    for (const [id, entry] of this.pending.entries()) {
+      if (entry.timeoutId) clearTimeout(entry.timeoutId);
+      entry.reject(new Error('Switched to fallback'));
+      this.pending.delete(id);
+    }
+  }
+
+  private postRequest(
+    payload: Record<string, any>,
+    transfer?: Transferable[],
+    timeoutMs: number = 8000
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || this.useFallback) {
+        return reject(new Error('Worker unavailable'));
+      }
+      const id = ++this.reqId;
+      const timeoutId = setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error('YAMNet worker request timed out'));
+        }
+      }, timeoutMs);
+
+      this.pending.set(id, { resolve, reject, timeoutId });
+      try {
+        if (transfer && transfer.length > 0) {
+          this.worker.postMessage({ ...payload, id }, transfer);
+        } else {
+          this.worker.postMessage({ ...payload, id });
+        }
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  public async reset(): Promise<void> {
+    this.fallbackTracker.reset();
+    if (!this.useFallback && this.worker) {
+      try {
+        await this.postRequest({ type: 'reset' }, undefined, 3000);
+      } catch {
+        // Ignore reset failure if worker is transitioning
+      }
+    }
+  }
+
+  public async classifyFrame(params: {
+    samples16k: Float32Array;
+    playbackStart: number;
+    playbackEnd: number;
+    inputRms?: number;
+  }): Promise<YamnetFrameResult> {
+    await this.init();
+
+    if (!this.useFallback && this.worker) {
+      try {
+        const samplesCopy = new Float32Array(params.samples16k);
+        return (await this.postRequest(
+          {
+            type: 'classify',
+            samples16k: samplesCopy,
+            playbackStart: params.playbackStart,
+            playbackEnd: params.playbackEnd,
+            inputRms: params.inputRms,
+          },
+          [samplesCopy.buffer],
+          5000
+        )) as YamnetFrameResult;
+      } catch (err) {
+        console.warn('[YAMNet Worker] Frame classify failed, falling back to main thread:', err);
+        this.switchToFallback();
+      }
+    }
+
+    if (!this.fallbackClassifier) {
+      this.fallbackClassifier = await getOrInitializeYamnetClassifier();
+    }
+
+    return classifyPcmFrameLocally({
+      classifier: this.fallbackClassifier,
+      samples16k: params.samples16k,
+      playbackStart: params.playbackStart,
+      playbackEnd: params.playbackEnd,
+      tracker: this.fallbackTracker,
+      inputRms: params.inputRms,
+    });
+  }
+
+  public dispose(): void {
+    this.fallbackTracker.reset();
+    if (this.worker) {
+      try {
+        this.worker.postMessage({ id: ++this.reqId, type: 'dispose' });
+      } catch {}
+      try {
+        this.worker.terminate();
+      } catch {}
+      this.worker = null;
+    }
+    for (const entry of this.pending.values()) {
+      if (entry.timeoutId) clearTimeout(entry.timeoutId);
+    }
+    this.pending.clear();
+    this.initPromise = null;
+  }
+}
+
+let sharedWorkerClient: YamnetWorkerClient | null = null;
+
+export function getSharedYamnetWorkerClient(): YamnetWorkerClient {
+  if (!sharedWorkerClient) {
+    sharedWorkerClient = new YamnetWorkerClient();
+  }
+  return sharedWorkerClient;
+}
+

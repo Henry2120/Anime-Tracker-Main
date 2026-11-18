@@ -24,7 +24,12 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { AppTheme, isDarkThemeFamily } from '../../types/theme';
-import { extractYouTubeVideoId, PRESET_CONCERT_TRACKS } from './ConcertMusicContext';
+import {
+  extractYouTubeVideoId,
+  PRESET_CONCERT_TRACKS,
+  useConcertMusic,
+  SharedYamnetStatus,
+} from './ConcertMusicContext';
 import {
   InstrumentFamily,
   CanonicalInstrument,
@@ -52,8 +57,7 @@ import {
   LiveCaptureError,
 } from '../../utils/audioCapture';
 import {
-  getOrInitializeYamnetClassifier,
-  classifyPcmFrameLocally,
+  getSharedYamnetWorkerClient,
   mergeYamnetTimelineSegments,
   YamnetTemporalTracker,
   YamnetCategoryPrediction,
@@ -160,6 +164,7 @@ function formatTime(seconds: number): string {
 
 export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ theme = 'light' }) => {
   const isDark = isDarkThemeFamily(theme);
+  const { publishYamnetState } = useConcertMusic();
 
   // Input & Video State
   const [inputUrl, setInputUrl] = useState('https://www.youtube.com/watch?v=x3G1I_9DPf4');
@@ -262,6 +267,51 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
   playerCurrentTimeRef.current = playerCurrentTime;
   playerDurationRef.current = playerDuration;
   activeVideoIdRef.current = activeVideoId;
+
+  // Publish local YAMNet timeline state to ConcertMusicContext whenever live mode updates
+  useEffect(() => {
+    if (analysisMode !== 'live') return;
+    const mappedStatus: SharedYamnetStatus =
+      liveStatusDetail === 'loading_model'
+        ? 'loading_model'
+        : liveStatusDetail === 'waiting_tab_audio'
+        ? 'waiting_tab_audio'
+        : liveStatusDetail === 'capturing'
+        ? 'capturing'
+        : liveStatusDetail === 'analysing'
+        ? 'analysing'
+        : liveStatusDetail === 'paused'
+        ? 'paused'
+        : liveStatusDetail === 'completed_capture'
+        ? 'completed_capture'
+        : liveStatusDetail === 'permission_denied' ||
+          liveStatusDetail === 'missing_tab_audio' ||
+          liveStatusDetail === 'model_error' ||
+          liveStatusDetail === 'processing_error'
+        ? 'error'
+        : liveStatusDetail === 'stopped'
+        ? 'stopped'
+        : 'idle';
+
+    publishYamnetState({
+      videoId: activeVideoId,
+      segments: timelineSegments,
+      status: mappedStatus,
+      error: analysisError,
+      usingWorker: getSharedYamnetWorkerClient().isUsingWorker(),
+      lastPredictions: liveLastPredictions,
+      captureSummary: yamnetCaptureSummary,
+    });
+  }, [
+    analysisMode,
+    activeVideoId,
+    timelineSegments,
+    liveStatusDetail,
+    analysisError,
+    liveLastPredictions,
+    yamnetCaptureSummary,
+    publishYamnetState,
+  ]);
 
   // =========================================================================
   // EMBEDDED YOUTUBE PLAYER INITIALIZATION
@@ -843,10 +893,11 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       }
     } catch {}
 
-    // 1. Initialize local MediaPipe AudioClassifier (YAMNet)
-    let classifier: Awaited<ReturnType<typeof getOrInitializeYamnetClassifier>>;
+    // 1. Initialize local MediaPipe AudioClassifier (YAMNet) in dedicated Web Worker (with fallback)
+    const workerClient = getSharedYamnetWorkerClient();
     try {
-      classifier = await getOrInitializeYamnetClassifier();
+      await workerClient.init();
+      await workerClient.reset();
       if (generationId !== currentGenerationIdRef.current) return;
     } catch (modelErr: any) {
       if (generationId !== currentGenerationIdRef.current) return;
@@ -903,7 +954,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             setIsAnalyzing(false);
           }
         },
-        onFrame: (frame) => {
+        onFrame: async (frame) => {
           if (generationId !== currentGenerationIdRef.current) return;
 
           // Read live YouTube player state & clock dynamically
@@ -930,6 +981,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             setSessionState('paused');
             yamnetLastFrameEndRef.current = null;
             yamnetTrackerRef.current.reset();
+            await workerClient.reset();
 
             if (playerState === 0 && yamnetCapturedRangesRef.current.length > 0) {
               persistCurrentYamnetSession(effectiveVideoId);
@@ -952,6 +1004,7 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
           if (prevEnd !== null && Math.abs(currentYtTime - prevEnd) > 2.2) {
             // Seek detected (forward or backward): reset temporal smoothing to prevent cross-seek bleed
             yamnetTrackerRef.current.reset();
+            await workerClient.reset();
             playbackEnd = knownDur > 0 ? Math.min(knownDur, currentYtTime) : currentYtTime;
             playbackStart = Math.max(0, playbackEnd - timelineSpan);
           } else {
@@ -965,14 +1018,13 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
           yamnetLastFrameEndRef.current = playbackEnd;
 
           try {
-            const frameResult = classifyPcmFrameLocally({
-              classifier,
+            const frameResult = await workerClient.classifyFrame({
               samples16k: frame.samples16k,
               playbackStart,
               playbackEnd,
-              tracker: yamnetTrackerRef.current,
               inputRms: frame.rms,
             });
+            if (generationId !== currentGenerationIdRef.current) return;
 
             console.debug('[YAMNet Frame]', frameResult.diagnostics);
             setLiveLastPredictions(frameResult.predictions);

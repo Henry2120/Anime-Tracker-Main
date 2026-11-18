@@ -10,12 +10,26 @@ export default defineConfig(() => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+      dedupe: [
+        'react',
+        'react-dom',
+        'three',
+        '@react-three/fiber',
+        '@react-three/drei',
+        'react-reconciler',
+        'its-fine',
+      ],
     },
     optimizeDeps: {
       include: [
         'react',
         'react-dom',
+        'react-dom/client',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
         'three',
+        'three/examples/jsm/loaders/GLTFLoader.js',
+        'three/examples/jsm/utils/SkeletonUtils.js',
         '@react-three/fiber',
         '@react-three/drei',
         '@pixiv/three-vrm',

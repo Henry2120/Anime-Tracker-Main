@@ -1886,6 +1886,12 @@ export const BLUE_ARCHIVE_CHARACTERS: CharacterManifestEntry[] = [
     "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Saori_Dress_Harp_Exs_Harp%20(1).glb"
   },
   {
+    "id": "saori-synthesizer",
+    "name": "Saori (Synthesizer)",
+    "filename": "Saori_Synthesizer_Exs_Synthesizer.glb",
+    "url": "https://raw.githubusercontent.com/Henry2120/BlueArchiveModels/main/Saori_Synthesizer_Exs_Synthesizer.glb"
+  },
+  {
     "id": "cellist-performer",
     "name": "Cellist",
     "filename": "cellist.glb",

@@ -99,7 +99,11 @@ export const DEFAULT_CONCERT_PERFORMERS: CharacterManifestEntry[] = [
  * - Center characters are closest to audience; wing characters curve slightly backward.
  * - All characters face toward the audience (rotation = [0, 0, 0]).
  */
-export function getConcertSlotTransform(slotIndex: number, performerCount: number = 1) {
+export function getConcertSlotTransform(
+  slotIndex: number,
+  performerCount: number = 1,
+  footprintWidths?: number[]
+) {
   const safeCount = Math.max(1, performerCount);
   const safeSlot = Math.max(0, Math.min(slotIndex, safeCount - 1));
 
@@ -109,10 +113,29 @@ export function getConcertSlotTransform(slotIndex: number, performerCount: numbe
 
   const rowCount = isBackRow ? safeCount - frontCount : frontCount;
   const colIndex = isBackRow ? safeSlot - frontCount : safeSlot;
+  const rowStartSlot = isBackRow ? frontCount : 0;
 
-  // Normalized distance from center of row (symmetrical placement)
-  const centerOffset = colIndex - (rowCount - 1) / 2;
-  const xOffset = centerOffset * CONCERT_STAGE_CONFIG.characterSpacingX;
+  // Dynamic footprint-aware horizontal layout so large instruments (Grand Piano, Drums, Harp) never overlap
+  let xOffset = 0;
+  if (footprintWidths && footprintWidths.length >= safeCount && rowCount > 1) {
+    const widths: number[] = [];
+    for (let i = 0; i < rowCount; i++) {
+      widths.push(Math.max(1.25, footprintWidths[rowStartSlot + i] || CONCERT_STAGE_CONFIG.characterSpacingX));
+    }
+    const totalSpan = widths.reduce((sum, w) => sum + w, 0);
+    let cursor = -totalSpan / 2;
+    for (let i = 0; i <= colIndex; i++) {
+      if (i === colIndex) {
+        xOffset = cursor + widths[i] / 2;
+      } else {
+        cursor += widths[i];
+      }
+    }
+  } else {
+    const baseSpacing = safeCount <= 3 ? 1.55 : 1.45;
+    const centerOffset = colIndex - (rowCount - 1) / 2;
+    xOffset = centerOffset * baseSpacing;
+  }
 
   // Parabolic arc curvature: deltaZ is negative, curving back toward the wings
   const deltaZ = -(xOffset * xOffset) / (2 * CONCERT_STAGE_CONFIG.radiusOfCurvature);
