@@ -164,7 +164,7 @@ function formatTime(seconds: number): string {
 
 export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ theme = 'light' }) => {
   const isDark = isDarkThemeFamily(theme);
-  const { publishYamnetState } = useConcertMusic();
+  const { publishYamnetState, publishAiAnalysisState } = useConcertMusic();
 
   // Input & Video State
   const [inputUrl, setInputUrl] = useState('https://www.youtube.com/watch?v=x3G1I_9DPf4');
@@ -656,6 +656,13 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
       setAnalysisSummary('');
       setIsCachedResult(false);
 
+      publishAiAnalysisState({
+        videoId: cleanId,
+        segments: [],
+        status: 'loading',
+        error: null,
+      });
+
       // Check if switching to a different video
       const isVideoSwitch = cleanId !== activeVideoId;
       if (isVideoSwitch) {
@@ -692,6 +699,14 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             setIsCachedResult(true);
             setSessionState('completed');
             setIsAnalyzing(false);
+            publishAiAnalysisState({
+              videoId: cleanId,
+              segments: data.instrumentSegments || [],
+              status: 'ready',
+              error: null,
+              title: data.title || `YouTube Track (${cleanId})`,
+              isFullCoverage: data.coverage?.isFullCoverage ?? null,
+            });
             return;
           }
         } catch (dbErr) {
@@ -732,12 +747,18 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         if (generationId !== currentGenerationIdRef.current) return;
 
         if (!data.success) {
-          setAnalysisStatus(data.status || 'error');
-          setAnalysisError(
+          const errMsg =
             data.error ||
-              'Unable to analyze this YouTube video. Please ensure the video is publicly accessible.'
-          );
+            'Unable to analyze this YouTube video. Please ensure the video is publicly accessible.';
+          setAnalysisStatus(data.status || 'error');
+          setAnalysisError(errMsg);
           setSessionState('error');
+          publishAiAnalysisState({
+            videoId: cleanId,
+            segments: [],
+            status: 'error',
+            error: errMsg,
+          });
           return;
         }
 
@@ -780,10 +801,24 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
 
         setSessionState('completed');
 
+        publishAiAnalysisState({
+          videoId: cleanId,
+          segments: parsedSegments,
+          status: 'ready',
+          error: null,
+          title: data.title || `YouTube Track (${cleanId})`,
+          isFullCoverage: data.coverage?.isFullCoverage ?? null,
+        });
+
         // Persist to IndexedDB durable cache
-        if (targetDuration) {
+        const cacheDuration =
+          (typeof targetDuration === 'number' && targetDuration > 0 ? targetDuration : 0) ||
+          (typeof data.coverage?.totalDuration === 'number' && data.coverage.totalDuration > 0
+            ? data.coverage.totalDuration
+            : 0);
+        if (cacheDuration > 0) {
           saveAnalysisToDB(
-            { videoId: cleanId, duration: targetDuration },
+            { videoId: cleanId, duration: cacheDuration },
             {
               ...data,
               instrumentSegments: parsedSegments,
@@ -798,19 +833,25 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         }
         if (generationId !== currentGenerationIdRef.current) return;
         console.error('[InstrumentAnalysisView] Analysis failed:', err);
-        setAnalysisStatus('error');
-        setAnalysisError(
+        const errMsg =
           err.message ||
-            'Failed to connect to the analysis service. Please check your internet connection or server status.'
-        );
+          'Failed to connect to the analysis service. Please check your internet connection or server status.';
+        setAnalysisStatus('error');
+        setAnalysisError(errMsg);
         setSessionState('error');
+        publishAiAnalysisState({
+          videoId: cleanId,
+          segments: [],
+          status: 'error',
+          error: errMsg,
+        });
       } finally {
         if (generationId === currentGenerationIdRef.current) {
           setIsAnalyzing(false);
         }
       }
     },
-    [activeVideoId, ensurePlayerReadyForVideo, playerDuration]
+    [activeVideoId, ensurePlayerReadyForVideo, playerDuration, publishAiAnalysisState]
   );
 
   // =========================================================================
@@ -1145,6 +1186,14 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
             setAllDetectedInstruments(data.allDetectedInstruments || []);
             setIsCachedResult(true);
             setSessionState('completed');
+            publishAiAnalysisState({
+              videoId: activeVideoId,
+              segments: data.instrumentSegments || [],
+              status: 'ready',
+              error: null,
+              title: data.title || `YouTube Track (${activeVideoId})`,
+              isFullCoverage: data.coverage?.isFullCoverage ?? null,
+            });
             return;
           }
         }
@@ -1272,6 +1321,14 @@ export const InstrumentAnalysisView: React.FC<InstrumentAnalysisViewProps> = ({ 
         setAllDetectedInstruments(data.allDetectedInstruments || []);
         setIsCachedResult(true);
         setSessionState('completed');
+        publishAiAnalysisState({
+          videoId: trackId,
+          segments: data.instrumentSegments || [],
+          status: 'ready',
+          error: null,
+          title: data.title || trackTitle,
+          isFullCoverage: data.coverage?.isFullCoverage ?? null,
+        });
         return;
       }
     }

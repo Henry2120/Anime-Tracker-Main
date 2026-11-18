@@ -393,11 +393,38 @@ export function useCharacterLoader() {
         const fallbackIdles = performerMapping?.idleFallbacks || ['Cafe_Idle', 'Formation_Idle', 'Normal_Idle', 'Idle'];
 
         const requestedClip = options.initialAnimation || defaultIdle;
-        const resolvedClipName = resolvePerformerClipName(
-          availableAnimations,
-          requestedClip,
-          [...fallbackIdles, 'Cafe_Reaction']
-        );
+        let resolvedClipName: string | null = null;
+        let missingClipWarning: string | undefined;
+
+        if (performerMapping && requestedClip === performerMapping.playingClip) {
+          resolvedClipName = resolvePerformerClipName(
+            availableAnimations,
+            requestedClip,
+            performerMapping.playingFallbacks,
+            { allowArbitraryFirstClipFallback: false }
+          );
+          if (!resolvedClipName) {
+            missingClipWarning = `Missing expected playing clip "${requestedClip}" on ${performerMapping.characterName} (${performerMapping.filename}). Available: [${availableAnimations.map((a) => a.name).join(', ')}]`;
+            console.error(`[CharacterLoader] ${missingClipWarning}`);
+            resolvedClipName = resolvePerformerClipName(
+              availableAnimations,
+              defaultIdle,
+              fallbackIdles,
+              { allowArbitraryFirstClipFallback: false }
+            );
+          }
+        } else {
+          resolvedClipName = resolvePerformerClipName(
+            availableAnimations,
+            requestedClip,
+            performerMapping ? fallbackIdles : [...fallbackIdles, 'Cafe_Reaction'],
+            { allowArbitraryFirstClipFallback: !performerMapping }
+          );
+          if (performerMapping && !resolvedClipName) {
+            missingClipWarning = `Missing expected idle clip "${requestedClip}" on ${performerMapping.characterName} (${performerMapping.filename}). Available: [${availableAnimations.map((a) => a.name).join(', ')}]`;
+            console.error(`[CharacterLoader] ${missingClipWarning}`);
+          }
+        }
 
         let currentAction: THREE.AnimationAction | null = null;
         let currentAnimationName: string | null = null;
@@ -457,6 +484,7 @@ export function useCharacterLoader() {
           currentAnimationName,
           isPlayingAnimation: currentAction !== null,
           visibilityController,
+          missingClipWarning,
         };
 
         setLoadedCharacters((prev) => {

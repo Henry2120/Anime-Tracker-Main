@@ -35,6 +35,7 @@ export interface LoadedCharacterInstance {
   currentAnimationName: string | null;
   isPlayingAnimation: boolean;
   visibilityController?: any;
+  missingClipWarning?: string;
 }
 
 export type ViewerCameraPreset = 'front' | 'perspective' | 'side' | 'closeUp' | 'top' | 'back';

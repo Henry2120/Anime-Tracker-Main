@@ -138,6 +138,63 @@ export async function getCachedAnalysisFromDB(params: {
 }
 
 /**
+ * Retrieves the most recent valid cached full-track analysis for a specific YouTube videoId,
+ * optionally preferring a record matching preferredDuration when available.
+ * Strictly scopes results to the exact videoId and current taxonomy/schema versions.
+ */
+export async function getLatestCachedAnalysisByVideoIdFromDB(
+  videoId: string,
+  preferredDuration?: number
+): Promise<CachedAnalysisRecord | null> {
+  try {
+    const cleanId = videoId?.trim();
+    if (!cleanId) return null;
+
+    const db = await openDatabase();
+
+    return new Promise<CachedAnalysisRecord | null>((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const index = store.index('videoId');
+      const request = index.getAll(IDBKeyRange.only(cleanId));
+
+      request.onsuccess = () => {
+        const records = (request.result as CachedAnalysisRecord[] | undefined) || [];
+        const valid = records.filter(
+          (record) =>
+            record &&
+            record.videoId === cleanId &&
+            record.metadata?.taxonomyVersion === TAXONOMY_VERSION &&
+            record.metadata?.schemaVersion === ANALYSIS_SCHEMA_VERSION &&
+            record.analysisResult?.success === true
+        );
+
+        if (valid.length === 0) {
+          return resolve(null);
+        }
+
+        if (typeof preferredDuration === 'number' && Number.isFinite(preferredDuration) && preferredDuration > 0) {
+          const durationMatched = valid
+            .filter((r) => Math.abs((r.duration || 0) - preferredDuration) <= 1.5)
+            .sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
+          if (durationMatched.length > 0) {
+            return resolve(durationMatched[0]);
+          }
+        }
+
+        valid.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
+        resolve(valid[0]);
+      };
+
+      request.onerror = () => resolve(null);
+    });
+  } catch (err) {
+    console.warn('[IndexedDB Cache] VideoId lookup skipped or failed:', err);
+    return null;
+  }
+}
+
+/**
  * Saves a full-track analysis result into IndexedDB.
  */
 export async function saveAnalysisToDB(

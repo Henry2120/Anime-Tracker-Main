@@ -13,6 +13,7 @@ import {
   saveYamnetAnalysisToDB,
   mergeYamnetCaptureRanges,
   YamnetCaptureRange,
+  getLatestCachedAnalysisByVideoIdFromDB,
 } from '../../utils/analysisCacheIndexedDB';
 import { LiveTabAudioCaptureSession } from '../../utils/audioCapture';
 import {
@@ -103,6 +104,22 @@ export interface YamnetCaptureSummaryState {
   isCompleteCapture: boolean;
 }
 
+export type SharedAiAnalysisStatus =
+  | 'idle'
+  | 'loading'
+  | 'ready'
+  | 'unavailable'
+  | 'error';
+
+export interface AiAnalysisSnapshot {
+  videoId: string;
+  segments: InstrumentTimelineSegment[];
+  status: SharedAiAnalysisStatus;
+  error?: string | null;
+  title?: string | null;
+  isFullCoverage?: boolean | null;
+}
+
 export interface ConcertMusicContextValue {
   // YouTube State
   videoId: string;
@@ -111,6 +128,7 @@ export interface ConcertMusicContextValue {
   isPaused: boolean;
   isStopped: boolean;
   isReady: boolean;
+  seekNonce: number;
 
   // Presentation State
   presentationMode: ConcertPresentationMode;
@@ -148,6 +166,15 @@ export interface ConcertMusicContextValue {
   }) => void;
   startStageLiveYamnet: () => Promise<void>;
   stopStageLiveYamnet: () => void;
+
+  // Shared AI Full-Track Analysis State (reused from InstrumentAnalysisView / IndexedDB, zero duplicate API calls)
+  aiVideoId: string;
+  aiSegments: InstrumentTimelineSegment[];
+  aiStatus: SharedAiAnalysisStatus;
+  aiError: string | null;
+  aiTitle: string | null;
+  aiIsFullCoverage: boolean | null;
+  publishAiAnalysisState: (payload: AiAnalysisSnapshot) => void;
 }
 
 const ConcertMusicContext = createContext<ConcertMusicContextValue | null>(null);
@@ -159,6 +186,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isStopped, setIsStopped] = useState<boolean>(true);
   const [isReady, setIsReady] = useState<boolean>(false);
+  const [seekNonce, setSeekNonce] = useState<number>(0);
   const [presentationMode, setPresentationMode] = useState<ConcertPresentationMode>('hidden');
   const [isConcertActive, setIsConcertActive] = useState<boolean>(false);
 
@@ -172,6 +200,15 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [yamnetCaptureSummary, setYamnetCaptureSummary] =
     useState<YamnetCaptureSummaryState | null>(null);
   const [isStageYamnetCapturing, setIsStageYamnetCapturing] = useState<boolean>(false);
+
+  // Shared AI Full-Track Analysis State synced with InstrumentAnalysisView & IndexedDB
+  const [aiVideoId, setAiVideoId] = useState<string>('dUXIymB78YQ');
+  const [aiSegments, setAiSegments] = useState<InstrumentTimelineSegment[]>([]);
+  const [aiStatus, setAiStatus] = useState<SharedAiAnalysisStatus>('idle');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiTitle, setAiTitle] = useState<string | null>(null);
+  const [aiIsFullCoverage, setAiIsFullCoverage] = useState<boolean | null>(null);
+  const aiByVideoRef = useRef<Map<string, AiAnalysisSnapshot>>(new Map());
 
   const playerRef = useRef<any>(null);
   const pendingPlayRef = useRef<boolean>(false);
@@ -321,6 +358,93 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
   }, [videoId]);
 
+  // Auto-hydrate cached AI Full-Track Analysis from memory/IndexedDB strictly scoped by videoId
+  useEffect(() => {
+    let cancelled = false;
+    const vid = videoId;
+
+    // Immediately clear previous video's AI Full-Track results on videoId change
+    const inMemory = aiByVideoRef.current.get(vid);
+    if (inMemory) {
+      setAiVideoId(vid);
+      setAiSegments(inMemory.segments);
+      setAiStatus(inMemory.status);
+      setAiError(inMemory.error ?? null);
+      setAiTitle(inMemory.title ?? null);
+      setAiIsFullCoverage(inMemory.isFullCoverage ?? null);
+      return;
+    }
+
+    setAiVideoId(vid);
+    setAiSegments([]);
+    setAiError(null);
+    setAiTitle(null);
+    setAiIsFullCoverage(null);
+    setAiStatus('loading');
+
+    const dur =
+      playerRef.current && typeof playerRef.current.getDuration === 'function'
+        ? (() => {
+            try {
+              const d = playerRef.current.getDuration();
+              return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : undefined;
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined;
+
+    getLatestCachedAnalysisByVideoIdFromDB(vid, dur)
+      .then((cached) => {
+        if (cancelled || videoIdRef.current !== vid) return;
+        // Re-check if InstrumentAnalysisView published fresh results while DB lookup was in flight
+        const freshInMemory = aiByVideoRef.current.get(vid);
+        if (freshInMemory) {
+          setAiVideoId(vid);
+          setAiSegments(freshInMemory.segments);
+          setAiStatus(freshInMemory.status);
+          setAiError(freshInMemory.error ?? null);
+          setAiTitle(freshInMemory.title ?? null);
+          setAiIsFullCoverage(freshInMemory.isFullCoverage ?? null);
+          return;
+        }
+        if (cached && cached.analysisResult) {
+          const segments = cached.analysisResult.instrumentSegments || [];
+          const snapshot: AiAnalysisSnapshot = {
+            videoId: vid,
+            segments,
+            status: 'ready',
+            error: null,
+            title: cached.analysisResult.title || null,
+            isFullCoverage: cached.analysisResult.coverage?.isFullCoverage ?? null,
+          };
+          aiByVideoRef.current.set(vid, snapshot);
+          setAiVideoId(vid);
+          setAiSegments(segments);
+          setAiStatus('ready');
+          setAiError(null);
+          setAiTitle(snapshot.title ?? null);
+          setAiIsFullCoverage(snapshot.isFullCoverage ?? null);
+        } else {
+          setAiVideoId(vid);
+          setAiSegments([]);
+          setAiStatus('unavailable');
+          setAiError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled && videoIdRef.current === vid) {
+          setAiVideoId(vid);
+          setAiSegments([]);
+          setAiStatus('unavailable');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId]);
+
   const publishYamnetState = useCallback(
     (payload: {
       videoId: string;
@@ -341,6 +465,20 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     },
     []
   );
+
+  const publishAiAnalysisState = useCallback((payload: AiAnalysisSnapshot) => {
+    const cleanId = payload.videoId?.trim();
+    if (!cleanId) return;
+    aiByVideoRef.current.set(cleanId, { ...payload, videoId: cleanId });
+    if (cleanId === videoIdRef.current) {
+      setAiVideoId(cleanId);
+      setAiSegments(payload.segments);
+      setAiStatus(payload.status);
+      setAiError(payload.error ?? null);
+      setAiTitle(payload.title ?? null);
+      setAiIsFullCoverage(payload.isFullCoverage ?? null);
+    }
+  }, []);
 
   const play = useCallback(() => {
     setIsConcertActive(true);
@@ -462,6 +600,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
         console.warn('[YouTube Player] seekTo error:', e);
       }
     }
+    setSeekNonce((n) => n + 1);
   }, []);
 
   const persistStageYamnet = useCallback(
@@ -662,6 +801,7 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     isPaused,
     isStopped,
     isReady,
+    seekNonce,
     presentationMode,
     isConcertActive,
     play,
@@ -685,6 +825,13 @@ export const ConcertMusicProvider: React.FC<{ children: ReactNode }> = ({ childr
     publishYamnetState,
     startStageLiveYamnet,
     stopStageLiveYamnet,
+    aiVideoId,
+    aiSegments,
+    aiStatus,
+    aiError,
+    aiTitle,
+    aiIsFullCoverage,
+    publishAiAnalysisState,
   };
 
   return (

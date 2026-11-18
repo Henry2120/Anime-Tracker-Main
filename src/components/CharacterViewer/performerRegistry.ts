@@ -1,4 +1,5 @@
 import { CharacterManifestEntry } from '../../data/blueArchiveCharacters';
+import { isVoiceInstrument } from '../../utils/instrumentNormalization';
 import {
   YamnetTargetInstrumentName,
   YAMNET_TARGET_CATALOG,
@@ -47,7 +48,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'NonWeapon_Idle',
     idleFallbacks: ['Cafe_Idle', 'Formation_Idle', 'Normal_Idle'],
     playingClip: 'NonWeapon_Keyboard',
-    playingFallbacks: ['Cafe_Reaction', 'Exs', 'NonWeapon_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.5,
@@ -64,7 +65,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'NonWeapon_Idle',
     idleFallbacks: ['Cafe_Idle', 'Formation_Idle', 'Normal_Idle'],
     playingClip: 'NonWeapon_Bass',
-    playingFallbacks: ['Cafe_Reaction', 'Exs', 'NonWeapon_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.4,
@@ -81,7 +82,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Idle',
     idleFallbacks: ['Cafe_Idle', 'Formation_Idle'],
     playingClip: 'Drum',
-    playingFallbacks: ['Cafe_Reaction', 'Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.85,
@@ -98,7 +99,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'NonWeapon_Idle',
     idleFallbacks: ['Cafe_Idle', 'Formation_Idle', 'Normal_Idle'],
     playingClip: 'NonWeapon_Guitar',
-    playingFallbacks: ['Cafe_Reaction', 'Exs', 'NonWeapon_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.45,
@@ -115,7 +116,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Cutin',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'subclip_loop',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.85,
@@ -132,7 +133,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Grand_Piano',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.95,
@@ -149,7 +150,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'SM019601_Normal_Idle'],
     playingClip: 'Exs_Shamisen',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.4,
@@ -166,7 +167,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Saxophone',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.35,
@@ -183,7 +184,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Erhu',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.4,
@@ -200,7 +201,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Flute',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.35,
@@ -217,7 +218,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle'],
     playingClip: 'Exs_Trumpet',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.35,
@@ -234,7 +235,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Formation_Idle',
     idleFallbacks: ['Formation_Idle_Random', 'Normal_Idle'],
     playingClip: 'Exs_Harp',
-    playingFallbacks: ['Formation_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.75,
@@ -251,7 +252,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Violin',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.35,
@@ -268,7 +269,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Cello',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.5,
@@ -285,7 +286,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Vibraphone',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.8,
@@ -302,7 +303,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Handpan',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.45,
@@ -319,7 +320,7 @@ export const INSTRUMENT_PERFORMER_REGISTRY: readonly PerformerMappingEntry[] = [
     idleClip: 'Cafe_Idle',
     idleFallbacks: ['Formation_Idle', 'Normal_Idle'],
     playingClip: 'Exs_Synthesizer',
-    playingFallbacks: ['Cafe_Reaction', 'Cafe_Idle'],
+    playingFallbacks: [],
     loopMode: 'repeat',
     hasVerifiedInstrumentProp: true,
     stageFootprintWidth: 1.55,
@@ -413,14 +414,63 @@ export function toCharacterManifestEntry(mapping: PerformerMappingEntry): Charac
   };
 }
 
+const AI_FULL_TRACK_STAGE_ALIASES: Record<string, YamnetTargetInstrumentName> = {
+  'drum machine': 'Drum Kit',
+  'snare drum': 'Drum Kit',
+  'bass drum': 'Drum Kit',
+  toms: 'Drum Kit',
+  cymbals: 'Drum Kit',
+  'hi-hat': 'Drum Kit',
+  'synth pads': 'Synthesizer',
+  arpeggiator: 'Synthesizer',
+  'electronic bass': 'Synthesizer',
+  organ: 'Synthesizer',
+  marimba: 'Vibraphone',
+  xylophone: 'Vibraphone',
+  glockenspiel: 'Vibraphone',
+  piccolo: 'Flute',
+};
+
+/**
+ * Maps an instrument label from either YAMNet or AI Full-Track Analysis to one of the
+ * 17 assignable 3D performer categories, or null if vocal/unassignable.
+ * Keeps Vocals strictly unassignable (never spawns a 3D performer).
+ */
+export function mapInstrumentNameToPerformerTarget(
+  instrumentName: string | null | undefined,
+  isVoice?: boolean,
+  options: { allowAiAliases?: boolean } = {}
+): YamnetTargetInstrumentName | null {
+  if (!instrumentName) return null;
+  if (isVoice || isVoiceInstrument(instrumentName)) return null;
+
+  const trimmed = instrumentName.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === YAMNET_VOCAL_CATEGORY.canonicalName.toLowerCase()) {
+    return null;
+  }
+
+  const direct = YAMNET_TARGET_CATALOG.find(
+    (inst) => inst.canonicalName.toLowerCase() === lower
+  );
+  if (direct) return direct.canonicalName;
+
+  if (options.allowAiAliases) {
+    return AI_FULL_TRACK_STAGE_ALIASES[lower] || null;
+  }
+
+  return null;
+}
+
 /**
  * Resolves the best available animation clip name on a loaded GLB instance given a target
- * clip name and ordered fallbacks. Returns null only when no clips exist at all.
+ * clip name and ordered fallbacks. Never substitutes arbitrary clip[0] unless explicitly allowed.
  */
 export function resolvePerformerClipName(
   availableAnimations: Array<Pick<CharacterAnimationInfo, 'name'>>,
   preferredClip: string,
-  fallbacks: string[] = []
+  fallbacks: string[] = [],
+  options: { allowArbitraryFirstClipFallback?: boolean } = {}
 ): string | null {
   if (!availableAnimations || availableAnimations.length === 0) {
     return null;
@@ -436,5 +486,84 @@ export function resolvePerformerClipName(
     if (ci) return ci.name;
   }
 
-  return availableAnimations[0]?.name || null;
+  return options.allowArbitraryFirstClipFallback ? availableAnimations[0]?.name || null : null;
 }
+
+export interface PerformerClipResolution {
+  clipName: string | null;
+  isMissingExpected: boolean;
+  expectedClip: string;
+  availableNames: string[];
+  diagnosticMessage: string | null;
+}
+
+/**
+ * Strictly resolves the dedicated playing or idle clip for a mapped performer.
+ * Never silently substitutes an unrelated clip (like Cafe_Reaction or clip[0]) if the
+ * dedicated playing action is missing; instead returns clear diagnostic details.
+ */
+export function resolvePerformerActionClip(
+  availableAnimations: Array<Pick<CharacterAnimationInfo, 'name'>>,
+  mapping: PerformerMappingEntry,
+  targetState: 'playing' | 'idle'
+): PerformerClipResolution {
+  const availableNames = (availableAnimations || []).map((a) => a.name);
+
+  if (targetState === 'playing') {
+    const candidates =
+      mapping.playingClip === 'Exs_Cutin'
+        ? ['Exs_Cutin', 'Exs_Cutin_PianoLoop', ...mapping.playingFallbacks]
+        : [mapping.playingClip, ...mapping.playingFallbacks];
+
+    const matched = resolvePerformerClipName(
+      availableAnimations,
+      candidates[0],
+      candidates.slice(1),
+      { allowArbitraryFirstClipFallback: false }
+    );
+
+    if (matched) {
+      return {
+        clipName: matched,
+        isMissingExpected: false,
+        expectedClip: mapping.playingClip,
+        availableNames,
+        diagnosticMessage: null,
+      };
+    }
+
+    return {
+      clipName: null,
+      isMissingExpected: true,
+      expectedClip: mapping.playingClip,
+      availableNames,
+      diagnosticMessage: `Missing expected playing clip "${mapping.playingClip}" on ${mapping.characterName} (${mapping.filename}). Available clips: [${availableNames.slice(0, 8).join(', ')}${availableNames.length > 8 ? ', ...' : ''}]`,
+    };
+  }
+
+  const matchedIdle = resolvePerformerClipName(
+    availableAnimations,
+    mapping.idleClip,
+    mapping.idleFallbacks,
+    { allowArbitraryFirstClipFallback: false }
+  );
+
+  if (matchedIdle) {
+    return {
+      clipName: matchedIdle,
+      isMissingExpected: false,
+      expectedClip: mapping.idleClip,
+      availableNames,
+      diagnosticMessage: null,
+    };
+  }
+
+  return {
+    clipName: null,
+    isMissingExpected: true,
+    expectedClip: mapping.idleClip,
+    availableNames,
+    diagnosticMessage: `Missing expected idle clip "${mapping.idleClip}" on ${mapping.characterName} (${mapping.filename}). Available clips: [${availableNames.slice(0, 8).join(', ')}${availableNames.length > 8 ? ', ...' : ''}]`,
+  };
+}
+

@@ -3,11 +3,15 @@ import { YAMNET_VOCAL_CATEGORY, YamnetTargetInstrumentName } from '../../utils/y
 import {
   PerformerMappingEntry,
   getPerformerForInstrument,
-  isAssignableInstrument,
+  mapInstrumentNameToPerformerTarget,
   resolvePerformerMapping,
 } from './performerRegistry';
 
 export type PerformanceMode = 'automatic' | 'manual';
+
+export type DetectionSourceMode = 'yamnet' | 'ai_full_track' | 'hybrid';
+
+export type ActivePerformerAudioSource = 'yamnet' | 'ai_full_track' | 'both';
 
 export type PerformerOrigin = 'auto' | 'manual';
 
@@ -28,6 +32,7 @@ export interface StagedPerformerRecord {
   instanceId: string | null;
   lastDetectedAtMs: number | null;
   graceDeadlineMs: number | null;
+  activeSource?: ActivePerformerAudioSource | null;
   confidence?: number;
   errorMessage?: string;
   errorTimestampMs?: number;
@@ -35,8 +40,10 @@ export interface StagedPerformerRecord {
 
 export interface OrchestratorState {
   mode: PerformanceMode;
+  detectionSource: DetectionSourceMode;
   videoId: string | null;
   lastPlaybackTime: number;
+  lastUpdatedAtMs?: number;
   performers: Record<string, StagedPerformerRecord>;
 }
 
@@ -56,12 +63,14 @@ export interface OrchestratorAnimationDirective {
 export interface OrchestratorStepInput {
   state: OrchestratorState;
   mode: PerformanceMode;
+  detectionSource?: DetectionSourceMode;
   videoId: string | null;
   currentTime: number;
   isPlaying: boolean;
   isPaused: boolean;
   isStopped: boolean;
   segments: InstrumentTimelineSegment[];
+  aiSegments?: InstrumentTimelineSegment[];
   gracePeriodMs: number;
   nowMs: number;
   errorCooldownMs?: number;
@@ -71,19 +80,24 @@ export interface OrchestratorStepResult {
   nextState: OrchestratorState;
   activeInstruments: YamnetTargetInstrumentName[];
   activeVocals: boolean;
+  sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>>;
   loadRequests: OrchestratorLoadRequest[];
   removeInstanceIds: string[];
   animationDirectives: OrchestratorAnimationDirective[];
   reconciledVideoSwitch: boolean;
   reconciledModeSwitch: boolean;
+  reconciledSourceSwitch: boolean;
+  reconciledSeek: boolean;
 }
 
 export function createInitialOrchestratorState(
   mode: PerformanceMode = 'automatic',
-  videoId: string | null = null
+  videoId: string | null = null,
+  detectionSource: DetectionSourceMode = 'yamnet'
 ): OrchestratorState {
   return {
     mode,
+    detectionSource,
     videoId,
     lastPlaybackTime: 0,
     performers: {},
@@ -96,7 +110,8 @@ export function createInitialOrchestratorState(
  */
 export function evaluateActiveAudioCategories(
   segments: InstrumentTimelineSegment[],
-  currentTime: number
+  currentTime: number,
+  options: { allowAiAliases?: boolean } = {}
 ): {
   activeInstruments: YamnetTargetInstrumentName[];
   activeVocals: boolean;
@@ -121,12 +136,13 @@ export function evaluateActiveAudioCategories(
       continue;
     }
 
-    if (isAssignableInstrument(seg.instrumentName)) {
-      activeSet.add(seg.instrumentName);
+    const mapped = mapInstrumentNameToPerformerTarget(seg.instrumentName, seg.isVoice, options);
+    if (mapped) {
+      activeSet.add(mapped);
       const conf = typeof seg.confidence === 'number' ? seg.confidence : 0;
-      const prev = confidenceByInstrument[seg.instrumentName] ?? -1;
+      const prev = confidenceByInstrument[mapped] ?? -1;
       if (conf > prev) {
-        confidenceByInstrument[seg.instrumentName] = conf;
+        confidenceByInstrument[mapped] = conf;
       }
     }
   }
@@ -135,6 +151,73 @@ export function evaluateActiveAudioCategories(
     activeInstruments: Array.from(activeSet),
     activeVocals,
     confidenceByInstrument,
+  };
+}
+
+/**
+ * Combines timestamped detections according to the selected DetectionSourceMode:
+ * - 'yamnet': Live YAMNet detections only
+ * - 'ai_full_track': Reused AI Full-Track Analysis segments only
+ * - 'hybrid': Union of both (if either detects an instrument at currentTime, it is active)
+ */
+export function evaluateCombinedAudioSources(params: {
+  sourceMode: DetectionSourceMode;
+  yamnetSegments: InstrumentTimelineSegment[];
+  aiSegments: InstrumentTimelineSegment[];
+  currentTime: number;
+}): {
+  activeInstruments: YamnetTargetInstrumentName[];
+  activeVocals: boolean;
+  confidenceByInstrument: Partial<Record<YamnetTargetInstrumentName, number>>;
+  sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>>;
+} {
+  const { sourceMode, yamnetSegments, aiSegments, currentTime } = params;
+
+  if (sourceMode === 'yamnet') {
+    const y = evaluateActiveAudioCategories(yamnetSegments, currentTime, { allowAiAliases: false });
+    const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
+    for (const inst of y.activeInstruments) {
+      sourceByInstrument[inst] = 'yamnet';
+    }
+    return { ...y, sourceByInstrument };
+  }
+
+  if (sourceMode === 'ai_full_track') {
+    const a = evaluateActiveAudioCategories(aiSegments, currentTime, { allowAiAliases: true });
+    const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
+    for (const inst of a.activeInstruments) {
+      sourceByInstrument[inst] = 'ai_full_track';
+    }
+    return { ...a, sourceByInstrument };
+  }
+
+  // Hybrid: union across Live YAMNet and AI Full-Track Analysis
+  const y = evaluateActiveAudioCategories(yamnetSegments, currentTime, { allowAiAliases: false });
+  const a = evaluateActiveAudioCategories(aiSegments, currentTime, { allowAiAliases: true });
+
+  const yamnetSet = new Set(y.activeInstruments);
+  const aiSet = new Set(a.activeInstruments);
+  const unionSet = new Set<YamnetTargetInstrumentName>([...y.activeInstruments, ...a.activeInstruments]);
+
+  const confidenceByInstrument: Partial<Record<YamnetTargetInstrumentName, number>> = {};
+  const sourceByInstrument: Partial<Record<YamnetTargetInstrumentName, ActivePerformerAudioSource>> = {};
+
+  for (const inst of unionSet) {
+    const yConf = y.confidenceByInstrument[inst] ?? -1;
+    const aConf = a.confidenceByInstrument[inst] ?? -1;
+    if (Math.max(yConf, aConf) >= 0) {
+      confidenceByInstrument[inst] = Math.max(yConf, aConf);
+    }
+    const inY = yamnetSet.has(inst);
+    const inA = aiSet.has(inst);
+    sourceByInstrument[inst] = inY && inA ? 'both' : inY ? 'yamnet' : 'ai_full_track';
+  }
+
+  return {
+    activeInstruments: Array.from(unionSet),
+    activeVocals: y.activeVocals || a.activeVocals,
+    confidenceByInstrument,
+    sourceByInstrument,
   };
 }
 
@@ -155,8 +238,10 @@ export function buildPerformerKey(
 
 /**
  * Pure deterministic orchestrator step.
- * Computes exact load, remove, grace-period, and idle/playing directives without
- * side-effects, making all timing and mode transitions 100% testable.
+ * - Performers remain persistently on stage once added in both Automatic and Manual modes.
+ * - Never removes performers on silence, pauses, stops, seeks, or grace expiration.
+ * - Cross-track video switches clean up previously auto-staged performers so stale song casts don't linger.
+ * - Grace / Hold window is used strictly as anti-flicker animation smoothing before returning to idle.
  */
 export function stepPerformanceOrchestrator(
   input: OrchestratorStepInput
@@ -164,18 +249,20 @@ export function stepPerformanceOrchestrator(
   const {
     state,
     mode,
+    detectionSource = 'yamnet',
     videoId,
     currentTime,
     isPlaying,
     isPaused,
     isStopped,
     segments,
+    aiSegments = [],
     gracePeriodMs,
     nowMs,
     errorCooldownMs = 15000,
   } = input;
 
-  const safeGraceMs = Math.max(0, Number.isFinite(gracePeriodMs) ? gracePeriodMs : 2500);
+  const safeGraceMs = Math.max(0, Number.isFinite(gracePeriodMs) ? gracePeriodMs : 1000);
   const nextPerformers: Record<string, StagedPerformerRecord> = {};
   const loadRequests: OrchestratorLoadRequest[] = [];
   const removeInstanceIds: string[] = [];
@@ -184,6 +271,17 @@ export function stepPerformanceOrchestrator(
   const videoChanged =
     Boolean(state.videoId) && Boolean(videoId) && state.videoId !== videoId;
   const modeChanged = state.mode !== mode;
+  const sourceChanged = (state.detectionSource || 'yamnet') !== detectionSource;
+  const hasPreviousTick = state.lastUpdatedAtMs !== undefined;
+  const dtWallSec = hasPreviousTick
+    ? Math.max(0, (nowMs - state.lastUpdatedAtMs!) / 1000)
+    : 0;
+  const maxExpectedForwardDelta = Math.max(1.5, dtWallSec * 2.5 + 1.2);
+  const forwardDelta = currentTime - state.lastPlaybackTime;
+  const isSeekJump =
+    hasPreviousTick &&
+    !videoChanged &&
+    (forwardDelta > maxExpectedForwardDelta || currentTime < state.lastPlaybackTime - 0.6);
 
   // Clone current records (handling video switch and mode transition cleanly)
   for (const [key, rec] of Object.entries(state.performers)) {
@@ -199,18 +297,19 @@ export function stepPerformanceOrchestrator(
     if (videoChanged && rec.origin === 'manual') {
       cloned.lifecycle = cloned.instanceId ? 'idle' : cloned.lifecycle;
       cloned.graceDeadlineMs = null;
+      cloned.activeSource = null;
     }
 
     if (modeChanged) {
       if (state.mode === 'automatic' && mode === 'manual') {
-        // Auto -> Manual: preserve currently staged performers as manual & cancel pending removals
+        // Auto -> Manual: preserve currently staged performers as manual
         cloned.origin = 'manual';
         cloned.graceDeadlineMs = null;
         if (cloned.lifecycle === 'grace_waiting') {
-          cloned.lifecycle = cloned.instanceId ? 'idle' : 'loading';
+          cloned.lifecycle = cloned.instanceId ? 'playing' : 'loading';
         }
       } else if (state.mode === 'manual' && mode === 'automatic') {
-        // Manual -> Auto: preserve loaded models without reload, allow reconciliation
+        // Manual -> Auto: preserve loaded models without reload & allow new auto spawns
         cloned.origin = 'auto';
         cloned.graceDeadlineMs = null;
       }
@@ -219,8 +318,13 @@ export function stepPerformanceOrchestrator(
     nextPerformers[key] = cloned;
   }
 
-  const { activeInstruments, activeVocals, confidenceByInstrument } =
-    evaluateActiveAudioCategories(segments, currentTime);
+  const { activeInstruments, activeVocals, confidenceByInstrument, sourceByInstrument } =
+    evaluateCombinedAudioSources({
+      sourceMode: detectionSource,
+      yamnetSegments: segments,
+      aiSegments,
+      currentTime,
+    });
 
   const activeInstrumentSet = new Set<YamnetTargetInstrumentName>(activeInstruments);
 
@@ -229,10 +333,8 @@ export function stepPerformanceOrchestrator(
     ? activeInstrumentSet
     : new Set<YamnetTargetInstrumentName>();
 
-  // 1. Update existing staged performers
+  // 1. Update existing staged performers (presence is persistent; only animation state changes)
   for (const [key, rec] of Object.entries(nextPerformers)) {
-    const isInstrumentActiveAtCursor =
-      rec.instrumentName !== null && activeInstrumentSet.has(rec.instrumentName);
     const shouldPlayNow =
       isPlaying && rec.instrumentName !== null && effectiveActiveForPlaying.has(rec.instrumentName);
     const mapping = rec.instrumentName ? getPerformerForInstrument(rec.instrumentName) : null;
@@ -249,6 +351,7 @@ export function stepPerformanceOrchestrator(
         rec.lifecycle = 'loading';
         rec.errorMessage = undefined;
         rec.graceDeadlineMs = null;
+        rec.activeSource = rec.instrumentName ? sourceByInstrument[rec.instrumentName] ?? null : null;
         loadRequests.push({
           key,
           mapping,
@@ -259,45 +362,23 @@ export function stepPerformanceOrchestrator(
     }
 
     if (rec.lifecycle === 'loading') {
-      // Loading already in flight — keep slot reserved to prevent duplicate downloads.
-      // If Auto performer was loading during a brief gap, keep waiting unless video switched.
-      if (shouldPlayNow) {
-        rec.lastDetectedAtMs = nowMs;
-        rec.graceDeadlineMs = null;
-      }
-      continue;
-    }
-
-    // Loaded performer on stage
-    if (mode === 'manual') {
-      // Manual mode: never auto-remove; drive idle <-> playing from active YAMNet detections
-      rec.graceDeadlineMs = null;
-      const targetState: 'idle' | 'playing' = shouldPlayNow ? 'playing' : 'idle';
-      if (rec.lifecycle !== targetState) {
-        rec.lifecycle = targetState;
-      }
+      // Loading already in flight — keep slot reserved to prevent duplicate downloads
       if (shouldPlayNow && rec.instrumentName) {
         rec.lastDetectedAtMs = nowMs;
-        rec.confidence = confidenceByInstrument[rec.instrumentName];
-      }
-      if (rec.instanceId) {
-        animationDirectives.push({
-          instanceId: rec.instanceId,
-          key,
-          targetState,
-          mapping,
-        });
+        rec.graceDeadlineMs = null;
+        rec.activeSource = sourceByInstrument[rec.instrumentName] ?? null;
       }
       continue;
     }
 
-    // Automatic mode
+    // Loaded performer on stage — ALWAYS stays on stage until manual remove/Clear/video switch
     if (shouldPlayNow) {
       rec.lifecycle = 'playing';
       rec.lastDetectedAtMs = nowMs;
       rec.graceDeadlineMs = null;
       if (rec.instrumentName) {
         rec.confidence = confidenceByInstrument[rec.instrumentName];
+        rec.activeSource = sourceByInstrument[rec.instrumentName] ?? null;
       }
       if (rec.instanceId) {
         animationDirectives.push({
@@ -307,9 +388,15 @@ export function stepPerformanceOrchestrator(
           mapping,
         });
       }
-    } else if (isPaused && !isStopped) {
-      // Paused: smoothly return to idle and freeze grace countdown so user can inspect stage
-      rec.lifecycle = isInstrumentActiveAtCursor ? 'idle' : rec.lifecycle === 'grace_waiting' ? 'grace_waiting' : 'idle';
+      continue;
+    }
+
+    // Instrument not actively detected OR playback paused/stopped
+    if (!isPlaying || isPaused || isStopped || isSeekJump || sourceChanged || safeGraceMs === 0) {
+      // Immediately settle to idle when playback is paused/stopped, seeked, source switched, or smoothing is 0ms
+      rec.lifecycle = 'idle';
+      rec.graceDeadlineMs = null;
+      rec.activeSource = null;
       if (rec.instanceId) {
         animationDirectives.push({
           instanceId: rec.instanceId,
@@ -318,32 +405,59 @@ export function stepPerformanceOrchestrator(
           mapping,
         });
       }
-    } else {
-      // Instrument no longer active (or playback stopped)
-      if (rec.instanceId) {
-        animationDirectives.push({
-          instanceId: rec.instanceId,
-          key,
-          targetState: 'idle',
-          mapping,
-        });
-      }
+      continue;
+    }
 
-      if (rec.origin === 'manual') {
-        rec.lifecycle = 'idle';
-        rec.graceDeadlineMs = null;
-        continue;
-      }
+    // Continuous playback smoothing / anti-flicker hold: brief dropouts hold playing animation, then settle cleanly to idle
+    const wasPlayingOrHolding =
+      rec.lifecycle === 'playing' || rec.lifecycle === 'grace_waiting';
 
-      if (safeGraceMs === 0) {
-        if (rec.instanceId) removeInstanceIds.push(rec.instanceId);
-        delete nextPerformers[key];
-      } else if (rec.lifecycle !== 'grace_waiting' || rec.graceDeadlineMs === null) {
+    if (wasPlayingOrHolding) {
+      if (rec.lifecycle === 'playing' || rec.graceDeadlineMs === null) {
         rec.lifecycle = 'grace_waiting';
         rec.graceDeadlineMs = nowMs + safeGraceMs;
-      } else if (nowMs >= rec.graceDeadlineMs) {
-        if (rec.instanceId) removeInstanceIds.push(rec.instanceId);
-        delete nextPerformers[key];
+        if (rec.instanceId) {
+          animationDirectives.push({
+            instanceId: rec.instanceId,
+            key,
+            targetState: 'playing',
+            mapping,
+          });
+        }
+      } else if (nowMs < rec.graceDeadlineMs) {
+        if (rec.instanceId) {
+          animationDirectives.push({
+            instanceId: rec.instanceId,
+            key,
+            targetState: 'playing',
+            mapping,
+          });
+        }
+      } else {
+        // Hold window expired -> transition smoothly back to idle, NEVER remove performer from stage
+        rec.lifecycle = 'idle';
+        rec.graceDeadlineMs = null;
+        rec.activeSource = null;
+        if (rec.instanceId) {
+          animationDirectives.push({
+            instanceId: rec.instanceId,
+            key,
+            targetState: 'idle',
+            mapping,
+          });
+        }
+      }
+    } else {
+      rec.lifecycle = 'idle';
+      rec.graceDeadlineMs = null;
+      rec.activeSource = null;
+      if (rec.instanceId) {
+        animationDirectives.push({
+          instanceId: rec.instanceId,
+          key,
+          targetState: 'idle',
+          mapping,
+        });
       }
     }
   }
@@ -380,6 +494,7 @@ export function stepPerformanceOrchestrator(
         instanceId: null,
         lastDetectedAtMs: nowMs,
         graceDeadlineMs: null,
+        activeSource: sourceByInstrument[instName] ?? null,
         confidence: confidenceByInstrument[instName],
       };
 
@@ -394,17 +509,22 @@ export function stepPerformanceOrchestrator(
   return {
     nextState: {
       mode,
+      detectionSource,
       videoId,
       lastPlaybackTime: currentTime,
+      lastUpdatedAtMs: nowMs,
       performers: nextPerformers,
     },
     activeInstruments,
     activeVocals,
+    sourceByInstrument,
     loadRequests,
     removeInstanceIds: Array.from(new Set(removeInstanceIds)),
     animationDirectives,
     reconciledVideoSwitch: videoChanged,
     reconciledModeSwitch: modeChanged,
+    reconciledSourceSwitch: sourceChanged,
+    reconciledSeek: isSeekJump,
   };
 }
 
@@ -441,6 +561,7 @@ export function registerLoadedPerformer(
     instanceId: params.instanceId,
     lastDetectedAtMs: prev?.lastDetectedAtMs ?? params.nowMs,
     graceDeadlineMs: null,
+    activeSource: params.isPlayingNow ? prev?.activeSource ?? null : null,
     confidence: prev?.confidence,
   };
 

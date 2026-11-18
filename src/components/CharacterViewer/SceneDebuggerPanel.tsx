@@ -12,7 +12,11 @@ import {
   Cpu,
 } from 'lucide-react';
 import { LoadedCharacterInstance, ViewerCameraPreset, ViewerEnvironment } from './types';
-import { PerformanceMode, StagedPerformerRecord } from './performanceOrchestrator';
+import {
+  DetectionSourceMode,
+  PerformanceMode,
+  StagedPerformerRecord,
+} from './performanceOrchestrator';
 
 export interface SceneDebuggerData {
   // Stage & Backdrop
@@ -22,12 +26,16 @@ export interface SceneDebuggerData {
   backgroundMode: string;
   activeBackgroundColor: string;
 
-  // Performance Orchestrator & YAMNet Sync
+  // Performance Orchestrator & Detection Sync
   performanceMode: PerformanceMode;
+  detectionSource: DetectionSourceMode;
   gracePeriodMs: number;
   yamnetStatus: string;
   yamnetUsingWorker: boolean;
   yamnetSegmentsCount: number;
+  aiStatus: string;
+  aiSegmentsCount: number;
+  aiTitle?: string | null;
   activeInstruments: string[];
   activeVocals: boolean;
   stagedPerformers: StagedPerformerRecord[];
@@ -98,19 +106,24 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
         fps: data.fps,
         frameTimeMs: data.frameTimeMs,
       },
-      yamnetPerformanceSync: {
+      audioPerformanceSync: {
         mode: data.performanceMode,
-        gracePeriodMs: data.gracePeriodMs,
+        detectionSource: data.detectionSource,
+        antiFlickerHoldMs: data.gracePeriodMs,
         yamnetStatus: data.yamnetStatus,
         executionEngine: data.yamnetUsingWorker ? 'Web Worker' : 'Main Thread',
-        segmentsCount: data.yamnetSegmentsCount,
+        yamnetSegmentsCount: data.yamnetSegmentsCount,
+        aiStatus: data.aiStatus,
+        aiSegmentsCount: data.aiSegmentsCount,
         activeInstruments: data.activeInstruments,
         activeVocals: data.activeVocals,
         stagedPerformers: data.stagedPerformers.map((p) => ({
           characterName: p.characterName,
           instrument: p.instrumentName,
           origin: p.origin,
-          lifecycle: p.lifecycle,
+          stagePresence: p.lifecycle === 'error' ? 'error' : 'persistent',
+          animationState: p.lifecycle,
+          activeSource: p.activeSource ?? null,
         })),
       },
       cache: data.cacheStats,
@@ -121,6 +134,7 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
           name: c.manifestEntry.name,
           currentAnimation: c.currentAnimationName,
           isPlayingAnimation: c.isPlayingAnimation,
+          missingClipWarning: c.missingClipWarning || null,
         })),
       },
       music: {
@@ -138,8 +152,9 @@ export const SceneDebuggerPanel: React.FC<SceneDebuggerPanelProps> = ({
 Timestamp: ${timestamp}
 Backdrop: ${data.activeSceneName} (${data.sceneStatus})
 FPS / Frame Time: ${data.fps} FPS (${data.frameTimeMs.toFixed(1)} ms)
-Mode: ${data.performanceMode.toUpperCase()} | Grace: ${data.gracePeriodMs} ms
+Mode: ${data.performanceMode.toUpperCase()} | Source: ${data.detectionSource.toUpperCase()} | Hold: ${data.gracePeriodMs} ms
 YAMNet Engine: ${data.yamnetUsingWorker ? 'Web Worker' : 'Main Thread'} | Status: ${data.yamnetStatus} | Segments: ${data.yamnetSegmentsCount}
+AI Full-Track: ${data.aiStatus} | Segments: ${data.aiSegmentsCount}
 Active Instruments: ${data.activeInstruments.length > 0 ? data.activeInstruments.join(', ') : 'None'}
 Vocals Active (No Character): ${data.activeVocals ? 'Yes' : 'No'}
 Loaded Performers: ${data.loadedCharacters.length}
@@ -217,35 +232,55 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-        {/* YAMNet Sync & Stage Metrics */}
+        {/* Audio Sync & Stage Metrics */}
         <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-2">
           <div className="flex items-center justify-between pb-1 border-b border-white/10">
             <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
               <Activity className="h-3.5 w-3.5" />
-              <span>YAMNet Performance Sync</span>
+              <span>Performance & Detection Sync</span>
             </span>
             <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-cyan-300 border border-white/10 uppercase">
-              {data.yamnetStatus}
+              {data.detectionSource === 'ai_full_track'
+                ? `AI:${data.aiStatus}`
+                : data.detectionSource === 'hybrid'
+                ? 'HYBRID'
+                : data.yamnetStatus}
             </span>
           </div>
 
           <div className="space-y-1 text-[11px]">
             <div className="flex justify-between items-center py-0.5">
-              <span className="text-[#94A3B8]">Staging Mode:</span>
+              <span className="text-[#94A3B8]">Staging / Persistence:</span>
               <span className="font-bold text-white uppercase">
-                {data.performanceMode} {data.performanceMode === 'automatic' ? `(Grace ${(data.gracePeriodMs / 1000).toFixed(1)}s)` : '(Persistent)'}
+                {data.performanceMode} • Persistent (Hold {(data.gracePeriodMs / 1000).toFixed(1)}s)
               </span>
             </div>
             <div className="flex justify-between items-center py-0.5">
-              <span className="text-[#94A3B8]">Inference Engine:</span>
-              <span className="font-bold text-cyan-300">
-                {data.yamnetUsingWorker ? 'Dedicated Web Worker' : 'Main Thread Fallback'}
+              <span className="text-[#94A3B8]">Detection Source:</span>
+              <span className="font-bold text-emerald-300 uppercase">
+                {data.detectionSource === 'yamnet'
+                  ? 'Live YAMNet'
+                  : data.detectionSource === 'ai_full_track'
+                  ? 'AI Full-Track'
+                  : 'Hybrid (YAMNet + AI)'}
               </span>
             </div>
             <div className="flex justify-between items-center py-0.5">
-              <span className="text-[#94A3B8]">Timeline Segments / Cursor:</span>
+              <span className="text-[#94A3B8]">YAMNet Segments / Engine:</span>
+              <span className="font-mono text-cyan-300">
+                {data.yamnetSegmentsCount} segs • {data.yamnetUsingWorker ? 'Worker' : 'Main'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-0.5">
+              <span className="text-[#94A3B8]">AI Full-Track Cache:</span>
+              <span className="font-mono text-indigo-300">
+                {data.aiStatus.toUpperCase()} ({data.aiSegmentsCount} segs)
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-0.5">
+              <span className="text-[#94A3B8]">Playback Cursor:</span>
               <span className="font-mono text-white">
-                {data.yamnetSegmentsCount} segs @ {data.playbackTimeSec.toFixed(1)}s
+                {data.playbackTimeSec.toFixed(2)}s ({data.isPlaying ? 'PLAY' : data.isPaused ? 'PAUSE' : 'STOP'})
               </span>
             </div>
             <div className="flex justify-between items-center py-0.5">
@@ -267,6 +302,47 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
               </span>
             </div>
           </div>
+
+          {data.stagedPerformers.length > 0 && (
+            <div className="pt-1.5 border-t border-white/10 space-y-1">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-[#94A3B8]">
+                Persistent Stage Roster ({data.stagedPerformers.length}):
+              </span>
+              <div className="max-h-28 overflow-y-auto space-y-1">
+                {data.stagedPerformers.map((p) => (
+                  <div
+                    key={p.key}
+                    className="flex items-center justify-between text-[10px] bg-black/30 px-2 py-1 rounded border border-white/5"
+                  >
+                    <span className="truncate max-w-[160px] text-white font-semibold">
+                      {p.characterName}
+                      {p.instrumentName ? ` • ${p.instrumentName}` : ''}
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      {p.activeSource && (
+                        <span className="px-1 rounded bg-white/10 text-cyan-300 uppercase text-[9px]">
+                          {p.activeSource === 'both' ? 'Y+AI' : p.activeSource === 'ai_full_track' ? 'AI' : 'Y'}
+                        </span>
+                      )}
+                      <span
+                        className={`px-1.5 py-0.2 rounded font-bold uppercase text-[9px] ${
+                          p.lifecycle === 'playing'
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : p.lifecycle === 'grace_waiting'
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : p.lifecycle === 'error'
+                            ? 'bg-red-500/20 text-red-300'
+                            : 'bg-white/10 text-[#CBD5E1]'
+                        }`}
+                      >
+                        {p.lifecycle === 'grace_waiting' ? 'HOLD' : p.lifecycle}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Performance & Cache Metrics */}
@@ -346,6 +422,12 @@ GLB Cache: ${data.cacheStats.cachedAssetCount} cached (${data.cacheStats.cacheHi
                           {targetChar.currentAnimationName || 'None'}
                         </span>
                       </div>
+
+                      {targetChar.missingClipWarning && (
+                        <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] break-words">
+                          {targetChar.missingClipWarning}
+                        </div>
+                      )}
 
                       <div className="flex justify-between items-center py-0.5 border-b border-white/5">
                         <span className="text-[#94A3B8]">Mixer & Action State:</span>
