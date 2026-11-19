@@ -2,10 +2,12 @@ import { createUuid, db } from '../db/dexie';
 import type {
   AcquisitionMethod,
   BookFormat,
+  ContributorCredit,
   CopyCondition,
   CurrencyCode,
   Edition,
   EditionIsbn,
+  FieldProvenanceEntry,
   JournalEntry,
   JournalEntryType,
   Loan,
@@ -62,6 +64,7 @@ export interface CreateBookBundleInput {
     originalTitle?: string;
     subtitle?: string;
     authors: string[];
+    illustrators?: string[];
     genres: string[];
     tags?: string[];
     description?: string;
@@ -71,6 +74,7 @@ export interface CreateBookBundleInput {
     seriesIndex?: string;
     metadataSource?: MetadataProviderName;
     metadataVerified?: boolean;
+    fieldProvenance?: Record<string, FieldProvenanceEntry>;
   };
   edition: {
     title: string;
@@ -79,6 +83,8 @@ export interface CreateBookBundleInput {
     translationTitle?: string;
     translators?: string[];
     illustrators?: string[];
+    editors?: string[];
+    contributors?: ContributorCredit[];
     publishers?: string[];
     publishingPartner?: string;
     publishedDate?: string;
@@ -93,6 +99,7 @@ export interface CreateBookBundleInput {
     description?: string;
     metadataSource?: MetadataProviderName;
     metadataVerified?: boolean;
+    fieldProvenance?: Record<string, FieldProvenanceEntry>;
   };
   isbnInput?: string;
   createCopy?: boolean;
@@ -145,6 +152,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           originalTitle: input.work.originalTitle?.trim() || undefined,
           subtitle: input.work.subtitle?.trim() || undefined,
           authors: input.work.authors.filter(Boolean),
+          illustrators: input.work.illustrators?.filter(Boolean),
           genres: input.work.genres.filter(Boolean),
           tags: (input.work.tags ?? []).filter(Boolean),
           description: input.work.description?.trim() || undefined,
@@ -155,6 +163,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           metadataSource: input.work.metadataSource ?? 'manual',
           metadataVerified: input.work.metadataVerified ?? true,
           userVerifiedFields: ['title', 'authors'],
+          fieldProvenance: input.work.fieldProvenance,
           createdAt: ts,
           updatedAt: ts,
           deletedAt: null,
@@ -180,11 +189,13 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
         translationTitle: input.edition.translationTitle?.trim() || undefined,
         translators: (input.edition.translators ?? []).filter(Boolean),
         illustrators: (input.edition.illustrators ?? []).filter(Boolean),
+        editors: (input.edition.editors ?? []).filter(Boolean),
+        contributors: input.edition.contributors,
         publishers: (input.edition.publishers ?? []).filter(Boolean),
         publishingPartner: input.edition.publishingPartner?.trim() || undefined,
         publishedDate: input.edition.publishedDate?.trim() || undefined,
         publishedYear: input.edition.publishedYear ?? null,
-        language: input.edition.language || 'vi',
+        language: input.edition.language || 'und',
         format: input.edition.format || 'paperback',
         pageCount: input.edition.pageCount ?? null,
         seriesName: input.edition.seriesName?.trim() || undefined,
@@ -195,6 +206,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
         metadataSource: input.edition.metadataSource ?? 'manual',
         metadataVerified: input.edition.metadataVerified ?? true,
         userVerifiedFields: ['title', 'language', 'format'],
+        fieldProvenance: input.edition.fieldProvenance,
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,

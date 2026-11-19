@@ -2,35 +2,51 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Camera,
+  Check,
   CheckCircle2,
+  Copy,
   ExternalLink,
   FileSearch,
+  Flashlight,
   ImagePlus,
   Loader2,
   RotateCcw,
   Search,
   Sparkles,
+  Wrench,
   X,
 } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import { saveLocalCoverBlob } from '../services/covers';
 import { createBookBundle } from '../services/libraryService';
-import { mergeCandidateIntoDraft, type ManualDraftFields } from '../services/metadata/pipeline';
+import {
+  buildStructuredContributors,
+  mergeCandidateIntoDraft,
+  type ManualDraftFields,
+} from '../services/metadata/pipeline';
 import {
   lookupMetadataWithReportByIsbn,
   recordProviderMetadata,
   searchMetadataWithReportByQuery,
 } from '../services/metadataService';
 import {
-  detectBarcodeFromImageSource,
+  detectBarcodeFromImageSourceDetailed,
+  getCameraTrackTorchSupport,
+  getScannerCapabilities,
+  mapCameraErrorMessage,
+  openCameraStreamWithFallback,
   requestCoverAiAssist,
   runLocalCoverOcr,
+  scanVideoFrameForBarcodeDetailed,
+  setCameraTrackTorch,
+  type BarcodeScanAttemptResult,
 } from '../services/scannerAndOcr';
 import type {
   AcquisitionMethod,
   BookFormat,
   CopyCondition,
   CurrencyCode,
+  FieldProvenanceEntry,
   MetadataCandidate,
   OwnershipStatus,
   ProviderStatusReport,
@@ -42,10 +58,13 @@ import { CURRENCY_OPTIONS } from '../utils/currency';
 import { formatIsbn13, parseIsbn } from '../utils/isbn';
 import {
   createInitialScanLookupState,
+  createSequentialDecodeRunner,
   transitionOnBarcodeDecoded,
   transitionOnBarcodeNotDetected,
   transitionOnClearScan,
+  transitionOnInvalidChecksumFrame,
   transitionOnLookupCompleted,
+  transitionOnLookupFailed,
   transitionOnSelectCandidate,
   type AddBookModalTab,
   type ScanLookupUiState,
@@ -74,23 +93,45 @@ export function AddBookModal({
 
   // Scanner & lookup state (managed via tested scanFlow transitions)
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const decodeRunnerRef = useRef(createSequentialDecodeRunner());
   const scanDetectedRef = useRef(false);
+  const lastSubmittedIsbnRef = useRef<string | null>(null);
   const [scanUi, setScanUi] = useState<ScanLookupUiState>(() => createInitialScanLookupState('isbn'));
   const [searchQuery, setSearchQuery] = useState('');
+  const [cameraResolution, setCameraResolution] = useState<string | null>(null);
+  const [cameraProfile, setCameraProfile] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [scanModeLabel, setScanModeLabel] = useState<'camera' | 'upload'>('camera');
+  const [lastAttemptAt, setLastAttemptAt] = useState<string | null>(null);
+  const [copiedIsbn, setCopiedIsbn] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const {
     tab,
     cameraActive,
     cameraError,
     scannedIsbn,
+    decodedRawValue,
+    decodedFormat,
+    decodedChecksumError,
     scanAttempted,
     isbnInput,
     loadingLookup,
     hasSearched,
     candidates,
+    possibleEditionMatches,
+    relatedEditions,
+    workMatches,
+    approximateMatches,
     providerStatuses,
+    stagesExecuted,
     selectedCandidate,
+    lookupFromCache,
+    lastAttemptDiagnostics,
   } = scanUi;
 
   const setTab = (nextTab: AddBookModalTab) =>
@@ -123,7 +164,9 @@ export function AddBookModal({
   const [volumeNumber, setVolumeNumber] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [description, setDescription] = useState('');
+  const [editorsText, setEditorsText] = useState('');
   const [userEditedFields, setUserEditedFields] = useState<Set<keyof ManualDraftFields>>(new Set());
+  const [fieldProvenance, setFieldProvenance] = useState<Record<string, FieldProvenanceEntry>>({});
 
   // Physical Copy section
   const [trackCopy, setTrackCopy] = useState(true);
@@ -146,20 +189,38 @@ export function AddBookModal({
     setCurrency(defaultCurrency);
   }, [defaultCurrency]);
 
-  const markUserEdited = (field: keyof ManualDraftFields) => {
+  const markUserEdited = (
+    field: Exclude<keyof ManualDraftFields, 'fieldProvenance'>,
+    provKey?: string
+  ) => {
     setUserEditedFields((prev) => {
       if (prev.has(field)) return prev;
       const next = new Set(prev);
       next.add(field);
       return next;
     });
+    const key = provKey ?? field.replace(/Text$/, '').replace(/^isbnInput$/, 'isbn13');
+    setFieldProvenance((prev) => ({
+      ...prev,
+      [key]: { provider: 'manual', trust: 'manual' },
+    }));
   };
 
   const stopCamera = () => {
+    if (rafIdRef.current !== null) {
+      window.cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setTorchSupported(false);
+    setTorchEnabled(false);
+    setCameraResolution(null);
     setScanUi((prev) => (prev.cameraActive ? { ...prev, cameraActive: false } : prev));
   };
 
@@ -170,17 +231,23 @@ export function AddBookModal({
     return () => stopCamera();
   }, [open, tab]);
 
-  const handleIsbnLookup = async (overrideIsbn?: string) => {
+  const handleIsbnLookup = async (
+    overrideIsbn?: string,
+    lookupOpts?: { bypassCache?: boolean; retryFailedOnly?: boolean }
+  ) => {
     const raw = (overrideIsbn ?? isbnInput).trim();
     if (!raw) return;
     setScanUi((prev) => ({ ...prev, loadingLookup: true, hasSearched: true }));
     setErrorMsg(null);
     try {
-      const res = await lookupMetadataWithReportByIsbn(raw);
+      const res = await lookupMetadataWithReportByIsbn(raw, {
+        bypassCache: lookupOpts?.bypassCache,
+        retryFailedOnly: lookupOpts?.retryFailedOnly,
+      });
       setScanUi((prev) => transitionOnLookupCompleted(prev, res));
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Lookup failed');
-      setScanUi((prev) => ({ ...prev, loadingLookup: false }));
+      setScanUi((prev) => transitionOnLookupFailed(prev));
     }
   };
 
@@ -188,59 +255,132 @@ export function AddBookModal({
     if (!cameraActive) return;
     scanDetectedRef.current = false;
     let cancelled = false;
-    const timer = window.setInterval(async () => {
-      if (cancelled || scanDetectedRef.current || !videoRef.current || videoRef.current.readyState < 2) {
-        return;
+    let frameIndex = 0;
+    let lastCompletedAt = 0;
+
+    if (!scratchCanvasRef.current) {
+      scratchCanvasRef.current = document.createElement('canvas');
+    }
+
+    const tick = () => {
+      if (cancelled || scanDetectedRef.current) return;
+      const video = videoRef.current;
+      const now = performance.now();
+
+      if (
+        video &&
+        video.readyState >= 2 &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0 &&
+        !decodeRunnerRef.current.isBusy() &&
+        now - lastCompletedAt >= 70
+      ) {
+        const currentFrame = frameIndex++;
+        setCameraResolution(`${video.videoWidth} × ${video.videoHeight}`);
+
+        void decodeRunnerRef.current
+          .run(async () => {
+            return scanVideoFrameForBarcodeDetailed(video, scratchCanvasRef.current!, {
+              frameIndex: currentFrame,
+            });
+          })
+          .then((attempt) => {
+            lastCompletedAt = performance.now();
+            if (!attempt || cancelled || scanDetectedRef.current) return;
+            setLastAttemptAt(new Date().toLocaleTimeString());
+
+            if (attempt.validIsbn13) {
+              scanDetectedRef.current = true;
+              const decodedIsbn = attempt.validIsbn13;
+              stopCamera();
+              setScanUi((prev) =>
+                transitionOnBarcodeDecoded(prev, decodedIsbn, {
+                  rawValue: attempt.rawValue,
+                  format: attempt.format,
+                  diagnostics: attempt,
+                })
+              );
+              if (lastSubmittedIsbnRef.current !== decodedIsbn) {
+                lastSubmittedIsbnRef.current = decodedIsbn;
+                void handleIsbnLookup(decodedIsbn);
+              }
+            } else if (attempt.rawValue && attempt.checksumError) {
+              setScanUi((prev) => transitionOnInvalidChecksumFrame(prev, attempt));
+            } else {
+              setScanUi((prev) => ({ ...prev, lastAttemptDiagnostics: attempt }));
+            }
+          });
       }
-      const isbn = await detectBarcodeFromImageSource(videoRef.current);
-      if (isbn && !cancelled && !scanDetectedRef.current) {
-        scanDetectedRef.current = true;
-        stopCamera();
-        setScanUi((prev) => transitionOnBarcodeDecoded(prev, isbn));
-        void handleIsbnLookup(isbn);
+
+      if (!cancelled && !scanDetectedRef.current) {
+        rafIdRef.current = window.requestAnimationFrame(tick);
       }
-    }, 450);
+    };
+
+    rafIdRef.current = window.requestAnimationFrame(tick);
+
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, [cameraActive]);
 
   if (!open) return null;
 
   const startCamera = async () => {
-    setScanUi((prev) => ({ ...prev, cameraError: null }));
+    setScanUi((prev) => ({
+      ...prev,
+      cameraError: null,
+      decodedChecksumError: null,
+    }));
+    setScanModeLabel('camera');
     scanDetectedRef.current = false;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setScanUi((prev) => ({
-        ...prev,
-        cameraError: 'Camera access is unavailable in this browser. Upload a barcode photo instead.',
-      }));
-      return;
-    }
+    lastSubmittedIsbnRef.current = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
+      const { stream, profile } = await openCameraStreamWithFallback();
       streamRef.current = stream;
+      setCameraProfile(profile);
+      setTorchSupported(getCameraTrackTorchSupport(stream));
+      setTorchEnabled(false);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        if (videoRef.current.videoWidth && videoRef.current.videoHeight) {
+          setCameraResolution(`${videoRef.current.videoWidth} × ${videoRef.current.videoHeight}`);
+        }
       }
       setScanUi((prev) => ({ ...prev, cameraActive: true }));
     } catch (err) {
       setScanUi((prev) => ({
         ...prev,
-        cameraError:
-          err instanceof Error
-            ? err.message
-            : 'Could not open camera. Check permissions or upload a barcode image.',
+        cameraError: mapCameraErrorMessage(err),
       }));
     }
   };
 
+  const toggleTorch = async () => {
+    const next = !torchEnabled;
+    const ok = await setCameraTrackTorch(streamRef.current, next);
+    if (ok) setTorchEnabled(next);
+  };
+
+  const handleCopyScannedIsbn = async () => {
+    if (!scannedIsbn) return;
+    try {
+      await navigator.clipboard.writeText(scannedIsbn);
+      setCopiedIsbn(true);
+      window.setTimeout(() => setCopiedIsbn(false), 1800);
+    } catch {
+      // Clipboard API unavailable in restricted iframe
+    }
+  };
+
   const clearScanResult = () => {
+    lastSubmittedIsbnRef.current = null;
+    setCopiedIsbn(false);
     setScanUi((prev) => transitionOnClearScan(prev));
   };
 
@@ -264,6 +404,7 @@ export function AddBookModal({
         coverUrl,
         description,
         isbnInput,
+        fieldProvenance,
       },
       cand,
       userEditedFields
@@ -273,10 +414,12 @@ export function AddBookModal({
     setAuthorsText(merged.authorsText);
     setTranslatorsText(merged.translatorsText);
     setIllustratorsText(merged.illustratorsText);
+    if (cand.editors?.length && !editorsText.trim()) setEditorsText(cand.editors.join(', '));
     setPublishersText(merged.publishersText);
     setPublishingPartner(merged.publishingPartner);
     setGenresText(merged.genresText);
     setLanguage(merged.language);
+    if (cand.editionName && !editionName.trim()) setEditionName(cand.editionName);
     if (cand.format) setFormat(cand.format);
     setPageCount(merged.pageCount);
     setPublishedYear(merged.publishedYear);
@@ -285,6 +428,7 @@ export function AddBookModal({
     setCoverUrl(merged.coverUrl);
     setDescription(merged.description);
     if (merged.isbnInput) setIsbnInput(merged.isbnInput);
+    if (merged.fieldProvenance) setFieldProvenance(merged.fieldProvenance);
   };
 
   const handleQuerySearch = async (e: React.FormEvent) => {
@@ -306,22 +450,36 @@ export function AddBookModal({
     e.target.value = '';
     if (!file) return;
     stopCamera();
+    setScanModeLabel('upload');
+    lastSubmittedIsbnRef.current = null;
     setScanUi((prev) => ({ ...prev, loadingLookup: true, cameraError: null }));
     try {
-      const isbn = await detectBarcodeFromImageSource(file);
-      if (isbn) {
-        setScanUi((prev) => transitionOnBarcodeDecoded(prev, isbn));
+      const attempt = await detectBarcodeFromImageSourceDetailed(file);
+      setLastAttemptAt(new Date().toLocaleTimeString());
+      if (attempt.validIsbn13) {
+        const isbn = attempt.validIsbn13;
+        lastSubmittedIsbnRef.current = isbn;
+        setScanUi((prev) =>
+          transitionOnBarcodeDecoded(prev, isbn, {
+            rawValue: attempt.rawValue,
+            format: attempt.format,
+            diagnostics: attempt,
+          })
+        );
         await handleIsbnLookup(isbn);
       } else {
-        setScanUi((prev) =>
-          transitionOnBarcodeNotDetected(
-            prev,
-            'No valid ISBN-13/10 barcode detected in image. Try another photo, OCR, or manual ISBN.'
-          )
-        );
+        const message = attempt.checksumError
+          ? `${attempt.checksumError}. Try another photo or enter manually.`
+          : 'No valid ISBN-13/10 barcode detected in image. Try a sharper photo, OCR, or manual ISBN.';
+        setScanUi((prev) => transitionOnBarcodeNotDetected(prev, message, attempt));
+        setScanUi((prev) => ({ ...prev, loadingLookup: false }));
       }
-    } finally {
-      setScanUi((prev) => ({ ...prev, loadingLookup: false }));
+    } catch (err) {
+      setScanUi((prev) => ({
+        ...prev,
+        loadingLookup: false,
+        cameraError: err instanceof Error ? err.message : 'Barcode image decoding failed.',
+      }));
     }
   };
 
@@ -396,6 +554,10 @@ export function AddBookModal({
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+      const editors = editorsText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const publishers = publishersText
         .split(',')
         .map((s) => s.trim())
@@ -404,6 +566,12 @@ export function AddBookModal({
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+      const contributors = buildStructuredContributors({
+        authors,
+        illustrators,
+        translators,
+        editors,
+      });
 
       const selectedWork = existingWorks.find((w) => w.id === linkToWorkId);
       const bundle = await createBookBundle({
@@ -412,20 +580,24 @@ export function AddBookModal({
           title: selectedWork ? selectedWork.title : title.trim(),
           originalTitle: originalTitle.trim() || undefined,
           authors,
+          illustrators,
           genres,
           description: description.trim() || undefined,
-          originalLanguage: language,
+          originalLanguage: selectedCandidate?.originalTitle ? undefined : language,
           firstPublishedYear: publishedYear ? Number(publishedYear) || null : null,
           seriesName: seriesName.trim() || undefined,
           seriesIndex: volumeNumber.trim() || undefined,
           metadataSource: selectedCandidate?.provider ?? 'manual',
           metadataVerified: true,
+          fieldProvenance: Object.keys(fieldProvenance).length ? fieldProvenance : undefined,
         },
         edition: {
           title: title.trim() || selectedWork?.title || 'Untitled Edition',
           editionName: editionName.trim() || undefined,
           translators,
           illustrators,
+          editors,
+          contributors,
           publishers,
           publishingPartner: publishingPartner.trim() || undefined,
           publishedYear: publishedYear ? Number(publishedYear) || null : null,
@@ -438,6 +610,7 @@ export function AddBookModal({
           description: description.trim() || undefined,
           metadataSource: selectedCandidate?.provider ?? 'manual',
           metadataVerified: true,
+          fieldProvenance: Object.keys(fieldProvenance).length ? fieldProvenance : undefined,
         },
         isbnInput: isbnInput.trim() || undefined,
         createCopy: trackCopy,
@@ -528,6 +701,40 @@ export function AddBookModal({
             <div className="space-y-4">
               <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-stone-300 dark:border-slate-700 bg-stone-900 flex items-center justify-center">
                 <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
+                {cameraActive && (
+                  <>
+                    {/* Non-blocking visual framing guide — full frame + lower/edge regions remain active */}
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center p-6">
+                      <div className="relative h-32 w-64 sm:w-80 rounded-xl border-2 border-dashed border-amber-300/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
+                      <span className="mt-3 rounded-md bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white">
+                        Full-frame multi-region scan active — hold steady
+                      </span>
+                    </div>
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-2">
+                      {torchSupported && (
+                        <button
+                          type="button"
+                          onClick={toggleTorch}
+                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                            torchEnabled
+                              ? 'bg-amber-400 text-stone-950'
+                              : 'bg-black/65 text-white hover:bg-black/80'
+                          }`}
+                        >
+                          <Flashlight className="h-3.5 w-3.5" />
+                          {torchEnabled ? 'Torch On' : 'Torch'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={stopCamera}
+                        className="rounded-lg bg-black/65 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-black/80"
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  </>
+                )}
                 {!cameraActive && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-white">
                     <Camera className="h-10 w-10 text-amber-400" />
@@ -549,28 +756,58 @@ export function AddBookModal({
                   {cameraError}
                 </p>
               )}
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              {!scannedIsbn && decodedChecksumError && cameraActive && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                  Read partial/invalid barcode ({decodedRawValue}): {decodedChecksumError}. Keep holding steady...
+                </p>
+              )}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
                 <span className="text-xs text-stone-600 dark:text-slate-400">
                   Or upload a photo of the barcode:
                 </span>
-                <label className="cursor-pointer rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800">
-                  Choose Image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleBarcodeImageUpload}
-                    className="hidden"
-                  />
-                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiagnostics((v) => !v)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-stone-200 dark:border-slate-700 px-2.5 py-2 text-xs font-medium text-stone-600 dark:text-slate-300 hover:bg-stone-50 dark:hover:bg-slate-800"
+                  >
+                    <Wrench className="h-3.5 w-3.5" />
+                    Scanner Diagnostics
+                  </button>
+                  <label className="cursor-pointer rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800">
+                    Choose Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleBarcodeImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
               </div>
 
-              {/* Same-screen Scan Results Area */}
+              {showDiagnostics && (
+                <ScannerDiagnosticsPanel
+                  cameraActive={cameraActive}
+                  cameraResolution={cameraResolution}
+                  cameraProfile={cameraProfile}
+                  scanMode={scanModeLabel}
+                  lastAttemptAt={lastAttemptAt}
+                  diagnostics={lastAttemptDiagnostics}
+                  decodedRawValue={decodedRawValue}
+                  decodedFormat={decodedFormat}
+                  decodedChecksumError={decodedChecksumError}
+                  scannedIsbn={scannedIsbn}
+                />
+              )}
+
+              {/* Same-screen Decoded ISBN + Lookup Results Area */}
               {(scannedIsbn || loadingLookup || scanAttempted) && (
                 <div className="space-y-3 rounded-2xl border border-stone-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-4">
                   {scannedIsbn && (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 dark:border-slate-800 pb-3">
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
                             <CheckCircle2 className="h-3 w-3" />
                             Decoded ISBN
@@ -578,16 +815,34 @@ export function AddBookModal({
                           <span className="font-mono text-sm font-bold text-stone-900 dark:text-slate-100 tabular-nums">
                             {formatIsbn13(scannedIsbn)}
                           </span>
+                          {decodedFormat && (
+                            <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
+                              {decodedFormat}
+                            </span>
+                          )}
+                          {lookupFromCache && (
+                            <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-stone-500">
+                              Cached
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] font-mono text-stone-500">
-                          Raw: {scannedIsbn}
+                          Raw: {decodedRawValue || scannedIsbn}
                           {parseIsbn(scannedIsbn).isbn10 ? ` · ISBN-10: ${parseIsbn(scannedIsbn).isbn10}` : ''}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleIsbnLookup(scannedIsbn)}
+                          onClick={handleCopyScannedIsbn}
+                          className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium hover:bg-stone-50 dark:hover:bg-slate-800"
+                        >
+                          {copiedIsbn ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copiedIsbn ? 'Copied' : 'Copy ISBN'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleIsbnLookup(scannedIsbn, { bypassCache: true })}
                           disabled={loadingLookup}
                           className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-2.5 py-1.5 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800 disabled:opacity-50"
                         >
@@ -619,16 +874,28 @@ export function AddBookModal({
                   )}
 
                   {!loadingLookup && providerStatuses.length > 0 && (
-                    <ProviderStatusStrip statuses={providerStatuses} />
+                    <ProviderStatusStrip
+                      statuses={providerStatuses}
+                      stagesExecuted={stagesExecuted}
+                      onRetryFailed={
+                        scannedIsbn
+                          ? () => handleIsbnLookup(scannedIsbn, { retryFailedOnly: true })
+                          : undefined
+                      }
+                    />
                   )}
 
                   <CandidateResultsList
                     candidates={candidates}
+                    possibleEditionMatches={possibleEditionMatches}
+                    relatedEditions={relatedEditions}
+                    workMatches={workMatches}
+                    approximateMatches={approximateMatches}
                     loading={loadingLookup}
                     hasSearched={hasSearched}
                     queriedIsbn={scannedIsbn}
                     onSelect={applyCandidateToForm}
-                    onRetry={scannedIsbn ? () => handleIsbnLookup(scannedIsbn) : undefined}
+                    onRetry={scannedIsbn ? () => handleIsbnLookup(scannedIsbn, { bypassCache: true }) : undefined}
                     onSwitchManual={() => setTab('manual')}
                   />
                 </div>
@@ -643,7 +910,7 @@ export function AddBookModal({
                   type="text"
                   value={isbnInput}
                   onChange={(e) => setIsbnInput(e.target.value)}
-                  placeholder="9786042243568 or 9786043590296"
+                  placeholder="9780140449136, 9784088820200, or 9786042243568"
                   className="flex-1 rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-mono tabular-nums"
                 />
                 <button
@@ -670,15 +937,27 @@ export function AddBookModal({
                 </div>
               )}
               {!loadingLookup && providerStatuses.length > 0 && (
-                <ProviderStatusStrip statuses={providerStatuses} />
+                <ProviderStatusStrip
+                  statuses={providerStatuses}
+                  stagesExecuted={stagesExecuted}
+                  onRetryFailed={
+                    isbnInput.trim()
+                      ? () => handleIsbnLookup(undefined, { retryFailedOnly: true })
+                      : undefined
+                  }
+                />
               )}
               <CandidateResultsList
                 candidates={candidates}
+                possibleEditionMatches={possibleEditionMatches}
+                relatedEditions={relatedEditions}
+                workMatches={workMatches}
+                approximateMatches={approximateMatches}
                 loading={loadingLookup}
                 hasSearched={hasSearched}
                 queriedIsbn={parsedIsbn?.isbn13 ?? (isbnInput.trim() || null)}
                 onSelect={applyCandidateToForm}
-                onRetry={isbnInput.trim() ? () => handleIsbnLookup() : undefined}
+                onRetry={isbnInput.trim() ? () => handleIsbnLookup(undefined, { bypassCache: true }) : undefined}
                 onSwitchManual={() => setTab('manual')}
               />
             </div>
@@ -703,10 +982,14 @@ export function AddBookModal({
                 </button>
               </form>
               {!loadingLookup && providerStatuses.length > 0 && (
-                <ProviderStatusStrip statuses={providerStatuses} />
+                <ProviderStatusStrip statuses={providerStatuses} stagesExecuted={stagesExecuted} />
               )}
               <CandidateResultsList
                 candidates={candidates}
+                possibleEditionMatches={possibleEditionMatches}
+                relatedEditions={relatedEditions}
+                workMatches={workMatches}
+                approximateMatches={[]}
                 loading={loadingLookup}
                 hasSearched={hasSearched}
                 queriedIsbn={null}
@@ -718,12 +1001,30 @@ export function AddBookModal({
 
           {tab === 'manual' && (
             <form id="add-book-form" onSubmit={handleSubmit} className="space-y-5">
-              {selectedCandidate && (
-                <div className="flex items-center justify-between rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 px-3 py-2 text-xs">
-                  <span>
-                    Candidate loaded from <strong>{selectedCandidate.provider}</strong> (verify any fields before saving).
-                  </span>
-                  <CheckCircle2 className="h-4 w-4 text-amber-700 shrink-0" />
+              {(selectedCandidate || Object.keys(fieldProvenance).length > 0) && (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 px-3 py-2 text-xs space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>
+                      {selectedCandidate
+                        ? <>Candidate loaded from <strong>{(selectedCandidate.sources ?? [selectedCandidate.provider]).join(' + ')}</strong> (verify any fields before saving).</>
+                        : 'Manual entry active.'}
+                    </span>
+                    <CheckCircle2 className="h-4 w-4 text-amber-700 shrink-0" />
+                  </div>
+                  {Object.keys(fieldProvenance).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
+                      {Object.entries(fieldProvenance)
+                        .slice(0, 7)
+                        .map(([field, entry]) => (
+                          <span
+                            key={field}
+                            className="rounded bg-white/80 dark:bg-slate-900 px-1.5 py-0.5 border border-stone-200/70 dark:border-slate-700"
+                          >
+                            {field}: {entry.provider} ({entry.trust})
+                          </span>
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1237,53 +1538,186 @@ export function AddBookModal({
   );
 }
 
-function ProviderStatusStrip({ statuses }: { statuses: ProviderStatusReport[] }) {
-  const matched = statuses.filter((s) => s.status === 'matched');
-  const needsConfigOrDown = statuses.filter(
-    (s) =>
-      s.status === 'temporarily_unavailable' ||
-      s.status === 'requires_configuration' ||
-      s.status === 'unsupported'
+function ScannerDiagnosticsPanel({
+  cameraActive,
+  cameraResolution,
+  cameraProfile,
+  scanMode,
+  lastAttemptAt,
+  diagnostics,
+  decodedRawValue,
+  decodedFormat,
+  decodedChecksumError,
+  scannedIsbn,
+}: {
+  cameraActive: boolean;
+  cameraResolution: string | null;
+  cameraProfile: string | null;
+  scanMode: 'camera' | 'upload';
+  lastAttemptAt: string | null;
+  diagnostics: BarcodeScanAttemptResult | null;
+  decodedRawValue: string | null;
+  decodedFormat: string | null;
+  decodedChecksumError: string | null;
+  scannedIsbn: string | null;
+}) {
+  const caps = getScannerCapabilities();
+  const nativeAvail = diagnostics?.nativeSupported ?? caps.nativeSupported;
+  const zxStatus = diagnostics?.zxingStatus ?? caps.zxingStatus;
+
+  return (
+    <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-stone-50 dark:bg-slate-900/90 p-3 text-[11px] font-mono space-y-1.5 text-stone-700 dark:text-slate-300">
+      <div className="flex items-center justify-between font-sans text-xs font-semibold text-stone-900 dark:text-slate-100">
+        <span>Scanner Diagnostics (local only — no frames uploaded)</span>
+        {diagnostics && <span className="font-mono text-[10px] text-stone-500">{diagnostics.durationMs}ms</span>}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+        <div>
+          Camera: {cameraActive ? `${cameraResolution || 'Starting'} (${cameraProfile || 'default'})` : 'Inactive'}
+        </div>
+        <div>Mode: {scanMode === 'camera' ? 'Live Camera (Multi-Region)' : 'Uploaded Photo (Multi-Region)'}</div>
+        <div>Native BarcodeDetector: {nativeAvail ? 'Supported' : 'Unavailable'}</div>
+        <div>ZXing WASM: {zxStatus}{caps.zxingError ? ` (${caps.zxingError})` : ''}</div>
+        <div>Last attempt: {lastAttemptAt || 'None yet'}</div>
+        <div>Decoder used: {diagnostics?.decoderUsed || 'None'}</div>
+        <div>Raw value: {decodedRawValue || diagnostics?.rawValue || '—'}</div>
+        <div>Barcode format: {decodedFormat || diagnostics?.format || '—'}</div>
+        <div className="sm:col-span-2">
+          ISBN validation:{' '}
+          {scannedIsbn
+            ? `Valid ISBN-13 (${scannedIsbn})`
+            : decodedChecksumError || diagnostics?.checksumError || 'No valid ISBN decoded'}
+        </div>
+        {diagnostics && diagnostics.regionsExamined.length > 0 && (
+          <div className="sm:col-span-2 break-words text-stone-500">
+            Regions examined: {diagnostics.regionsExamined.join(', ')}
+            {diagnostics.matchedRegion ? ` -> matched in ${diagnostics.matchedRegion}` : ''}
+          </div>
+        )}
+        {diagnostics?.error && (
+          <div className="sm:col-span-2 text-amber-700 dark:text-amber-400">
+            Decoder error: {diagnostics.error}
+          </div>
+        )}
+      </div>
+    </div>
   );
+}
+
+function ProviderStatusStrip({
+  statuses,
+  stagesExecuted,
+  onRetryFailed,
+}: {
+  statuses: ProviderStatusReport[];
+  stagesExecuted?: string[];
+  onRetryFailed?: () => void;
+}) {
+  const exactMatched = statuses.filter((s) => s.status === 'exact_match');
+  const approxMatched = statuses.filter((s) => s.status === 'approximate_match');
   const noMatchCount = statuses.filter((s) => s.status === 'no_match').length;
+  const retryableCount = statuses.filter(
+    (s) => s.status === 'timeout' || s.status === 'upstream_error' || s.status === 'api_key_required'
+  ).length;
+  const issueCount = statuses.length - exactMatched.length - approxMatched.length - noMatchCount;
+
+  const badgeForStatus = (st: ProviderStatusReport) => {
+    switch (st.status) {
+      case 'exact_match':
+        return {
+          text: `Exact (${st.exactMatchCount || st.candidateCount})`,
+          cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+        };
+      case 'approximate_match':
+        return {
+          text: `Approx (${st.candidateCount})`,
+          cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300',
+        };
+      case 'no_match':
+        return {
+          text: 'No match',
+          cls: 'bg-stone-200 text-stone-700 dark:bg-slate-800 dark:text-slate-300',
+        };
+      case 'timeout':
+        return {
+          text: 'Timed out',
+          cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+        };
+      case 'access_denied':
+        return {
+          text: 'Access denied',
+          cls: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300',
+        };
+      case 'api_key_required':
+        return {
+          text: 'API key / quota',
+          cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+        };
+      case 'proxy_required':
+        return {
+          text: 'Proxy required',
+          cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+        };
+      case 'not_implemented':
+      case 'unsupported_interface':
+        return {
+          text: 'Unsupported API',
+          cls: 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+        };
+      case 'upstream_error':
+      default:
+        return {
+          text: 'Upstream error',
+          cls: 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300',
+        };
+    }
+  };
 
   return (
     <details className="rounded-xl border border-stone-200 dark:border-slate-800 bg-stone-50/70 dark:bg-slate-900/50 px-3 py-2 text-[11px]">
       <summary className="cursor-pointer font-medium text-stone-700 dark:text-slate-300 flex flex-wrap items-center justify-between gap-2">
         <span>
           Providers checked ({statuses.length}):{' '}
-          <strong className="text-emerald-700 dark:text-emerald-400">{matched.length} matched</strong>
-          {' · '}
-          <span>{noMatchCount} no match</span>
-          {needsConfigOrDown.length > 0 && (
+          <strong className="text-emerald-700 dark:text-emerald-400">{exactMatched.length} exact</strong>
+          {approxMatched.length > 0 && (
             <>
               {' · '}
-              <span className="text-amber-700 dark:text-amber-400">
-                {needsConfigOrDown.length} unavailable/config
-              </span>
+              <span className="text-sky-700 dark:text-sky-400">{approxMatched.length} approx</span>
             </>
           )}
+          {' · '}
+          <span>{noMatchCount} no match</span>
+          {issueCount > 0 && (
+            <>
+              {' · '}
+              <span className="text-amber-700 dark:text-amber-400">{issueCount} unavailable/blocked</span>
+            </>
+          )}
+          {stagesExecuted && stagesExecuted.length > 0 && (
+            <span className="ml-2 font-mono text-[10px] text-stone-400">
+              [{stagesExecuted.join(' → ')}]
+            </span>
+          )}
         </span>
-        <span className="text-stone-400">Details</span>
+        <span className="flex items-center gap-2">
+          {onRetryFailed && retryableCount > 0 && (
+            <button
+              type="button"
+              onClick={(ev) => {
+                ev.preventDefault();
+                onRetryFailed();
+              }}
+              className="rounded border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-stone-700 dark:text-slate-200 hover:bg-stone-100"
+            >
+              Retry Failed ({retryableCount})
+            </button>
+          )}
+          <span className="text-stone-400">Details</span>
+        </span>
       </summary>
       <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
         {statuses.map((st) => {
-          const badgeCls =
-            st.status === 'matched'
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-              : st.status === 'no_match'
-                ? 'bg-stone-200 text-stone-700 dark:bg-slate-800 dark:text-slate-300'
-                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300';
-          const statusText =
-            st.status === 'matched'
-              ? `Matched (${st.candidateCount})`
-              : st.status === 'no_match'
-                ? 'No match'
-                : st.status === 'requires_configuration'
-                  ? 'Config / Proxy'
-                  : st.status === 'unsupported'
-                    ? 'Protected'
-                    : 'Unavailable';
+          const badge = badgeForStatus(st);
           return (
             <div
               key={st.provider}
@@ -1293,8 +1727,8 @@ function ProviderStatusStrip({ statuses }: { statuses: ProviderStatusReport[] })
               <span className="truncate font-medium text-stone-800 dark:text-slate-200">
                 {st.label}
               </span>
-              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badgeCls}`}>
-                {statusText}
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge.cls}`}>
+                {badge.text}
               </span>
             </div>
           );
@@ -1304,8 +1738,139 @@ function ProviderStatusStrip({ statuses }: { statuses: ProviderStatusReport[] })
   );
 }
 
+function CandidateCard({
+  c,
+  onSelect,
+}: {
+  c: MetadataCandidate;
+  onSelect: (c: MetadataCandidate) => void;
+}) {
+  const level = c.editionMatchLevel;
+  const confidence = c.matchConfidence ?? 'title_match';
+  const confidenceBadge =
+    level === 'possible_edition'
+      ? {
+          label: 'Possible Edition Match',
+          cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+        }
+      : level === 'related_edition'
+        ? {
+            label: 'Related Edition',
+            cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300',
+          }
+        : confidence === 'exact_isbn'
+          ? {
+              label: 'Exact Edition Match',
+              cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+            }
+          : confidence === 'unverified_isbn'
+            ? {
+                label: 'Unverified ISBN',
+                cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+              }
+            : confidence === 'approximate_match'
+              ? {
+                  label: 'Approximate Match',
+                  cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300',
+                }
+              : {
+                  label: 'Work / Title Match',
+                  cls: 'bg-stone-200 text-stone-700 dark:bg-slate-800 dark:text-slate-300',
+                };
+
+  const sourcesLabel = (c.sources && c.sources.length > 0 ? c.sources : [c.provider]).join(' + ');
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 hover:border-[#C2410C] transition-colors">
+      <div className="flex items-start gap-3">
+        {c.coverUrl ? (
+          <img
+            src={c.coverUrl}
+            alt={c.title}
+            className="h-20 w-14 rounded object-cover border border-stone-200 dark:border-slate-700 shrink-0"
+          />
+        ) : (
+          <div className="h-20 w-14 rounded bg-stone-200 dark:bg-slate-800 shrink-0" />
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${confidenceBadge.cls}`}>
+              {confidenceBadge.label}
+            </span>
+            <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
+              {sourcesLabel}
+            </span>
+            {c.sourceUrl && (
+              <a
+                href={c.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5 text-[10px] text-[#C2410C] hover:underline"
+              >
+                Source <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            )}
+          </div>
+          <p className="font-semibold text-sm text-stone-900 dark:text-slate-100">{c.title}</p>
+          {c.originalTitle && c.originalTitle !== c.title && (
+            <p className="text-[11px] italic text-stone-500 dark:text-slate-400">
+              Original: {c.originalTitle}
+            </p>
+          )}
+          <p className="text-xs text-stone-600 dark:text-slate-400">
+            {c.authors.join(', ') || 'Unknown Author'}
+            {c.translators.length > 0 ? ` · Tr: ${c.translators.join(', ')}` : ''}
+            {c.illustrators && c.illustrators.length > 0
+              ? ` · Ill: ${c.illustrators.join(', ')}`
+              : ''}
+            {c.editors && c.editors.length > 0 ? ` · Ed: ${c.editors.join(', ')}` : ''}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-stone-500 font-mono">
+            {c.publishers.length > 0 && <span>Pub: {c.publishers.join(' / ')}</span>}
+            {c.isbn13 && <span>ISBN: {c.isbn13}</span>}
+            {c.pageCount && <span>{c.pageCount}p</span>}
+            {c.publishedYear && <span>{c.publishedYear}</span>}
+            {c.language && c.language !== 'und' && <span className="uppercase">{c.language}</span>}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSelect(c)}
+          className="min-h-[36px] shrink-0 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#9A3412]"
+        >
+          Select &amp; Review
+        </button>
+      </div>
+      {c.contradictions && c.contradictions.length > 0 && (
+        <div className="flex items-start gap-1.5 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/30 px-2.5 py-1.5 text-[11px] text-rose-900 dark:text-rose-200">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>{c.contradictions.join('; ')}</span>
+        </div>
+      )}
+      {c.conflicts && c.conflicts.length > 0 && (
+        <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-200">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            Conflicting values across sources:{' '}
+            {c.conflicts
+              .map(
+                (cf) =>
+                  `${cf.field} (${cf.values.map((v) => `${v.value} [${v.provider}]`).join(' vs ')})`
+              )
+              .join('; ')}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CandidateResultsList({
   candidates,
+  possibleEditionMatches = [],
+  relatedEditions = [],
+  workMatches = [],
+  approximateMatches = [],
   loading,
   hasSearched,
   queriedIsbn,
@@ -1314,6 +1879,10 @@ function CandidateResultsList({
   onSwitchManual,
 }: {
   candidates: MetadataCandidate[];
+  possibleEditionMatches?: MetadataCandidate[];
+  relatedEditions?: MetadataCandidate[];
+  workMatches?: MetadataCandidate[];
+  approximateMatches?: MetadataCandidate[];
   loading: boolean;
   hasSearched: boolean;
   queriedIsbn: string | null;
@@ -1325,11 +1894,19 @@ function CandidateResultsList({
     return (
       <div className="flex items-center justify-center py-6 text-sm text-stone-500">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Searching Vietnamese &amp; international book metadata providers...
+        Searching global &amp; regional book metadata providers...
       </div>
     );
   }
-  if (candidates.length === 0) {
+
+  const secondaryApprox =
+    possibleEditionMatches.length > 0 || relatedEditions.length > 0 || workMatches.length > 0
+      ? [...possibleEditionMatches, ...workMatches, ...relatedEditions].filter(
+          (item) => !candidates.some((c) => c.externalId === item.externalId && c.provider === item.provider)
+        )
+      : approximateMatches;
+
+  if (candidates.length === 0 && secondaryApprox.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-5 text-center space-y-2.5">
         {hasSearched && queriedIsbn ? (
@@ -1365,95 +1942,26 @@ function CandidateResultsList({
   }
 
   return (
-    <div className="space-y-2.5">
-      {candidates.map((c) => {
-        const confidence = c.matchConfidence ?? 'title_match';
-        const confidenceBadge =
-          confidence === 'exact_isbn'
-            ? { label: 'Exact ISBN Match', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' }
-            : confidence === 'unverified_isbn'
-              ? { label: 'Unverified ISBN', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' }
-              : { label: 'Title Match', cls: 'bg-stone-200 text-stone-700 dark:bg-slate-800 dark:text-slate-300' };
-
-        const sourcesLabel = (c.sources && c.sources.length > 0 ? c.sources : [c.provider]).join(' + ');
-
-        return (
-          <div
-            key={`${c.provider}-${c.externalId}`}
-            className="flex flex-col gap-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 hover:border-[#C2410C] transition-colors"
-          >
-            <div className="flex items-start gap-3">
-              {c.coverUrl ? (
-                <img
-                  src={c.coverUrl}
-                  alt={c.title}
-                  className="h-20 w-14 rounded object-cover border border-stone-200 dark:border-slate-700 shrink-0"
-                />
-              ) : (
-                <div className="h-20 w-14 rounded bg-stone-200 dark:bg-slate-800 shrink-0" />
-              )}
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${confidenceBadge.cls}`}>
-                    {confidenceBadge.label}
-                  </span>
-                  <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
-                    {sourcesLabel}
-                  </span>
-                  {c.sourceUrl && (
-                    <a
-                      href={c.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-0.5 text-[10px] text-[#C2410C] hover:underline"
-                    >
-                      Source <ExternalLink className="h-2.5 w-2.5" />
-                    </a>
-                  )}
-                </div>
-                <p className="font-semibold text-sm text-stone-900 dark:text-slate-100">
-                  {c.title}
-                </p>
-                <p className="text-xs text-stone-600 dark:text-slate-400">
-                  {c.authors.join(', ') || 'Unknown Author'}
-                  {c.translators.length > 0 ? ` · Dịch: ${c.translators.join(', ')}` : ''}
-                  {c.illustrators && c.illustrators.length > 0
-                    ? ` · Minh họa: ${c.illustrators.join(', ')}`
-                    : ''}
-                </p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-stone-500 font-mono">
-                  {c.publishers.length > 0 && <span>NXB: {c.publishers.join(' / ')}</span>}
-                  {c.isbn13 && <span>ISBN: {c.isbn13}</span>}
-                  {c.pageCount && <span>{c.pageCount}p</span>}
-                  {c.publishedYear && <span>{c.publishedYear}</span>}
-                  {c.language && <span className="uppercase">{c.language}</span>}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onSelect(c)}
-                className="min-h-[36px] shrink-0 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#9A3412]"
-              >
-                Select &amp; Review
-              </button>
-            </div>
-            {c.conflicts && c.conflicts.length > 0 && (
-              <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-200">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>
-                  Conflicting values across sources:{' '}
-                  {c.conflicts
-                    .map(
-                      (cf) =>
-                        `${cf.field} (${cf.values.map((v) => `${v.value} [${v.provider}]`).join(' vs ')})`
-                    )
-                    .join('; ')}
-                </span>
-              </div>
-            )}
+    <div className="space-y-4">
+      {candidates.length > 0 && (
+        <div className="space-y-2.5">
+          {candidates.map((c) => (
+            <CandidateCard key={`${c.provider}-${c.externalId}`} c={c} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+      {secondaryApprox.length > 0 && (
+        <div className="space-y-2 border-t border-stone-200 dark:border-slate-800 pt-3">
+          <p className="text-xs font-semibold text-stone-600 dark:text-slate-400">
+            Possible / Related Editions &amp; Work Matches
+          </p>
+          <div className="space-y-2.5">
+            {secondaryApprox.map((c) => (
+              <CandidateCard key={`approx-${c.provider}-${c.externalId}`} c={c} onSelect={onSelect} />
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }

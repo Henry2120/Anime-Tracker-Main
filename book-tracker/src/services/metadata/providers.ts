@@ -1,4 +1,4 @@
-import type { BookFormat, MetadataCandidate, MetadataProviderName } from '../../types/domain';
+import type { BookFormat, ContributorCredit, MetadataCandidate, MetadataProviderName } from '../../types/domain';
 import {
   extractIsbnsFromText,
   generateSearchIsbnForms,
@@ -14,6 +14,7 @@ import {
 } from './htmlAndText';
 import { parseMarc21Record } from './marc21';
 import {
+  normalizeLanguageCode,
   ProviderStatusError,
   type MetadataProviderAdapter,
   type ProviderExecutionContext,
@@ -41,6 +42,18 @@ async function fetchWithTimeout(
   }
 }
 
+function assertCleanHttpResponse(res: Response, providerLabel: string): void {
+  if (res.status === 401 || res.status === 403) {
+    throw new ProviderStatusError('access_denied', `${providerLabel} HTTP ${res.status} (access denied)`);
+  }
+  if (res.status === 429) {
+    throw new ProviderStatusError('upstream_error', `${providerLabel} HTTP 429 (rate limited)`);
+  }
+  if (res.status >= 500) {
+    throw new ProviderStatusError('upstream_error', `${providerLabel} HTTP ${res.status}`);
+  }
+}
+
 function collectValidIsbns(values: Array<string | null | undefined>, freeText?: string): string[] {
   const out: string[] = [];
   const push = (isbn13: string | null | undefined) => {
@@ -65,12 +78,87 @@ function detectFormatFromText(text: string): BookFormat | undefined {
   return undefined;
 }
 
+function parsePrefixedStoreTags(tagsRaw: string | string[] | undefined): {
+  authors: string[];
+  translators: string[];
+  illustrators: string[];
+  publishers: string[];
+  seriesName?: string;
+  pageCount: number | null;
+  publishedYear: number | null;
+  format?: BookFormat;
+  genres: string[];
+} {
+  const tagsList = Array.isArray(tagsRaw)
+    ? tagsRaw
+    : typeof tagsRaw === 'string'
+      ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+
+  const authors: string[] = [];
+  const translators: string[] = [];
+  const illustrators: string[] = [];
+  const publishers: string[] = [];
+  const genres: string[] = [];
+  let seriesName: string | undefined;
+  let pageCount: number | null = null;
+  let publishedYear: number | null = null;
+  let format: BookFormat | undefined;
+
+  for (const tag of tagsList) {
+    const t = tag.trim();
+    const lower = t.toLocaleLowerCase('vi');
+    if (lower.startsWith('tacgia_')) {
+      const name = t.slice(7).trim();
+      if (name && !authors.includes(name)) authors.push(name);
+    } else if (lower.startsWith('dichgia_')) {
+      const name = t.slice(8).trim();
+      if (name && !translators.includes(name)) translators.push(name);
+    } else if (lower.startsWith('hoasi_')) {
+      const name = t.slice(6).trim();
+      if (name && !illustrators.includes(name)) illustrators.push(name);
+    } else if (lower.startsWith('minhhoa_')) {
+      const name = t.slice(8).trim();
+      if (name && !illustrators.includes(name)) illustrators.push(name);
+    } else if (lower.startsWith('nhaxb_') || lower.startsWith('nxb_')) {
+      const name = t.slice(t.indexOf('_') + 1).trim();
+      if (name && !publishers.includes(name)) publishers.push(name);
+    } else if (lower.startsWith('sotrang_')) {
+      const num = Number(t.slice(8).replace(/\D/g, ''));
+      if (Number.isFinite(num) && num > 0 && num < 20000) pageCount = num;
+    } else if (lower.startsWith('namxb_')) {
+      const yr = Number(t.slice(6).match(/(19|20)\d{2}/)?.[0]);
+      if (Number.isFinite(yr)) publishedYear = yr;
+    } else if (lower.startsWith('bia_') || lower.startsWith('hinhthuc_')) {
+      format = detectFormatFromText(t.slice(t.indexOf('_') + 1)) ?? format;
+    } else if (lower.startsWith('series_') || lower.startsWith('combo_')) {
+      seriesName = seriesName || t.slice(t.indexOf('_') + 1).trim();
+    } else if (/^(light novel|manga|comic|tiểu thuyết|truyện tranh|tản văn|kỹ năng|văn học)$/i.test(t)) {
+      if (!genres.includes(t)) genres.push(t);
+    }
+  }
+
+  return {
+    authors,
+    translators,
+    illustrators,
+    publishers,
+    seriesName,
+    pageCount,
+    publishedYear,
+    format,
+    genres,
+  };
+}
+
 // ============================================================================
 // 1. Thư viện Khoa học Tổng hợp TP.HCM (MARC21 + OPAC)
 // ============================================================================
 export const hcmLibraryProvider: MetadataProviderAdapter = {
   name: 'hcm_library',
   label: 'Thư viện KHTH TP.HCM',
+  tier: 'tier2_national',
+  region: 'vi',
   supportsDirectBrowserCors: false,
 
   async lookupByIsbn(isbn13, ctx) {
@@ -82,9 +170,7 @@ export const hcmLibraryProvider: MetadataProviderAdapter = {
     const detailIds = new Set<string>();
     for (const searchUrl of urls) {
       const res = await fetchWithTimeout(ctx, searchUrl);
-      if (res.status >= 500) {
-        throw new ProviderStatusError('temporarily_unavailable', `HCM Library HTTP ${res.status}`);
-      }
+      assertCleanHttpResponse(res, 'HCM Library');
       if (!res.ok) continue;
       const html = await res.text();
       for (const m of html.matchAll(/ItemDetail\/(\d+)/gi)) {
@@ -100,11 +186,14 @@ export const hcmLibraryProvider: MetadataProviderAdapter = {
       const detRes = await fetchWithTimeout(ctx, detailUrl);
       if (!detRes.ok) continue;
       const detHtml = await detRes.text();
-      const marcSection = detHtml.match(/<div[^>]+id=["']divMARC21["'][\s\S]*?<\/div>\s*(?:<\/div>|<script)/i)?.[0] ?? detHtml;
+      const marcSection =
+        detHtml.match(/<div[^>]+id=["']divMARC21["'][\s\S]*?<\/div>\s*(?:<\/div>|<script)/i)?.[0] ?? detHtml;
       const marc = parseMarc21Record(marcSection);
       if (!marc) continue;
 
-      const htmlCoverMatch = detHtml.match(/(?:https?:\/\/phucvu\.thuvientphcm\.gov\.vn)?(\/Upload\/ImageCover\/[^"'\s<>]+)/i);
+      const htmlCoverMatch = detHtml.match(
+        /(?:https?:\/\/phucvu\.thuvientphcm\.gov\.vn)?(\/Upload\/ImageCover\/[^"'\s<>]+)/i
+      );
       const coverUrl = htmlCoverMatch
         ? `https://phucvu.thuvientphcm.gov.vn${htmlCoverMatch[1]}`
         : marc.coverPath
@@ -145,16 +234,21 @@ export const hcmLibraryProvider: MetadataProviderAdapter = {
   async search(query, ctx) {
     const searchUrl = `https://phucvu.thuvientphcm.gov.vn/Item/SearchAdvanced?SearchText=FullText%3A%25${encodeURIComponent(query)}%25%3A%7CItemTypeIds%3A-1%3AINTERSECT&DocType=-1`;
     const res = await fetchWithTimeout(ctx, searchUrl);
+    assertCleanHttpResponse(res, 'HCM Library');
     if (!res.ok) return [];
     const html = await res.text();
-    const detailIds = Array.from(new Set([...html.matchAll(/ItemDetail\/(\d+)/gi)].map((m) => m[1]))).slice(0, 4);
+    const detailIds = Array.from(new Set([...html.matchAll(/ItemDetail\/(\d+)/gi)].map((m) => m[1]))).slice(
+      0,
+      4
+    );
     const out: MetadataCandidate[] = [];
     for (const id of detailIds) {
       const detailUrl = `https://phucvu.thuvientphcm.gov.vn/Item/ItemDetail/${id}`;
       const detRes = await fetchWithTimeout(ctx, detailUrl);
       if (!detRes.ok) continue;
       const detHtml = await detRes.text();
-      const marcSection = detHtml.match(/<div[^>]+id=["']divMARC21["'][\s\S]*?<\/div>\s*(?:<\/div>|<script)/i)?.[0] ?? detHtml;
+      const marcSection =
+        detHtml.match(/<div[^>]+id=["']divMARC21["'][\s\S]*?<\/div>\s*(?:<\/div>|<script)/i)?.[0] ?? detHtml;
       const marc = parseMarc21Record(marcSection);
       if (!marc) continue;
       const firstIsbn = marc.isbns[0] ?? null;
@@ -207,7 +301,6 @@ function extractSapoSearchEntries(rawText: string, baseUrl: string): SapoSearchE
       if (Array.isArray(parsed.results)) {
         return parsed.results as SapoSearchEntry[];
       }
-      // Gooda-style dictionary keyed by numeric product ID
       const entries: SapoSearchEntry[] = [];
       for (const val of Object.values(parsed)) {
         if (val && typeof val === 'object' && 'url' in val) {
@@ -220,7 +313,6 @@ function extractSapoSearchEntries(rawText: string, baseUrl: string): SapoSearchE
     }
   }
 
-  // Fallback HTML product links
   const domainHost = new URL(baseUrl).host.replace(/\./g, '\\.');
   const urls = new Set<string>();
   const re = new RegExp(`href=["'](?:https?://${domainHost})?(/[^"'?#\\s]+)["']`, 'gi');
@@ -234,7 +326,9 @@ function extractSapoSearchEntries(rawText: string, baseUrl: string): SapoSearchE
       urls.add(p);
     }
   }
-  return Array.from(urls).slice(0, 5).map((u) => ({ url: u }));
+  return Array.from(urls)
+    .slice(0, 5)
+    .map((u) => ({ url: u }));
 }
 
 interface SapoProductJson {
@@ -244,7 +338,8 @@ interface SapoProductJson {
   alias?: string;
   vendor?: string;
   product_type?: string;
-  tags?: string[];
+  tags?: string[] | string;
+  published_on?: string;
   summary?: string;
   content?: string;
   featured_image?: string | { src?: string };
@@ -291,6 +386,7 @@ function createSapoStoreProvider(config: {
     const contentSpecs = prodJson?.content ? extractVietnameseBookSpecs(prodJson.content) : null;
     const ldBooks = html ? extractJsonLdBooks(html) : [];
     const ld = ldBooks[0];
+    const tagData = parsePrefixedStoreTags(prodJson?.tags);
 
     const variantIds = (prodJson?.variants ?? []).flatMap((v) => [v.sku, v.barcode]);
     const allIsbns = collectValidIsbns(
@@ -314,21 +410,21 @@ function createSapoStoreProvider(config: {
     if (!title) return null;
 
     const authors = [...htmlSpecs.authors];
-    for (const a of [...(contentSpecs?.authors ?? []), ...(ld?.authors ?? [])]) {
+    for (const a of [...(contentSpecs?.authors ?? []), ...(ld?.authors ?? []), ...tagData.authors]) {
       if (a && !authors.some((x) => x.toLocaleLowerCase('vi') === a.toLocaleLowerCase('vi'))) {
         authors.push(a);
       }
     }
 
     const translators = [...htmlSpecs.translators];
-    for (const tr of contentSpecs?.translators ?? []) {
+    for (const tr of [...(contentSpecs?.translators ?? []), ...tagData.translators]) {
       if (tr && !translators.some((x) => x.toLocaleLowerCase('vi') === tr.toLocaleLowerCase('vi'))) {
         translators.push(tr);
       }
     }
 
     const illustrators = [...htmlSpecs.illustrators];
-    for (const il of contentSpecs?.illustrators ?? []) {
+    for (const il of [...(contentSpecs?.illustrators ?? []), ...tagData.illustrators]) {
       if (il && !illustrators.some((x) => x.toLocaleLowerCase('vi') === il.toLocaleLowerCase('vi'))) {
         illustrators.push(il);
       }
@@ -346,9 +442,14 @@ function createSapoStoreProvider(config: {
     for (const p of htmlSpecs.publishers) pushPub(p);
     for (const p of contentSpecs?.publishers ?? []) pushPub(p);
     for (const p of ld?.publishers ?? []) pushPub(p);
+    for (const p of tagData.publishers) pushPub(p);
     if (publishers.length === 0 && config.defaultPublishers) {
       for (const p of config.defaultPublishers) pushPub(p);
     }
+
+    const publishedOnYear =
+      prodJson?.published_on?.match(/(19|20)\d{2}/)?.[0] ??
+      html.match(/"published_on"\s*:\s*"((?:19|20)\d{2})/i)?.[1];
 
     const ogImg = html.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
     const featImg =
@@ -375,15 +476,25 @@ function createSapoStoreProvider(config: {
       publishers,
       publishingPartner: htmlSpecs.publishingPartner || contentSpecs?.publishingPartner,
       publishedDate: htmlSpecs.publishedDate || contentSpecs?.publishedDate || ld?.publishedDate,
-      publishedYear: htmlSpecs.publishedYear ?? contentSpecs?.publishedYear ?? ld?.publishedYear ?? null,
+      publishedYear:
+        htmlSpecs.publishedYear ??
+        contentSpecs?.publishedYear ??
+        ld?.publishedYear ??
+        tagData.publishedYear ??
+        (publishedOnYear ? Number(publishedOnYear) : null),
       language: htmlSpecs.language || contentSpecs?.language || 'vi',
-      format: htmlSpecs.format || contentSpecs?.format || detectFormatFromText(html),
-      pageCount: htmlSpecs.pageCount ?? contentSpecs?.pageCount ?? ld?.pageCount ?? null,
-      genres: htmlSpecs.genres.length > 0 ? htmlSpecs.genres : contentSpecs?.genres ?? [],
+      format:
+        htmlSpecs.format || contentSpecs?.format || tagData.format || detectFormatFromText(html),
+      pageCount: htmlSpecs.pageCount ?? contentSpecs?.pageCount ?? ld?.pageCount ?? tagData.pageCount ?? null,
+      genres:
+        htmlSpecs.genres.length > 0
+          ? htmlSpecs.genres
+          : (contentSpecs?.genres.length ? contentSpecs.genres : tagData.genres),
       description,
       isbn13: targetIsbn,
       isbn10: targetIsbn?.startsWith('978') ? isbn13ToIsbn10(targetIsbn) : null,
       coverUrl: normalizeUrl(featImg || firstImgUrl || ogImg || ld?.coverUrl),
+      seriesName: tagData.seriesName,
       sourceUrl: cleanPathUrl,
       rawPayload: {
         product: prodJson ?? undefined,
@@ -395,18 +506,23 @@ function createSapoStoreProvider(config: {
   return {
     name: config.name,
     label: config.label,
+    tier: 'tier3_publisher',
+    region: 'vi',
     supportsDirectBrowserCors: config.supportsDirectBrowserCors ?? true,
 
     async lookupByIsbn(isbn13, ctx) {
       const forms = generateSearchIsbnForms(isbn13);
       const discoveredUrls = new Set<string>();
+      let sawCleanOk = false;
 
       for (const form of forms.slice(0, 4)) {
         const res = await fetchWithTimeout(
           ctx,
           `${config.baseUrl}/search?q=${encodeURIComponent(form)}&view=json`
         );
+        assertCleanHttpResponse(res, config.label);
         if (!res.ok) continue;
+        sawCleanOk = true;
         const body = await res.text();
         const entries = extractSapoSearchEntries(body, config.baseUrl);
         for (const e of entries) {
@@ -415,6 +531,9 @@ function createSapoStoreProvider(config: {
         if (discoveredUrls.size > 0) break;
       }
 
+      if (!sawCleanOk && discoveredUrls.size === 0) {
+        throw new ProviderStatusError('upstream_error', `${config.label} search failed`);
+      }
       if (discoveredUrls.size === 0) return [];
       const fetched = await Promise.all(
         Array.from(discoveredUrls)
@@ -429,7 +548,10 @@ function createSapoStoreProvider(config: {
         ctx,
         `${config.baseUrl}/search?q=${encodeURIComponent(query)}&view=json`
       );
-      if (!res.ok) return [];
+      assertCleanHttpResponse(res, config.label);
+      if (!res.ok) {
+        throw new ProviderStatusError('upstream_error', `${config.label} HTTP ${res.status}`);
+      }
       const body = await res.text();
       const entries = extractSapoSearchEntries(body, config.baseUrl).slice(0, 4);
       const fetched = await Promise.all(
@@ -469,7 +591,7 @@ export const nhaNamProvider = createSapoStoreProvider({
 });
 
 // ============================================================================
-// 3. Haravan Store Factory (Hikaru, IPM)
+// 3. Haravan Store Factory (Hikaru, IPM, Phương Nam)
 // ============================================================================
 interface HaravanProductJson {
   product?: {
@@ -486,51 +608,12 @@ interface HaravanProductJson {
   };
 }
 
-function parseHaravanPrefixedTags(tagsRaw: string | string[] | undefined): {
-  authors: string[];
-  translators: string[];
-  illustrators: string[];
-  seriesName?: string;
-  genres: string[];
-} {
-  const tagsList = Array.isArray(tagsRaw)
-    ? tagsRaw
-    : typeof tagsRaw === 'string'
-      ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
-      : [];
-
-  const authors: string[] = [];
-  const translators: string[] = [];
-  const illustrators: string[] = [];
-  const genres: string[] = [];
-  let seriesName: string | undefined;
-
-  for (const tag of tagsList) {
-    const t = tag.trim();
-    const lower = t.toLocaleLowerCase('vi');
-    if (lower.startsWith('tacgia_')) {
-      const name = t.slice(7).trim();
-      if (name && !authors.includes(name)) authors.push(name);
-    } else if (lower.startsWith('dichgia_')) {
-      const name = t.slice(8).trim();
-      if (name && !translators.includes(name)) translators.push(name);
-    } else if (lower.startsWith('hoasi_')) {
-      const name = t.slice(6).trim();
-      if (name && !illustrators.includes(name)) illustrators.push(name);
-    } else if (lower.startsWith('series_')) {
-      seriesName = t.slice(7).trim();
-    } else if (/^(light novel|manga|comic|tiểu thuyết|truyện tranh|tản văn|kỹ năng)$/i.test(t)) {
-      if (!genres.includes(t)) genres.push(t);
-    }
-  }
-  return { authors, translators, illustrators, seriesName, genres };
-}
-
 function createHaravanStoreProvider(config: {
   name: MetadataProviderName;
   label: string;
   baseUrl: string;
   supportsDirectBrowserCors?: boolean;
+  defaultPublishers?: string[];
 }): MetadataProviderAdapter {
   const fetchProductBySlugPath = async (
     path: string,
@@ -549,6 +632,7 @@ function createHaravanStoreProvider(config: {
     if (!prod?.title) return null;
 
     const bodySpecs = extractVietnameseBookSpecs(prod.body_html ?? '');
+    const parsedTags = parsePrefixedStoreTags(prod.tags);
     const variantIds = (prod.variants ?? []).flatMap((v) => [v.sku, v.barcode]);
     const allIsbns = collectValidIsbns(
       [...variantIds, ...bodySpecs.isbns],
@@ -559,7 +643,6 @@ function createHaravanStoreProvider(config: {
       return null;
     }
 
-    const parsedTags = parseHaravanPrefixedTags(prod.tags);
     const authors = [...parsedTags.authors];
     for (const a of bodySpecs.authors) {
       if (!authors.some((x) => x.toLocaleLowerCase('vi') === a.toLocaleLowerCase('vi'))) authors.push(a);
@@ -579,10 +662,13 @@ function createHaravanStoreProvider(config: {
 
     const publishers: string[] = [];
     if (prod.vendor?.trim()) publishers.push(prod.vendor.trim());
-    for (const p of bodySpecs.publishers) {
+    for (const p of [...bodySpecs.publishers, ...parsedTags.publishers]) {
       if (!publishers.some((x) => x.toLocaleLowerCase('vi') === p.toLocaleLowerCase('vi'))) {
         publishers.push(p);
       }
+    }
+    if (publishers.length === 0 && config.defaultPublishers) {
+      publishers.push(...config.defaultPublishers);
     }
 
     const genres = [...parsedTags.genres];
@@ -606,10 +692,10 @@ function createHaravanStoreProvider(config: {
       publishers,
       publishingPartner: bodySpecs.publishingPartner,
       publishedDate: bodySpecs.publishedDate,
-      publishedYear: bodySpecs.publishedYear,
+      publishedYear: bodySpecs.publishedYear ?? parsedTags.publishedYear,
       language: bodySpecs.language || 'vi',
-      format: bodySpecs.format || detectFormatFromText(prod.body_html ?? ''),
-      pageCount: bodySpecs.pageCount,
+      format: bodySpecs.format || parsedTags.format || detectFormatFromText(prod.body_html ?? ''),
+      pageCount: bodySpecs.pageCount ?? parsedTags.pageCount,
       genres,
       description: prod.body_html ? stripHtmlToText(prod.body_html).slice(0, 1500) : undefined,
       isbn13: targetIsbn,
@@ -626,6 +712,7 @@ function createHaravanStoreProvider(config: {
       ctx,
       `${config.baseUrl}/search?type=product&q=${encodeURIComponent(query)}`
     );
+    assertCleanHttpResponse(res, config.label);
     if (!res.ok) return [];
     const html = await res.text();
     return Array.from(
@@ -640,6 +727,8 @@ function createHaravanStoreProvider(config: {
   return {
     name: config.name,
     label: config.label,
+    tier: 'tier3_publisher',
+    region: 'vi',
     supportsDirectBrowserCors: config.supportsDirectBrowserCors ?? true,
 
     async lookupByIsbn(isbn13, ctx) {
@@ -681,8 +770,134 @@ export const ipmProvider = createHaravanStoreProvider({
   baseUrl: 'https://ipm.vn',
 });
 
+export const phuongNamProvider = createHaravanStoreProvider({
+  name: 'phuong_nam',
+  label: 'Nhà sách Phương Nam',
+  baseUrl: 'https://nhasachphuongnam.com',
+  supportsDirectBrowserCors: true,
+  defaultPublishers: ['Nhà sách Phương Nam'],
+});
+
 // ============================================================================
-// 4. Tiki Books (API v2 + Strict Detail ISBN Verification)
+// 4. Amak Books (WordPress /book/<slug>/ Catalogue — proxy/server mode)
+// ============================================================================
+export const amakProvider: MetadataProviderAdapter = {
+  name: 'amak',
+  label: 'Amak Books',
+  tier: 'tier3_publisher',
+  region: 'vi',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const forms = generateSearchIsbnForms(isbn13).slice(0, 3);
+    const urls = new Set<string>();
+    for (const form of forms) {
+      const res = await fetchWithTimeout(ctx, `https://amak.vn/?s=${encodeURIComponent(form)}`);
+      assertCleanHttpResponse(res, 'Amak Books');
+      if (!res.ok) continue;
+      const html = await res.text();
+      for (const m of html.matchAll(/href=["'](https:\/\/amak\.vn\/book\/[^"'?#]+)["']/gi)) {
+        urls.add(m[1]);
+      }
+      if (urls.size > 0) break;
+    }
+    if (urls.size === 0) return [];
+
+    const out: MetadataCandidate[] = [];
+    for (const url of Array.from(urls).slice(0, 4)) {
+      const det = await fetchWithTimeout(ctx, url).catch(() => null);
+      if (!det || !det.ok) continue;
+      const html = await det.text();
+      const specs = extractVietnameseBookSpecs(html);
+      const ld = extractJsonLdBooks(html)[0];
+      const allIsbns = collectValidIsbns([...specs.isbns, ...(ld?.isbns ?? [])]);
+      if (!allIsbns.includes(isbn13)) continue;
+      const title =
+        decodeHtmlEntities(
+          html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '') ?? ''
+        ).trim() || ld?.title;
+      if (!title) continue;
+      const ogImg = html.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
+      out.push({
+        externalId: url,
+        provider: 'amak',
+        verified: false,
+        matchConfidence: 'exact_isbn',
+        matchedIsbns: allIsbns,
+        title,
+        authors: specs.authors.length ? specs.authors : ld?.authors ?? [],
+        translators: specs.translators,
+        illustrators: specs.illustrators,
+        publishers: specs.publishers.length ? specs.publishers : ['Amak Books'],
+        publishingPartner: specs.publishingPartner,
+        publishedDate: specs.publishedDate,
+        publishedYear: specs.publishedYear ?? ld?.publishedYear ?? null,
+        language: specs.language || 'vi',
+        format: specs.format || detectFormatFromText(html),
+        pageCount: specs.pageCount ?? ld?.pageCount ?? null,
+        genres: specs.genres,
+        isbn13,
+        isbn10: isbn13.startsWith('978') ? isbn13ToIsbn10(isbn13) : null,
+        coverUrl: normalizeUrl(ogImg || ld?.coverUrl),
+        sourceUrl: url,
+        rawPayload: { url, specs },
+      });
+    }
+    return out;
+  },
+
+  async search(query, ctx) {
+    const res = await fetchWithTimeout(ctx, `https://amak.vn/?s=${encodeURIComponent(query)}`);
+    assertCleanHttpResponse(res, 'Amak Books');
+    if (!res.ok) return [];
+    const html = await res.text();
+    const urls = Array.from(
+      new Set([...html.matchAll(/href=["'](https:\/\/amak\.vn\/book\/[^"'?#]+)["']/gi)].map((m) => m[1]))
+    ).slice(0, 4);
+    const out: MetadataCandidate[] = [];
+    for (const url of urls) {
+      const det = await fetchWithTimeout(ctx, url).catch(() => null);
+      if (!det || !det.ok) continue;
+      const dHtml = await det.text();
+      const specs = extractVietnameseBookSpecs(dHtml);
+      const ld = extractJsonLdBooks(dHtml)[0];
+      const title =
+        decodeHtmlEntities(
+          dHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '') ?? ''
+        ).trim() || ld?.title;
+      if (!title) continue;
+      const ogImg = dHtml.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1];
+      const firstIsbn = specs.isbns[0] || ld?.isbns[0] || null;
+      out.push({
+        externalId: url,
+        provider: 'amak',
+        verified: false,
+        matchConfidence: 'title_match',
+        matchedIsbns: specs.isbns,
+        title,
+        authors: specs.authors.length ? specs.authors : ld?.authors ?? [],
+        translators: specs.translators,
+        illustrators: specs.illustrators,
+        publishers: specs.publishers.length ? specs.publishers : ['Amak Books'],
+        publishingPartner: specs.publishingPartner,
+        publishedYear: specs.publishedYear ?? ld?.publishedYear ?? null,
+        language: specs.language || 'vi',
+        format: specs.format || detectFormatFromText(dHtml),
+        pageCount: specs.pageCount ?? ld?.pageCount ?? null,
+        genres: specs.genres,
+        isbn13: firstIsbn,
+        isbn10: firstIsbn?.startsWith('978') ? isbn13ToIsbn10(firstIsbn) : null,
+        coverUrl: normalizeUrl(ogImg || ld?.coverUrl),
+        sourceUrl: url,
+        rawPayload: { url, specs },
+      });
+    }
+    return out;
+  },
+};
+
+// ============================================================================
+// 5. Tiki Books (API v2 — requires proxy/Edge Function due to missing browser CORS)
 // ============================================================================
 interface TikiProductDetail {
   id?: number;
@@ -702,17 +917,22 @@ interface TikiProductDetail {
 export const tikiProvider: MetadataProviderAdapter = {
   name: 'tiki',
   label: 'Tiki Books',
-  supportsDirectBrowserCors: true,
+  tier: 'tier3_publisher',
+  region: 'vi',
+  supportsDirectBrowserCors: false,
 
   async lookupByIsbn(isbn13, ctx) {
-    // Query clean ISBN without hyphens so Tiki does not split on '-' into unrelated keyword noise
     const res = await fetchWithTimeout(
       ctx,
       `https://tiki.vn/api/v2/products?limit=5&q=${encodeURIComponent(isbn13)}`
     );
+    assertCleanHttpResponse(res, 'Tiki Books');
     if (!res.ok) return [];
     const json = (await res.json()) as { data?: Array<{ id?: number }> };
-    const ids = (json.data ?? []).map((d) => d.id).filter((id): id is number => Boolean(id)).slice(0, 3);
+    const ids = (json.data ?? [])
+      .map((d) => d.id)
+      .filter((id): id is number => Boolean(id))
+      .slice(0, 3);
     if (ids.length === 0) return [];
 
     const details = await Promise.all(
@@ -735,11 +955,12 @@ export const tikiProvider: MetadataProviderAdapter = {
       if (!allIsbns.includes(isbn13)) continue;
 
       const getAttr = (codes: string[]) =>
-        specAttrs.find((a) => codes.includes(a.code ?? '') || codes.includes((a.name ?? '').toLowerCase()))?.value;
+        specAttrs.find((a) => codes.includes(a.code ?? '') || codes.includes((a.name ?? '').toLowerCase()))
+          ?.value;
 
       const pagesStr = getAttr(['number_of_page', 'số trang']);
       const pubName = getAttr(['manufacturer', 'publisher_vn', 'nhà xuất bản', 'công ty phát hành']);
-      const translator = getAttr(['dich_gia', 'dịch giả']);
+      const translator = getAttr(['dich_gia', 'dịch giả', 'translator']);
       out.push({
         externalId: String(det.id),
         provider: 'tiki',
@@ -769,6 +990,7 @@ export const tikiProvider: MetadataProviderAdapter = {
       ctx,
       `https://tiki.vn/api/v2/products?limit=6&q=${encodeURIComponent(query)}`
     );
+    assertCleanHttpResponse(res, 'Tiki Books');
     if (!res.ok) return [];
     const json = (await res.json()) as {
       data?: Array<{
@@ -800,11 +1022,13 @@ export const tikiProvider: MetadataProviderAdapter = {
 };
 
 // ============================================================================
-// 5. International Providers (Google Books, Open Library, openBD)
+// 6. International Providers (Google Books, Open Library, openBD)
 // ============================================================================
 export const googleBooksProvider: MetadataProviderAdapter = {
   name: 'google_books',
   label: 'Google Books',
+  tier: 'tier1_international',
+  region: 'global',
   supportsDirectBrowserCors: true,
 
   async lookupByIsbn(isbn13, ctx) {
@@ -820,14 +1044,24 @@ export const googleBooksProvider: MetadataProviderAdapter = {
     }
 
     const res = await fetchWithTimeout(ctx, url.toString());
-    if (res.status === 429 || res.status === 403) {
+    if (res.status === 429) {
       throw new ProviderStatusError(
-        'requires_configuration',
-        `Google Books HTTP ${res.status} (configure GOOGLE_BOOKS_API_KEY in Edge Function)`
+        'api_key_required',
+        'Google Books quota exhausted (HTTP 429) — configure GOOGLE_BOOKS_API_KEY'
       );
     }
+    if (res.status === 401 || res.status === 403) {
+      const bodyText = await res.text().catch(() => '');
+      if (/key|quota|limit/i.test(bodyText) || !ctx.googleBooksApiKey) {
+        throw new ProviderStatusError(
+          'api_key_required',
+          `Google Books HTTP ${res.status} — API key missing or quota restricted`
+        );
+      }
+      throw new ProviderStatusError('access_denied', `Google Books HTTP ${res.status}`);
+    }
     if (!res.ok) {
-      throw new ProviderStatusError('temporarily_unavailable', `Google Books HTTP ${res.status}`);
+      throw new ProviderStatusError('upstream_error', `Google Books HTTP ${res.status}`);
     }
 
     const json = (await res.json()) as {
@@ -873,11 +1107,14 @@ export const googleBooksProvider: MetadataProviderAdapter = {
 export const openLibraryProvider: MetadataProviderAdapter = {
   name: 'open_library',
   label: 'Open Library',
+  tier: 'tier1_international',
+  region: 'global',
   supportsDirectBrowserCors: true,
 
   async lookupByIsbn(isbn13, ctx) {
     const clean = isbn13.replace(/[^0-9Xx]/g, '').toUpperCase();
-    const [bibSettled, searchSettled] = await Promise.allSettled([
+    const [editionSettled, bibSettled, searchSettled] = await Promise.allSettled([
+      fetchWithTimeout(ctx, `https://openlibrary.org/isbn/${encodeURIComponent(clean)}.json`),
       fetchWithTimeout(
         ctx,
         `https://openlibrary.org/api/books?bibkeys=ISBN:${clean}&format=json&jscmd=data`
@@ -887,49 +1124,141 @@ export const openLibraryProvider: MetadataProviderAdapter = {
         `https://openlibrary.org/search.json?isbn=${encodeURIComponent(clean)}&limit=3`
       ),
     ]);
-    if (bibSettled.status === 'rejected' && searchSettled.status === 'rejected') {
+    if (
+      editionSettled.status === 'rejected' &&
+      bibSettled.status === 'rejected' &&
+      searchSettled.status === 'rejected'
+    ) {
       throw bibSettled.reason;
     }
+    const edRes = editionSettled.status === 'fulfilled' ? editionSettled.value : null;
     const bibRes = bibSettled.status === 'fulfilled' ? bibSettled.value : null;
     const searchRes = searchSettled.status === 'fulfilled' ? searchSettled.value : null;
+
+    if (bibRes) assertCleanHttpResponse(bibRes, 'Open Library');
+    if (searchRes) assertCleanHttpResponse(searchRes, 'Open Library');
+
+    const edJson =
+      edRes && edRes.ok ? ((await edRes.json().catch(() => null)) as Record<string, unknown> | null) : null;
+    const parsed = parseIsbn(clean);
+
+    // Extract rich multilingual / edition fields from /isbn/{isbn}.json when available
+    const edLangKey = Array.isArray(edJson?.languages)
+      ? (edJson!.languages[0] as { key?: string } | undefined)?.key
+      : undefined;
+    const edLang = normalizeLanguageCode(edLangKey, { isbn13: parsed.isbn13 });
+    const edOriginalTitle =
+      Array.isArray(edJson?.work_titles) && typeof edJson!.work_titles[0] === 'string'
+        ? String(edJson!.work_titles[0]).replace(/\.$/, '').trim()
+        : undefined;
+    const edEditionName = typeof edJson?.edition_name === 'string' ? edJson.edition_name.trim() : undefined;
+    const edFormat = typeof edJson?.physical_format === 'string'
+      ? detectFormatFromText(edJson.physical_format)
+      : undefined;
+    const edPages = typeof edJson?.number_of_pages === 'number' ? edJson.number_of_pages : null;
+    const edPublishers = Array.isArray(edJson?.publishers) ? edJson!.publishers.map(String) : [];
+    const edCoverId = Array.isArray(edJson?.covers) && typeof edJson!.covers[0] === 'number'
+      ? edJson!.covers[0]
+      : null;
+
+    // Extract translator from by_statement or contributions when explicitly stated
+    const olTranslators: string[] = [];
+    const byStmt = typeof edJson?.by_statement === 'string' ? edJson.by_statement : '';
+    const transMatch = byStmt.match(/translat(?:ed|ion)[^;.]*?\bby\s+([^.;]+)/i);
+    if (transMatch?.[1]) {
+      olTranslators.push(transMatch[1].trim());
+    }
 
     const out: MetadataCandidate[] = [];
     if (bibRes && bibRes.ok) {
       const data = (await bibRes.json()) as Record<string, Record<string, unknown>>;
       const entry = data[`ISBN:${clean}`];
       if (entry) {
-        const parsed = parseIsbn(clean);
         const cover = entry.cover as { large?: string; medium?: string } | undefined;
-        const pubDate = typeof entry.publish_date === 'string' ? entry.publish_date : undefined;
+        const pubDate =
+          (typeof entry.publish_date === 'string' ? entry.publish_date : undefined) ??
+          (typeof edJson?.publish_date === 'string' ? edJson.publish_date : undefined);
+        const rawLang =
+          edLang !== 'und'
+            ? edLang
+            : normalizeLanguageCode(undefined, { isbn13: parsed.isbn13 });
+        const publishers = Array.isArray(entry.publishers) && entry.publishers.length > 0
+          ? (entry.publishers as Array<{ name: string }>).map((p) => p.name)
+          : edPublishers;
+
         out.push({
-          externalId: String(entry.key ?? `ol-${clean}`),
+          externalId: String(entry.key ?? edJson?.key ?? `ol-${clean}`),
           provider: 'open_library',
+          tier: 'tier1_international',
           verified: false,
           matchConfidence: 'exact_isbn',
           matchedIsbns: parsed.isbn13 ? [parsed.isbn13] : [],
-          title: String(entry.title ?? 'Untitled'),
-          subtitle: typeof entry.subtitle === 'string' ? entry.subtitle : undefined,
+          title: String(entry.title ?? edJson?.title ?? 'Untitled'),
+          originalTitle: edOriginalTitle,
+          subtitle:
+            (typeof entry.subtitle === 'string' ? entry.subtitle : undefined) ??
+            (typeof edJson?.subtitle === 'string' ? edJson.subtitle : undefined),
+          editionName: edEditionName,
           authors: Array.isArray(entry.authors)
             ? (entry.authors as Array<{ name: string }>).map((a) => a.name)
             : [],
-          translators: [],
-          publishers: Array.isArray(entry.publishers)
-            ? (entry.publishers as Array<{ name: string }>).map((p) => p.name)
-            : [],
+          translators: olTranslators,
+          publishers,
           publishedDate: pubDate,
           publishedYear: pubDate ? Number(pubDate.match(/\d{4}/)?.[0]) || null : null,
-          language: 'en',
-          pageCount: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : null,
+          language: rawLang === 'und' ? 'en' : rawLang,
+          format: edFormat,
+          pageCount:
+            typeof entry.number_of_pages === 'number' ? entry.number_of_pages : edPages,
           genres: Array.isArray(entry.subjects)
             ? (entry.subjects as Array<{ name: string }>).slice(0, 6).map((s) => s.name)
             : [],
           isbn13: parsed.isbn13,
           isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
-          coverUrl: normalizeUrl(cover?.large || cover?.medium),
-          sourceUrl: typeof entry.url === 'string' ? entry.url : undefined,
-          rawPayload: entry,
+          coverUrl: normalizeUrl(
+            cover?.large ||
+              cover?.medium ||
+              (edCoverId ? `https://covers.openlibrary.org/b/id/${edCoverId}-L.jpg` : undefined)
+          ),
+          sourceUrl:
+            typeof entry.url === 'string'
+              ? entry.url
+              : edJson?.key
+                ? `https://openlibrary.org${String(edJson.key)}`
+                : undefined,
+          rawPayload: edJson ? { ...entry, editionJson: edJson } : entry,
         });
       }
+    }
+
+    if (out.length === 0 && edJson?.title) {
+      const pubDate = typeof edJson.publish_date === 'string' ? edJson.publish_date : undefined;
+      out.push({
+        externalId: String(edJson.key ?? `ol-${clean}`),
+        provider: 'open_library',
+        tier: 'tier1_international',
+        verified: false,
+        matchConfidence: 'exact_isbn',
+        matchedIsbns: parsed.isbn13 ? [parsed.isbn13] : [],
+        title: String(edJson.title),
+        originalTitle: edOriginalTitle,
+        subtitle: typeof edJson.subtitle === 'string' ? edJson.subtitle : undefined,
+        editionName: edEditionName,
+        authors: [],
+        translators: olTranslators,
+        publishers: edPublishers,
+        publishedDate: pubDate,
+        publishedYear: pubDate ? Number(pubDate.match(/\d{4}/)?.[0]) || null : null,
+        language: edLang === 'und' ? 'en' : edLang,
+        format: edFormat,
+        pageCount: edPages,
+        genres: [],
+        isbn13: parsed.isbn13,
+        isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+        coverUrl: edCoverId ? `https://covers.openlibrary.org/b/id/${edCoverId}-L.jpg` : undefined,
+        sourceUrl: edJson.key ? `https://openlibrary.org${String(edJson.key)}` : undefined,
+        rawPayload: edJson,
+      });
     }
 
     if (out.length === 0 && searchRes && searchRes.ok) {
@@ -937,11 +1266,15 @@ export const openLibraryProvider: MetadataProviderAdapter = {
       for (const doc of sData.docs ?? []) {
         const isbns = collectValidIsbns(Array.isArray(doc.isbn) ? doc.isbn.map(String) : []);
         if (!isbns.includes(clean)) continue;
-        const parsed = parseIsbn(clean);
         const coverId = typeof doc.cover_i === 'number' ? doc.cover_i : null;
+        const lang = normalizeLanguageCode(
+          Array.isArray(doc.language) && doc.language[0] ? String(doc.language[0]) : undefined,
+          { isbn13: parsed.isbn13 }
+        );
         out.push({
           externalId: String(doc.key ?? `ol-${clean}`),
           provider: 'open_library',
+          tier: 'tier1_international',
           verified: false,
           matchConfidence: 'exact_isbn',
           matchedIsbns: isbns,
@@ -950,7 +1283,7 @@ export const openLibraryProvider: MetadataProviderAdapter = {
           translators: [],
           publishers: Array.isArray(doc.publisher) ? doc.publisher.slice(0, 2).map(String) : [],
           publishedYear: typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null,
-          language: Array.isArray(doc.language) && doc.language[0] ? String(doc.language[0]) : 'en',
+          language: lang === 'und' ? 'en' : lang,
           pageCount: typeof doc.number_of_pages_median === 'number' ? doc.number_of_pages_median : null,
           genres: Array.isArray(doc.subject) ? doc.subject.slice(0, 6).map(String) : [],
           isbn13: parsed.isbn13,
@@ -969,6 +1302,7 @@ export const openLibraryProvider: MetadataProviderAdapter = {
       ctx,
       `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8`
     );
+    assertCleanHttpResponse(res, 'Open Library');
     if (!res.ok) return [];
     const data = (await res.json()) as { docs?: Array<Record<string, unknown>> };
     return (data.docs ?? []).map((doc) => {
@@ -976,9 +1310,14 @@ export const openLibraryProvider: MetadataProviderAdapter = {
       const bestIsbn = isbns[0] ?? '';
       const parsed = parseIsbn(bestIsbn);
       const coverId = typeof doc.cover_i === 'number' ? doc.cover_i : null;
+      const lang = normalizeLanguageCode(
+        Array.isArray(doc.language) && doc.language[0] ? String(doc.language[0]) : undefined,
+        { isbn13: parsed.isbn13 }
+      );
       return {
         externalId: String(doc.key ?? doc.title ?? 'ol-doc'),
         provider: 'open_library',
+        tier: 'tier1_international',
         verified: false,
         matchConfidence: 'title_match',
         matchedIsbns: isbns,
@@ -987,7 +1326,7 @@ export const openLibraryProvider: MetadataProviderAdapter = {
         translators: [],
         publishers: Array.isArray(doc.publisher) ? doc.publisher.slice(0, 2).map(String) : [],
         publishedYear: typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null,
-        language: Array.isArray(doc.language) && doc.language[0] ? String(doc.language[0]) : 'en',
+        language: lang === 'und' ? 'en' : lang,
         pageCount: typeof doc.number_of_pages_median === 'number' ? doc.number_of_pages_median : null,
         genres: Array.isArray(doc.subject) ? doc.subject.slice(0, 6).map(String) : [],
         isbn13: parsed.isbn13,
@@ -1000,30 +1339,467 @@ export const openLibraryProvider: MetadataProviderAdapter = {
   },
 };
 
+export const crossrefProvider: MetadataProviderAdapter = {
+  name: 'crossref',
+  label: 'CrossRef Works',
+  tier: 'tier1_international',
+  region: 'global',
+  supportsDirectBrowserCors: true,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://api.crossref.org/works?filter=isbn:${encodeURIComponent(isbn13)}&rows=4`
+    );
+    if (res.status === 429) {
+      throw new ProviderStatusError('upstream_error', 'CrossRef rate limited (HTTP 429)');
+    }
+    assertCleanHttpResponse(res, 'CrossRef Works');
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      message?: { items?: Array<Record<string, unknown>> };
+    };
+    return parseCrossRefItems(data.message?.items ?? [], isbn13);
+  },
+
+  async search(query, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(query)}&filter=type:monograph,type:book,type:edited-book&rows=6`
+    );
+    if (res.status === 429) {
+      throw new ProviderStatusError('upstream_error', 'CrossRef rate limited (HTTP 429)');
+    }
+    assertCleanHttpResponse(res, 'CrossRef Works');
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      message?: { items?: Array<Record<string, unknown>> };
+    };
+    return parseCrossRefItems(data.message?.items ?? [], null);
+  },
+};
+
+function parseCrossRefItems(
+  items: Array<Record<string, unknown>>,
+  targetIsbn: string | null
+): MetadataCandidate[] {
+  const out: MetadataCandidate[] = [];
+  for (const item of items) {
+    const rawTitles = Array.isArray(item.title) ? item.title.map(String) : [];
+    const title = rawTitles[0]?.trim();
+    if (!title) continue;
+    const isbns = collectValidIsbns(Array.isArray(item.ISBN) ? item.ISBN.map(String) : []);
+    if (targetIsbn && isbns.length > 0 && !isbns.includes(targetIsbn)) continue;
+    const bestIsbn = targetIsbn || isbns[0] || '';
+    const parsed = parseIsbn(bestIsbn);
+
+    const authorsRaw = Array.isArray(item.author) ? (item.author as Array<{ given?: string; family?: string; name?: string }>) : [];
+    const editorsRaw = Array.isArray(item.editor) ? (item.editor as Array<{ given?: string; family?: string; name?: string }>) : [];
+    const fmtPerson = (p: { given?: string; family?: string; name?: string }) =>
+      p.name?.trim() || [p.given, p.family].filter(Boolean).join(' ').trim();
+
+    const authors = authorsRaw.map(fmtPerson).filter(Boolean);
+    const editors = editorsRaw.map(fmtPerson).filter(Boolean);
+    const issued = (item.issued as { 'date-parts'?: number[][] } | undefined)?.['date-parts']?.[0]?.[0];
+    const origTitles = Array.isArray(item['original-title']) ? item['original-title'].map(String) : [];
+
+    out.push({
+      externalId: String(item.DOI ?? title),
+      provider: 'crossref',
+      tier: 'tier1_international',
+      verified: false,
+      matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+      matchedIsbns: isbns,
+      title,
+      originalTitle: origTitles[0]?.trim() || undefined,
+      authors,
+      translators: [],
+      editors,
+      publishers: typeof item.publisher === 'string' ? [item.publisher] : [],
+      publishedYear: typeof issued === 'number' ? issued : null,
+      language: normalizeLanguageCode(typeof item.language === 'string' ? item.language : undefined, {
+        isbn13: parsed.isbn13,
+      }),
+      genres: Array.isArray(item.subject) ? item.subject.slice(0, 6).map(String) : [],
+      description: typeof item.abstract === 'string' ? stripHtmlToText(item.abstract) : undefined,
+      isbn13: parsed.isbn13,
+      isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+      sourceUrl: typeof item.URL === 'string' ? item.URL : undefined,
+      rawPayload: item,
+    });
+  }
+  return out;
+}
+
+export const worldcatProvider: MetadataProviderAdapter = {
+  name: 'worldcat',
+  label: 'OCLC WorldCat',
+  tier: 'tier1_international',
+  region: 'global',
+  requiresApiKey: true,
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    if (!ctx.worldcatToken) {
+      throw new ProviderStatusError(
+        'api_key_required',
+        'WorldCat Search API v2 requires institutional OCLC WSKey credentials (WORLDCAT_CLIENT_ID / WORLDCAT_CLIENT_SECRET)'
+      );
+    }
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://americas.discovery.api.oclc.org/worldcat/search/v2/bibs?q=bn:${encodeURIComponent(isbn13)}&limit=5`,
+      { headers: { Authorization: `Bearer ${ctx.worldcatToken}`, Accept: 'application/json' } }
+    );
+    assertCleanHttpResponse(res, 'OCLC WorldCat');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { bibRecords?: Array<Record<string, unknown>> };
+    return parseWorldCatRecords(data.bibRecords ?? [], isbn13);
+  },
+
+  async search(query, ctx) {
+    if (!ctx.worldcatToken) {
+      throw new ProviderStatusError(
+        'api_key_required',
+        'WorldCat Search API v2 requires institutional OCLC WSKey credentials'
+      );
+    }
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://americas.discovery.api.oclc.org/worldcat/search/v2/bibs?q=${encodeURIComponent(query)}&limit=6`,
+      { headers: { Authorization: `Bearer ${ctx.worldcatToken}`, Accept: 'application/json' } }
+    );
+    assertCleanHttpResponse(res, 'OCLC WorldCat');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { bibRecords?: Array<Record<string, unknown>> };
+    return parseWorldCatRecords(data.bibRecords ?? [], null);
+  },
+};
+
+function parseWorldCatRecords(
+  records: Array<Record<string, unknown>>,
+  targetIsbn: string | null
+): MetadataCandidate[] {
+  const out: MetadataCandidate[] = [];
+  for (const rec of records) {
+    const id = rec.identifier as { isbns?: string[]; oclcNumber?: string } | undefined;
+    const isbns = collectValidIsbns(id?.isbns ?? []);
+    if (targetIsbn && isbns.length > 0 && !isbns.includes(targetIsbn)) continue;
+    const titleObj = rec.title as { mainTitles?: Array<{ text?: string }> } | undefined;
+    const title = titleObj?.mainTitles?.[0]?.text?.trim();
+    if (!title) continue;
+    const creator = rec.contributor as {
+      creators?: Array<{ firstName?: { text?: string }; secondName?: { text?: string } }>;
+    } | undefined;
+    const authors = (creator?.creators ?? [])
+      .map((c) => [c.firstName?.text, c.secondName?.text].filter(Boolean).join(' ').trim())
+      .filter(Boolean);
+    const dateObj = rec.date as { publicationDate?: string } | undefined;
+    const pubObj = rec.publisher as { publisherName?: { text?: string } } | undefined;
+    const langObj = rec.language as { itemLanguage?: string } | undefined;
+    const bestIsbn = targetIsbn || isbns[0] || '';
+    const parsed = parseIsbn(bestIsbn);
+
+    out.push({
+      externalId: String(id?.oclcNumber ?? title),
+      provider: 'worldcat',
+      tier: 'tier1_international',
+      verified: false,
+      matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+      matchedIsbns: isbns,
+      title,
+      authors,
+      translators: [],
+      publishers: pubObj?.publisherName?.text ? [pubObj.publisherName.text] : [],
+      publishedYear: dateObj?.publicationDate
+        ? Number(dateObj.publicationDate.match(/\d{4}/)?.[0]) || null
+        : null,
+      language: normalizeLanguageCode(langObj?.itemLanguage, { isbn13: parsed.isbn13 }),
+      genres: [],
+      isbn13: parsed.isbn13,
+      isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+      sourceUrl: id?.oclcNumber ? `https://www.worldcat.org/oclc/${id.oclcNumber}` : undefined,
+      rawPayload: rec,
+    });
+  }
+  return out;
+}
+
+export const isbndbProvider: MetadataProviderAdapter = {
+  name: 'isbndb',
+  label: 'ISBNdb API',
+  tier: 'tier1_international',
+  region: 'global',
+  requiresApiKey: true,
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    if (!ctx.isbndbApiKey) {
+      throw new ProviderStatusError(
+        'api_key_required',
+        'ISBNdb requires an API key (configure ISBNDB_API_KEY in Edge Function secrets)'
+      );
+    }
+    const res = await fetchWithTimeout(ctx, `https://api2.isbndb.com/book/${encodeURIComponent(isbn13)}`, {
+      headers: { Authorization: ctx.isbndbApiKey },
+    });
+    if (res.status === 404) return [];
+    assertCleanHttpResponse(res, 'ISBNdb API');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { book?: Record<string, unknown> };
+    return data.book ? [parseIsbndbBook(data.book, isbn13)] : [];
+  },
+
+  async search(query, ctx) {
+    if (!ctx.isbndbApiKey) {
+      throw new ProviderStatusError('api_key_required', 'ISBNdb requires ISBNDB_API_KEY');
+    }
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://api2.isbndb.com/books/${encodeURIComponent(query)}?pageSize=6`,
+      { headers: { Authorization: ctx.isbndbApiKey } }
+    );
+    if (res.status === 404) return [];
+    assertCleanHttpResponse(res, 'ISBNdb API');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { books?: Array<Record<string, unknown>> };
+    return (data.books ?? []).map((b) => parseIsbndbBook(b, null));
+  },
+};
+
+function parseIsbndbBook(b: Record<string, unknown>, targetIsbn: string | null): MetadataCandidate {
+  const isbns = collectValidIsbns([
+    typeof b.isbn13 === 'string' ? b.isbn13 : undefined,
+    typeof b.isbn === 'string' ? b.isbn : undefined,
+  ]);
+  const bestIsbn = targetIsbn || isbns[0] || '';
+  const parsed = parseIsbn(bestIsbn);
+  const pubDate = typeof b.date_published === 'string' ? b.date_published : undefined;
+  return {
+    externalId: String(b.isbn13 || b.isbn || b.title),
+    provider: 'isbndb',
+    tier: 'tier1_international',
+    verified: false,
+    matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+    matchedIsbns: isbns,
+    title: String(b.title_long || b.title || 'Untitled'),
+    editionName: typeof b.edition === 'string' ? b.edition : undefined,
+    authors: Array.isArray(b.authors) ? b.authors.map(String) : [],
+    translators: [],
+    publishers: typeof b.publisher === 'string' ? [b.publisher] : [],
+    publishedDate: pubDate,
+    publishedYear: pubDate ? Number(pubDate.match(/\d{4}/)?.[0]) || null : null,
+    language: normalizeLanguageCode(typeof b.language === 'string' ? b.language : undefined, {
+      isbn13: parsed.isbn13,
+    }),
+    format: typeof b.binding === 'string' ? detectFormatFromText(b.binding) : undefined,
+    pageCount: typeof b.pages === 'number' ? b.pages : null,
+    genres: Array.isArray(b.subjects) ? b.subjects.slice(0, 6).map(String) : [],
+    description: typeof b.synopsis === 'string' ? stripHtmlToText(b.synopsis) : undefined,
+    isbn13: parsed.isbn13,
+    isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+    coverUrl: normalizeUrl(typeof b.image === 'string' ? b.image : undefined),
+    rawPayload: b,
+  };
+}
+
+// ============================================================================
+// National Diet Library (JP) + openBD (JP)
+// ============================================================================
+function extractXmlTags(block: string, tagName: string): string[] {
+  const escaped = tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`<${escaped}(?:\\s+[^>]*)?>([\\s\\S]*?)<\\/${escaped}>`, 'gi');
+  const out: string[] = [];
+  for (const m of block.matchAll(re)) {
+    const inner = m[1].replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, '$1').trim();
+    const cleaned = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    if (cleaned) out.push(cleaned);
+  }
+  return out;
+}
+
+export function parseNdlOpenSearchXml(xml: string, targetIsbn: string | null): MetadataCandidate[] {
+  const items = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map((m) => m[1]);
+  const out: MetadataCandidate[] = [];
+  for (const itemXml of items) {
+    const titles = extractXmlTags(itemXml, 'dc:title');
+    const title = titles[0] || extractXmlTags(itemXml, 'title')[0];
+    if (!title) continue;
+
+    const rawIsbns = extractXmlTags(itemXml, 'dc:identifier');
+    const isbns = collectValidIsbns(rawIsbns);
+    if (targetIsbn && isbns.length > 0 && !isbns.includes(targetIsbn)) continue;
+
+    const volume = extractXmlTags(itemXml, 'dcndl:volume')[0];
+    const seriesName = extractXmlTags(itemXml, 'dcndl:seriesTitle')[0];
+    const publishers = extractXmlTags(itemXml, 'dc:publisher');
+    const issued = extractXmlTags(itemXml, 'dcterms:issued')[0] || extractXmlTags(itemXml, 'dc:date')[0];
+    const extent = extractXmlTags(itemXml, 'dc:extent')[0];
+    const genres = extractXmlTags(itemXml, 'dcndl:genre');
+    const link = extractXmlTags(itemXml, 'link')[0] || extractXmlTags(itemXml, 'guid')[0];
+
+    const creatorsRaw = extractXmlTags(itemXml, 'dc:creator').map((name) =>
+      name.replace(/,\s*/g, ' ').trim()
+    );
+    const descCdata = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? '';
+    const authorTag = extractXmlTags(itemXml, 'author')[0] ?? '';
+
+    const authors: string[] = [];
+    const illustrators: string[] = [];
+    const translators: string[] = [];
+    const respHint = `${authorTag} ${descCdata}`;
+
+    // Parse Japanese responsibility roles: e.g. 平尾友秀 原作,依田瑞稀 漫画 / Name 訳
+    for (const seg of respHint.split(/[,、;]/)) {
+      const s = seg.trim();
+      if (!s) continue;
+      const transM = s.match(/^(.+?)\s*(?:共?訳|翻訳|監訳)$/);
+      if (transM?.[1]) {
+        const cleanName = transM[1].replace(/^責任表示[：:]\s*/, '').trim();
+        if (cleanName && !translators.includes(cleanName)) translators.push(cleanName);
+        continue;
+      }
+      const illM = s.match(/^(.+?)\s*(?:漫画|画|イラスト|作画)$/);
+      if (illM?.[1]) {
+        const cleanName = illM[1].replace(/^責任表示[：:]\s*/, '').trim();
+        if (cleanName && !illustrators.includes(cleanName)) illustrators.push(cleanName);
+      }
+    }
+
+    for (const cr of creatorsRaw) {
+      if (
+        !translators.some((t) => t.replace(/\s+/g, '') === cr.replace(/\s+/g, '')) &&
+        !illustrators.some((il) => il.replace(/\s+/g, '') === cr.replace(/\s+/g, ''))
+      ) {
+        authors.push(cr);
+      }
+    }
+    if (authors.length === 0 && illustrators.length === 0 && creatorsRaw.length > 0) {
+      authors.push(...creatorsRaw);
+    }
+
+    const bestIsbn = targetIsbn || isbns[0] || '';
+    const parsed = parseIsbn(bestIsbn);
+    const pagesMatch = extent?.match(/(\d{1,5})\s*p/i);
+    const fullTitle = volume && !title.includes(volume) ? `${title} ${volume}` : title;
+    const contributors: ContributorCredit[] = [
+      ...authors.map((name) => ({ name, role: 'author' as const })),
+      ...illustrators.map((name) => ({ name, role: 'illustrator' as const })),
+      ...translators.map((name) => ({ name, role: 'translator' as const })),
+    ];
+
+    out.push({
+      externalId: link || `ndl-${bestIsbn || fullTitle}`,
+      provider: 'ndl_japan',
+      tier: 'tier2_national',
+      verified: false,
+      matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+      matchedIsbns: isbns,
+      title: fullTitle,
+      authors: authors.length > 0 ? authors : creatorsRaw,
+      translators,
+      illustrators,
+      contributors,
+      publishers,
+      publishedDate: issued,
+      publishedYear: issued ? Number(issued.match(/(19|20)\d{2}/)?.[0]) || null : null,
+      language: 'ja',
+      pageCount: pagesMatch ? Number(pagesMatch[1]) : null,
+      genres,
+      isbn13: parsed.isbn13,
+      isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+      seriesName,
+      volumeNumber: volume,
+      sourceUrl: normalizeUrl(link),
+      rawPayload: { title: fullTitle, isbns, link, volume, seriesName },
+    });
+  }
+  return out;
+}
+
+export const ndlJapanProvider: MetadataProviderAdapter = {
+  name: 'ndl_japan',
+  label: 'National Diet Library (JP)',
+  tier: 'tier2_national',
+  region: 'jp',
+  supportsDirectBrowserCors: true,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${encodeURIComponent(isbn13)}&cnt=5`
+    );
+    assertCleanHttpResponse(res, 'National Diet Library (JP)');
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return parseNdlOpenSearchXml(xml, isbn13);
+  },
+
+  async search(query, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://ndlsearch.ndl.go.jp/api/opensearch?any=${encodeURIComponent(query)}&cnt=8`
+    );
+    assertCleanHttpResponse(res, 'National Diet Library (JP)');
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return parseNdlOpenSearchXml(xml, null);
+  },
+};
+
 export const openBdProvider: MetadataProviderAdapter = {
   name: 'openbd',
   label: 'openBD (JP)',
+  tier: 'tier2_national',
+  region: 'jp',
   supportsDirectBrowserCors: true,
 
   async lookupByIsbn(isbn13, ctx) {
     const parsed = parseIsbn(isbn13);
     if (!parsed.isbn13 || !parsed.isbn13.startsWith('9784')) return [];
     const res = await fetchWithTimeout(ctx, `https://api.openbd.jp/v1/get?isbn=${parsed.isbn13}`);
+    assertCleanHttpResponse(res, 'openBD');
     if (!res.ok) return [];
-    const arr = (await res.json()) as Array<{ summary?: Record<string, string> } | null>;
-    const summary = arr?.[0]?.summary;
+    const arr = (await res.json()) as Array<{
+      summary?: Record<string, string>;
+      onix?: {
+        DescriptiveDetail?: {
+          Contributor?: Array<{ ContributorRole?: string[]; PersonName?: { content?: string } }>;
+        };
+      };
+    } | null>;
+    const entry = arr?.[0];
+    const summary = entry?.summary;
     if (!summary) return [];
+
+    const contributorsRaw = entry?.onix?.DescriptiveDetail?.Contributor ?? [];
+    const authors: string[] = [];
+    const illustrators: string[] = [];
+    const translators: string[] = [];
+    for (const c of contributorsRaw) {
+      const name = c.PersonName?.content?.trim();
+      if (!name) continue;
+      const roles = c.ContributorRole ?? [];
+      if (roles.includes('B06')) translators.push(name);
+      else if (roles.includes('A12')) illustrators.push(name);
+      else authors.push(name);
+    }
+    if (authors.length === 0 && summary.author) {
+      authors.push(summary.author);
+    }
 
     return [
       {
         externalId: `openbd-${parsed.isbn13}`,
         provider: 'openbd',
+        tier: 'tier2_national',
         verified: false,
         matchConfidence: 'exact_isbn',
         matchedIsbns: [parsed.isbn13],
         title: summary.title || 'Untitled',
-        authors: summary.author ? [summary.author] : [],
-        translators: [],
+        authors,
+        translators,
+        illustrators,
         publishers: summary.publisher ? [summary.publisher] : [],
         publishedDate: summary.pubdate || undefined,
         publishedYear: summary.pubdate ? Number(summary.pubdate.slice(0, 4)) || null : null,
@@ -1034,7 +1810,7 @@ export const openBdProvider: MetadataProviderAdapter = {
         coverUrl: normalizeUrl(summary.cover),
         seriesName: summary.series || undefined,
         volumeNumber: summary.volume || undefined,
-        rawPayload: arr[0] as unknown as Record<string, unknown>,
+        rawPayload: entry as unknown as Record<string, unknown>,
       },
     ];
   },
@@ -1044,12 +1820,243 @@ export const openBdProvider: MetadataProviderAdapter = {
   },
 };
 
+export function parseBnfSruDublinCoreXml(xml: string, targetIsbn: string | null): MetadataCandidate[] {
+  const records = [...xml.matchAll(/<srw:recordData>([\s\S]*?)<\/srw:recordData>/gi)].map((m) => m[1]);
+  const out: MetadataCandidate[] = [];
+  for (const recXml of records) {
+    const rawTitle = extractXmlTags(recXml, 'dc:title')[0];
+    if (!rawTitle) continue;
+    const title = rawTitle.split(/\s+\/\s+/)[0].trim();
+    const ids = extractXmlTags(recXml, 'dc:identifier');
+    const isbns = collectValidIsbns(ids);
+    if (targetIsbn && isbns.length > 0 && !isbns.includes(targetIsbn)) continue;
+
+    const creators = extractXmlTags(recXml, 'dc:creator').map((c) =>
+      c.replace(/\s*\(\d{4}-?\d{0,4}\).*$/, '').trim()
+    );
+    const publishers = extractXmlTags(recXml, 'dc:publisher').map((p) =>
+      p.replace(/\s*\([^)]+\)\s*$/, '').trim()
+    );
+    const dateStr = extractXmlTags(recXml, 'dc:date')[0];
+    const fmtStr = extractXmlTags(recXml, 'dc:format')[0];
+    const langStr = extractXmlTags(recXml, 'dc:language')[0];
+    const arkUrl = ids.find((i) => i.includes('catalogue.bnf.fr'));
+    const bestIsbn = targetIsbn || isbns[0] || '';
+    const parsed = parseIsbn(bestIsbn);
+    const pagesMatch = fmtStr?.match(/(\d{1,5})\s*p/i);
+
+    out.push({
+      externalId: arkUrl || `bnf-${bestIsbn || title}`,
+      provider: 'bnf_france',
+      tier: 'tier2_national',
+      verified: false,
+      matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+      matchedIsbns: isbns,
+      title,
+      authors: creators,
+      translators: [],
+      publishers,
+      publishedDate: dateStr,
+      publishedYear: dateStr ? Number(dateStr.match(/(19|20)\d{2}/)?.[0]) || null : null,
+      language: normalizeLanguageCode(langStr, { isbn13: parsed.isbn13 }),
+      pageCount: pagesMatch ? Number(pagesMatch[1]) : null,
+      genres: [],
+      isbn13: parsed.isbn13,
+      isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+      sourceUrl: normalizeUrl(arkUrl),
+      rawPayload: { title, ids, dateStr, fmtStr, langStr },
+    });
+  }
+  return out;
+}
+
+export const bnfFranceProvider: MetadataProviderAdapter = {
+  name: 'bnf_france',
+  label: 'BnF France (SRU)',
+  tier: 'tier2_national',
+  region: 'fr',
+  supportsDirectBrowserCors: true,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const q = `bib.isbn adj "${isbn13}"`;
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${encodeURIComponent(q)}&recordSchema=dublincore&maximumRecords=4`
+    );
+    assertCleanHttpResponse(res, 'BnF France');
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return parseBnfSruDublinCoreXml(xml, isbn13);
+  },
+
+  async search(query, ctx) {
+    const q = `bib.anywhere all "${query.replace(/"/g, ' ')}"`;
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${encodeURIComponent(q)}&recordSchema=dublincore&maximumRecords=6`
+    );
+    assertCleanHttpResponse(res, 'BnF France');
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return parseBnfSruDublinCoreXml(xml, null);
+  },
+};
+
+export const nlKoreaProvider: MetadataProviderAdapter = {
+  name: 'nl_korea',
+  label: 'National Library of Korea',
+  tier: 'tier2_national',
+  region: 'kr',
+  requiresApiKey: true,
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    if (!ctx.nlkApiKey) {
+      throw new ProviderStatusError(
+        'api_key_required',
+        'National Library of Korea Seoji API requires NLK_API_KEY (cert_key)'
+      );
+    }
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(ctx.nlkApiKey)}&result_style=json&page_no=1&page_size=5&isbn=${encodeURIComponent(isbn13)}`
+    );
+    assertCleanHttpResponse(res, 'National Library of Korea');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { docs?: Array<Record<string, unknown>> };
+    return (data.docs ?? []).map((d) => ({
+      externalId: String(d.EA_ISBN || d.TITLE || isbn13),
+      provider: 'nl_korea',
+      tier: 'tier2_national',
+      verified: false,
+      matchConfidence: 'exact_isbn',
+      matchedIsbns: collectValidIsbns([String(d.EA_ISBN || ''), String(d.SET_ISBN || '')]),
+      title: String(d.TITLE || 'Untitled'),
+      authors: d.AUTHOR ? [String(d.AUTHOR)] : [],
+      translators: [],
+      publishers: d.PUBLISHER ? [String(d.PUBLISHER)] : [],
+      publishedYear: d.PUBLISH_PREDATE ? Number(String(d.PUBLISH_PREDATE).slice(0, 4)) || null : null,
+      language: 'ko',
+      pageCount: d.PAGE ? Number(String(d.PAGE).match(/\d+/)?.[0]) || null : null,
+      genres: d.SUBJECT ? [String(d.SUBJECT)] : [],
+      isbn13,
+      isbn10: isbn13.startsWith('978') ? isbn13ToIsbn10(isbn13) : null,
+      rawPayload: d,
+    }));
+  },
+
+  async search(query, ctx) {
+    if (!ctx.nlkApiKey) {
+      throw new ProviderStatusError('api_key_required', 'National Library of Korea requires NLK_API_KEY');
+    }
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(ctx.nlkApiKey)}&result_style=json&page_no=1&page_size=6&title=${encodeURIComponent(query)}`
+    );
+    assertCleanHttpResponse(res, 'National Library of Korea');
+    if (!res.ok) return [];
+    const data = (await res.json()) as { docs?: Array<Record<string, unknown>> };
+    return (data.docs ?? []).map((d) => {
+      const isbns = collectValidIsbns([String(d.EA_ISBN || '')]);
+      const parsed = parseIsbn(isbns[0] || '');
+      return {
+        externalId: String(d.EA_ISBN || d.TITLE || 'nlk'),
+        provider: 'nl_korea',
+        tier: 'tier2_national',
+        verified: false,
+        matchConfidence: 'title_match',
+        matchedIsbns: isbns,
+        title: String(d.TITLE || 'Untitled'),
+        authors: d.AUTHOR ? [String(d.AUTHOR)] : [],
+        translators: [],
+        publishers: d.PUBLISHER ? [String(d.PUBLISHER)] : [],
+        publishedYear: d.PUBLISH_PREDATE ? Number(String(d.PUBLISH_PREDATE).slice(0, 4)) || null : null,
+        language: 'ko',
+        pageCount: d.PAGE ? Number(String(d.PAGE).match(/\d+/)?.[0]) || null : null,
+        genres: d.SUBJECT ? [String(d.SUBJECT)] : [],
+        isbn13: parsed.isbn13,
+        isbn10: parsed.isbn10,
+        rawPayload: d,
+      };
+    });
+  },
+};
+
+export const locUsProvider: MetadataProviderAdapter = {
+  name: 'loc_us',
+  label: 'Library of Congress (US)',
+  tier: 'tier2_national',
+  region: 'us',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://www.loc.gov/books/?q=${encodeURIComponent(isbn13)}&fo=json`
+    );
+    assertCleanHttpResponse(res, 'Library of Congress');
+    if (!res.ok) return [];
+    const json = (await res.json()) as { results?: Array<Record<string, unknown>> };
+    return parseLocResults(json.results ?? [], isbn13);
+  },
+
+  async search(query, ctx) {
+    const res = await fetchWithTimeout(
+      ctx,
+      `https://www.loc.gov/books/?q=${encodeURIComponent(query)}&fo=json&c=6`
+    );
+    assertCleanHttpResponse(res, 'Library of Congress');
+    if (!res.ok) return [];
+    const json = (await res.json()) as { results?: Array<Record<string, unknown>> };
+    return parseLocResults(json.results ?? [], null);
+  },
+};
+
+function parseLocResults(
+  items: Array<Record<string, unknown>>,
+  targetIsbn: string | null
+): MetadataCandidate[] {
+  const out: MetadataCandidate[] = [];
+  for (const r of items) {
+    const isbns = collectValidIsbns(Array.isArray(r.isbn) ? r.isbn.map(String) : [], JSON.stringify(r.item ?? {}));
+    if (targetIsbn && !isbns.includes(targetIsbn)) continue;
+    const title = typeof r.title === 'string' ? r.title.replace(/\s*\/\s*$/, '').trim() : '';
+    if (!title) continue;
+    const bestIsbn = targetIsbn || isbns[0] || '';
+    const parsed = parseIsbn(bestIsbn);
+    out.push({
+      externalId: String(r.id || title),
+      provider: 'loc_us',
+      tier: 'tier2_national',
+      verified: false,
+      matchConfidence: targetIsbn ? 'exact_isbn' : 'title_match',
+      matchedIsbns: isbns,
+      title,
+      authors: Array.isArray(r.contributor) ? r.contributor.map(String) : [],
+      translators: [],
+      publishers: Array.isArray(r.location) ? r.location.map(String) : [],
+      publishedYear: typeof r.date === 'string' ? Number(r.date.match(/(19|20)\d{2}/)?.[0]) || null : null,
+      language: normalizeLanguageCode(Array.isArray(r.language) ? String(r.language[0]) : undefined, {
+        isbn13: parsed.isbn13,
+      }),
+      genres: Array.isArray(r.subject) ? r.subject.slice(0, 6).map(String) : [],
+      isbn13: parsed.isbn13,
+      isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+      sourceUrl: typeof r.url === 'string' ? normalizeUrl(r.url) : undefined,
+      rawPayload: r,
+    });
+  }
+  return out;
+}
+
 // ============================================================================
-// 6. Status-Transparent Protected / Unavailable Catalogues (NLV OPAC, Fahasa)
+// 7. Honest Status Reporting for Unqueryable / Protected Catalogues
 // ============================================================================
 export const nlvOpacProvider: MetadataProviderAdapter = {
   name: 'nlv_opac',
   label: 'Thư viện Quốc gia VN',
+  tier: 'tier2_national',
+  region: 'vi',
   supportsDirectBrowserCors: false,
 
   async lookupByIsbn(isbn13, ctx) {
@@ -1057,16 +2064,18 @@ export const nlvOpacProvider: MetadataProviderAdapter = {
       ctx,
       `https://opac.nlv.gov.vn/Search/Search?SearchKey=${encodeURIComponent(isbn13)}`
     );
-    if (res.status >= 500) {
+    assertCleanHttpResponse(res, 'NLV OPAC');
+    const html = await res.text().catch(() => '');
+    if (html.includes('khong-tim-thay-tai-nguyen-yeu-cau') || !html.includes('MARC')) {
       throw new ProviderStatusError(
-        'temporarily_unavailable',
-        `NLV OPAC unavailable (HTTP ${res.status})`
+        'unsupported_interface',
+        'NLV OPAC relies on a dynamic client-side widget without a public ISBN query API'
       );
     }
-    if (!res.ok) {
-      throw new ProviderStatusError('temporarily_unavailable', `NLV OPAC HTTP ${res.status}`);
-    }
-    return [];
+    throw new ProviderStatusError(
+      'not_implemented',
+      'NLV OPAC parser has not been integrated for this page layout'
+    );
   },
 
   async search(query, ctx) {
@@ -1074,19 +2083,82 @@ export const nlvOpacProvider: MetadataProviderAdapter = {
       ctx,
       `https://opac.nlv.gov.vn/Search/Search?SearchKey=${encodeURIComponent(query)}`
     );
-    if (res.status >= 500) {
-      throw new ProviderStatusError(
-        'temporarily_unavailable',
-        `NLV OPAC unavailable (HTTP ${res.status})`
-      );
-    }
-    return [];
+    assertCleanHttpResponse(res, 'NLV OPAC');
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'NLV OPAC relies on a dynamic client-side widget without a public keyword query API'
+    );
+  },
+};
+
+export const britishLibraryProvider: MetadataProviderAdapter = {
+  name: 'british_library',
+  label: 'British Library (UK)',
+  tier: 'tier2_national',
+  region: 'uk',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'British Library public unauthenticated ISBN REST/SRU endpoint is unavailable'
+    );
+  },
+  async search() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'British Library public unauthenticated search API is unavailable'
+    );
+  },
+};
+
+export const taiwanNclProvider: MetadataProviderAdapter = {
+  name: 'taiwan_ncl',
+  label: 'National Central Library (TW)',
+  tier: 'tier2_national',
+  region: 'tw',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'Taiwan NCL ISBNNet uses a session-bound web form without an open JSON/SRU API'
+    );
+  },
+  async search() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'Taiwan NCL ISBNNet has no open unauthenticated API'
+    );
+  },
+};
+
+export const nlcChinaProvider: MetadataProviderAdapter = {
+  name: 'nlc_china',
+  label: 'National Library of China',
+  tier: 'tier2_national',
+  region: 'cn',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'National Library of China OPAC provides no public unauthenticated ISBN REST/SRU API'
+    );
+  },
+  async search() {
+    throw new ProviderStatusError(
+      'unsupported_interface',
+      'National Library of China OPAC provides no public unauthenticated search API'
+    );
   },
 };
 
 export const fahasaProvider: MetadataProviderAdapter = {
   name: 'fahasa',
   label: 'Fahasa',
+  tier: 'tier3_publisher',
+  region: 'vi',
   supportsDirectBrowserCors: false,
 
   async lookupByIsbn(isbn13, ctx) {
@@ -1096,11 +2168,12 @@ export const fahasaProvider: MetadataProviderAdapter = {
     );
     if (res.status === 403 || res.status === 503) {
       throw new ProviderStatusError(
-        'unsupported',
+        'access_denied',
         'Protected by Cloudflare anti-bot challenge (HTTP 403)'
       );
     }
-    return [];
+    assertCleanHttpResponse(res, 'Fahasa');
+    throw new ProviderStatusError('unsupported_interface', 'Fahasa endpoint requires interactive session');
   },
 
   async search(query, ctx) {
@@ -1110,26 +2183,42 @@ export const fahasaProvider: MetadataProviderAdapter = {
     );
     if (res.status === 403 || res.status === 503) {
       throw new ProviderStatusError(
-        'unsupported',
+        'access_denied',
         'Protected by Cloudflare anti-bot challenge (HTTP 403)'
       );
     }
-    return [];
+    assertCleanHttpResponse(res, 'Fahasa');
+    throw new ProviderStatusError('unsupported_interface', 'Fahasa endpoint requires interactive session');
   },
 };
 
 export const ALL_METADATA_PROVIDERS: MetadataProviderAdapter[] = [
+  // Tier 1: Global Bibliographic Databases
+  openLibraryProvider,
+  googleBooksProvider,
+  crossrefProvider,
+  worldcatProvider,
+  isbndbProvider,
+  // Tier 2: National & Regional Catalogues
+  ndlJapanProvider,
+  openBdProvider,
+  bnfFranceProvider,
   hcmLibraryProvider,
+  nlKoreaProvider,
+  locUsProvider,
+  nlvOpacProvider,
+  britishLibraryProvider,
+  taiwanNclProvider,
+  nlcChinaProvider,
+  // Tier 3: Official Publishers & Regional Stores
   adcbookProvider,
   goodaProvider,
   hikaruProvider,
+  phuongNamProvider,
   nxbKimDongProvider,
   nhaNamProvider,
   ipmProvider,
+  amakProvider,
   tikiProvider,
-  googleBooksProvider,
-  openLibraryProvider,
-  openBdProvider,
-  nlvOpacProvider,
   fahasaProvider,
 ];

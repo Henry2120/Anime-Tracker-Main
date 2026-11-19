@@ -48,7 +48,17 @@ export type MetadataProviderName =
   | 'manual'
   | 'google_books'
   | 'open_library'
+  | 'crossref'
+  | 'worldcat'
+  | 'isbndb'
   | 'openbd'
+  | 'ndl_japan'
+  | 'bnf_france'
+  | 'nl_korea'
+  | 'loc_us'
+  | 'british_library'
+  | 'taiwan_ncl'
+  | 'nlc_china'
   | 'hcm_library'
   | 'nlv_opac'
   | 'adcbook'
@@ -59,23 +69,54 @@ export type MetadataProviderName =
   | 'ipm'
   | 'amak'
   | 'phuong_nam'
+  | 'nxb_tre'
   | 'tiki'
   | 'fahasa'
   | 'ocr_local'
   | 'ai_assist';
 
-export type MatchConfidence = 'exact_isbn' | 'unverified_isbn' | 'title_match';
+export type ProviderTier = 'tier1_international' | 'tier2_national' | 'tier3_publisher';
+
+export type EditionMatchLevel =
+  | 'exact_edition'
+  | 'possible_edition'
+  | 'related_edition'
+  | 'work_match';
+
+export type ContributorRole = 'author' | 'illustrator' | 'translator' | 'editor' | 'other';
+
+export interface ContributorCredit {
+  name: string;
+  role: ContributorRole;
+}
+
+export type MetadataTrustLevel = 'verified' | 'approximate' | 'manual';
+
+export interface FieldProvenanceEntry {
+  provider: MetadataProviderName;
+  trust: MetadataTrustLevel;
+  updatedAt?: string;
+}
+
+export type MatchConfidence = 'exact_isbn' | 'approximate_match' | 'unverified_isbn' | 'title_match';
 
 export type ProviderLookupStatusCode =
-  | 'matched'
+  | 'exact_match'
+  | 'approximate_match'
   | 'no_match'
-  | 'temporarily_unavailable'
-  | 'unsupported'
-  | 'requires_configuration';
+  | 'timeout'
+  | 'access_denied'
+  | 'api_key_required'
+  | 'proxy_required'
+  | 'not_implemented'
+  | 'unsupported_interface'
+  | 'upstream_error';
 
 export interface ProviderStatusReport {
   provider: MetadataProviderName;
   label: string;
+  tier?: ProviderTier;
+  region?: string;
   status: ProviderLookupStatusCode;
   candidateCount: number;
   exactMatchCount: number;
@@ -88,11 +129,13 @@ export interface MetadataConflict {
     | 'authors'
     | 'translators'
     | 'illustrators'
+    | 'editors'
     | 'publishers'
     | 'publishingPartner'
+    | 'language'
+    | 'format'
     | 'pageCount'
-    | 'publishedYear'
-    | 'language';
+    | 'publishedYear';
   values: Array<{ provider: MetadataProviderName; value: string }>;
 }
 
@@ -128,6 +171,7 @@ export interface Work extends BaseEntity {
   originalTitle?: string;
   subtitle?: string;
   authors: string[];
+  illustrators?: string[];
   genres: string[];
   tags: string[];
   description?: string;
@@ -138,6 +182,7 @@ export interface Work extends BaseEntity {
   metadataSource: MetadataProviderName;
   metadataVerified: boolean;
   userVerifiedFields: string[];
+  fieldProvenance?: Record<string, FieldProvenanceEntry>;
 }
 
 export interface Edition extends BaseEntity {
@@ -148,6 +193,8 @@ export interface Edition extends BaseEntity {
   translationTitle?: string;
   translators: string[];
   illustrators?: string[];
+  editors?: string[];
+  contributors?: ContributorCredit[];
   publishers: string[];
   publishingPartner?: string;
   publishedDate?: string;
@@ -164,6 +211,7 @@ export interface Edition extends BaseEntity {
   metadataSource: MetadataProviderName;
   metadataVerified: boolean;
   userVerifiedFields: string[];
+  fieldProvenance?: Record<string, FieldProvenanceEntry>;
 }
 
 export interface EditionIsbn extends BaseEntity {
@@ -369,15 +417,21 @@ export interface MetadataCandidate {
   externalId: string;
   provider: MetadataProviderName;
   sources?: MetadataProviderName[];
+  tier?: ProviderTier;
   verified: boolean;
   matchConfidence?: MatchConfidence;
+  editionMatchLevel?: EditionMatchLevel;
   matchedIsbns?: string[];
   title: string;
   originalTitle?: string;
+  translationTitle?: string;
   subtitle?: string;
+  editionName?: string;
   authors: string[];
   translators: string[];
   illustrators?: string[];
+  editors?: string[];
+  contributors?: ContributorCredit[];
   publishers: string[];
   publishingPartner?: string;
   publishedDate?: string;
@@ -394,12 +448,22 @@ export interface MetadataCandidate {
   volumeNumber?: string;
   sourceUrl?: string;
   conflicts?: MetadataConflict[];
+  contradictions?: string[];
+  fieldProvenance?: Record<string, FieldProvenanceEntry>;
   rawPayload: Record<string, unknown>;
 }
 
 export interface MetadataLookupResult {
   candidates: MetadataCandidate[];
+  exactMatches?: MetadataCandidate[];
+  possibleEditionMatches?: MetadataCandidate[];
+  relatedEditions?: MetadataCandidate[];
+  workMatches?: MetadataCandidate[];
+  approximateMatches?: MetadataCandidate[];
   providerStatuses: ProviderStatusReport[];
   queriedIsbn: string | null;
   exactMatchCount: number;
+  stagesExecuted?: string[];
+  fromCache?: boolean;
+  cachedAt?: string;
 }

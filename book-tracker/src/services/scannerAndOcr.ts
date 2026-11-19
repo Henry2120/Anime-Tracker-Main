@@ -1,6 +1,12 @@
 import { getSupabaseClient } from '../lib/supabase';
 import type { MetadataCandidate } from '../types/domain';
-import { extractIsbnsFromText, parseIsbn } from '../utils/isbn';
+import {
+  computeIsbn10CheckDigit,
+  computeIsbn13CheckDigit,
+  extractIsbnsFromText,
+  parseIsbn,
+  stripIsbn,
+} from '../utils/isbn';
 
 export interface OcrExtractionResult {
   rawText: string;
@@ -18,6 +24,34 @@ export type ScannerUiState =
   | 'no_barcode_detected'
   | 'permission_error';
 
+export type ZxingModuleStatus = 'uninitialized' | 'loading' | 'ready' | 'error';
+
+export interface BarcodeEvaluationResult {
+  validIsbn13: string | null;
+  isbn10: string | null;
+  rawValue: string | null;
+  format: string | null;
+  isValidIsbn: boolean;
+  checksumError: string | null;
+}
+
+export interface BarcodeScanAttemptResult extends BarcodeEvaluationResult {
+  decoderUsed: 'native' | 'zxing' | null;
+  matchedRegion: string | null;
+  regionsExamined: string[];
+  nativeSupported: boolean;
+  zxingStatus: ZxingModuleStatus;
+  zxingError: string | null;
+  durationMs: number;
+  error: string | null;
+}
+
+export interface ScannerCapabilities {
+  nativeSupported: boolean;
+  zxingStatus: ZxingModuleStatus;
+  zxingError: string | null;
+}
+
 interface NativeBarcodeDetector {
   detect(source: ImageBitmapSource): Promise<Array<{ rawValue?: string; format?: string }>>;
 }
@@ -33,76 +67,172 @@ declare global {
 
 let zxingModulePromise: Promise<typeof import('zxing-wasm/reader')> | null = null;
 let zxingPrepared = false;
+let zxingStatus: ZxingModuleStatus = 'uninitialized';
+let zxingLastError: string | null = null;
+
+export function isNativeBarcodeDetectorSupported(): boolean {
+  return typeof window !== 'undefined' && typeof window.BarcodeDetector === 'function';
+}
+
+export function getScannerCapabilities(): ScannerCapabilities {
+  return {
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+  };
+}
 
 async function getZxingReader() {
   if (!zxingModulePromise) {
+    zxingStatus = 'loading';
+    zxingLastError = null;
     zxingModulePromise = import('zxing-wasm/reader');
   }
-  const mod = await zxingModulePromise;
-  if (!zxingPrepared) {
-    zxingPrepared = true;
-    const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-    if (isBrowser) {
-      const base = (import.meta.env?.BASE_URL as string | undefined) || '/';
-      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-      mod.prepareZXingModule({
-        overrides: {
-          locateFile: (path: string, prefix: string) => {
-            if (path.endsWith('.wasm')) {
-              return `${normalizedBase}wasm/${path}`;
-            }
-            return `${prefix}${path}`;
+  try {
+    const mod = await zxingModulePromise;
+    if (!zxingPrepared) {
+      zxingPrepared = true;
+      const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+      if (isBrowser) {
+        const base = (import.meta.env?.BASE_URL as string | undefined) || '/';
+        const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+        await mod.prepareZXingModule({
+          overrides: {
+            locateFile: (path: string, prefix: string) => {
+              if (path.endsWith('.wasm')) {
+                return `${normalizedBase}wasm/${path}`;
+              }
+              return `${prefix}${path}`;
+            },
           },
-        },
-        fireImmediately: true,
-      });
+          fireImmediately: true,
+        });
+      }
     }
+    zxingStatus = 'ready';
+    zxingLastError = null;
+    return mod;
+  } catch (err) {
+    zxingStatus = 'error';
+    zxingLastError = err instanceof Error ? err.message : 'Failed to initialize ZXing WASM decoder';
+    zxingPrepared = false;
+    zxingModulePromise = null;
+    throw err;
   }
-  return mod;
 }
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-export function extractValidIsbnFromBarcodeValues(
+function nowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function explainInvalidIsbn(raw: string, format: string | null): string {
+  const clean = stripIsbn(raw);
+  if (/^\d{13}$/.test(clean)) {
+    if (!clean.startsWith('978') && !clean.startsWith('979')) {
+      return `Decoded ${format || 'EAN-13'} "${clean}" is not a book ISBN (must start with 978 or 979)`;
+    }
+    const expected = computeIsbn13CheckDigit(clean.slice(0, 12));
+    return `Invalid ISBN-13 check digit in "${clean}" (got ${clean[12]}, expected ${expected})`;
+  }
+  if (/^\d{9}[\dX]$/.test(clean)) {
+    const expected = computeIsbn10CheckDigit(clean.slice(0, 9));
+    return `Invalid ISBN-10 check digit in "${clean}" (got ${clean[9]}, expected ${expected})`;
+  }
+  return `Decoded ${format || 'barcode'} "${raw}" is not a 10- or 13-digit ISBN`;
+}
+
+/**
+ * Inspects decoded barcode candidates, prioritizes EAN-13, validates ISBN check digits,
+ * and preserves raw digits + checksum failure explanation for diagnostics.
+ */
+export function evaluateBarcodeDetections(
   entries: Array<{ rawValue?: string; text?: string; format?: string }>
-): string | null {
-  // Prioritize EAN-13 entries first
+): BarcodeEvaluationResult {
   const sorted = [...entries].sort((a, b) => {
-    const aEan13 = (a.format ?? '').toLowerCase().includes('13') ? 1 : 0;
-    const bEan13 = (b.format ?? '').toLowerCase().includes('13') ? 1 : 0;
-    return bEan13 - aEan13;
+    const aFmt = (a.format ?? '').toLowerCase();
+    const bFmt = (b.format ?? '').toLowerCase();
+    const aScore = aFmt.includes('13') ? 3 : aFmt.includes('upc') ? 2 : aFmt.includes('128') ? 1 : 0;
+    const bScore = bFmt.includes('13') ? 3 : bFmt.includes('upc') ? 2 : bFmt.includes('128') ? 1 : 0;
+    return bScore - aScore;
   });
+
+  let fallbackRaw: string | null = null;
+  let fallbackFmt: string | null = null;
 
   for (const item of sorted) {
     const raw = (item.rawValue ?? item.text ?? '').trim();
     if (!raw) continue;
+    const fmt = item.format?.trim() || null;
+    if (!fallbackRaw) {
+      fallbackRaw = raw;
+      fallbackFmt = fmt;
+    }
     const parsed = parseIsbn(raw);
     if (parsed.isValid && parsed.isbn13) {
-      return parsed.isbn13;
+      return {
+        validIsbn13: parsed.isbn13,
+        isbn10: parsed.isbn10,
+        rawValue: raw,
+        format: fmt || 'EAN-13',
+        isValidIsbn: true,
+        checksumError: null,
+      };
     }
   }
-  return null;
+
+  return {
+    validIsbn13: null,
+    isbn10: null,
+    rawValue: fallbackRaw,
+    format: fallbackFmt,
+    isValidIsbn: false,
+    checksumError: fallbackRaw ? explainInvalidIsbn(fallbackRaw, fallbackFmt) : null,
+  };
 }
 
-async function detectWithNativeDetector(source: ImageBitmapSource): Promise<string | null> {
-  if (typeof window === 'undefined' || !window.BarcodeDetector) return null;
+export function extractValidIsbnFromBarcodeValues(
+  entries: Array<{ rawValue?: string; text?: string; format?: string }>
+): string | null {
+  return evaluateBarcodeDetections(entries).validIsbn13;
+}
+
+async function detectWithNativeDetector(source: ImageBitmapSource): Promise<{
+  evalResult: BarcodeEvaluationResult;
+  error: string | null;
+}> {
+  if (!isNativeBarcodeDetectorSupported() || !window.BarcodeDetector) {
+    return {
+      evalResult: evaluateBarcodeDetections([]),
+      error: null,
+    };
+  }
   try {
     const detector = new window.BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'upc_a', 'code_128'],
     });
     const results = await detector.detect(source);
-    return extractValidIsbnFromBarcodeValues(results);
-  } catch {
-    return null;
+    return { evalResult: evaluateBarcodeDetections(results), error: null };
+  } catch (err) {
+    return {
+      evalResult: evaluateBarcodeDetections([]),
+      error: err instanceof Error ? err.message : 'Native BarcodeDetector error',
+    };
   }
 }
 
 async function detectWithZxingInput(
   input: Blob | Uint8Array | ImageData,
   opts?: { binarizer?: 'LocalAverage' | 'GlobalHistogram'; minLineCount?: number }
-): Promise<string | null> {
+): Promise<{
+  evalResult: BarcodeEvaluationResult;
+  error: string | null;
+}> {
   try {
     const { readBarcodes } = await getZxingReader();
     const results = await readBarcodes(input, {
@@ -114,15 +244,89 @@ async function detectWithZxingInput(
       formats: ['EAN-13', 'EAN-8', 'UPC-A', 'Code128'],
       binarizer: opts?.binarizer ?? 'LocalAverage',
       minLineCount: opts?.minLineCount ?? 2,
-      maxNumberOfSymbols: 4,
+      maxNumberOfSymbols: 6,
     });
-    return extractValidIsbnFromBarcodeValues(results);
-  } catch {
-    return null;
+    return { evalResult: evaluateBarcodeDetections(results), error: null };
+  } catch (err) {
+    return {
+      evalResult: evaluateBarcodeDetections([]),
+      error: err instanceof Error ? err.message : 'ZXing decode failed',
+    };
   }
 }
 
-function buildInvertedImageData(imageData: ImageData): ImageData {
+// ============================================================================
+// Pure ImageData Pixel Preprocessing (Quiet-Zone Padding, Upscale, Contrast, Rotate)
+// ============================================================================
+
+export function addQuietZonePadding(imageData: ImageData, padPx = 24): ImageData {
+  const { width, height, data } = imageData;
+  const newW = width + padPx * 2;
+  const newH = height + padPx * 2;
+  const out = new Uint8ClampedArray(newW * newH * 4);
+  out.fill(255);
+
+  for (let y = 0; y < height; y++) {
+    const srcStart = y * width * 4;
+    const dstStart = ((y + padPx) * newW + padPx) * 4;
+    out.set(data.subarray(srcStart, srcStart + width * 4), dstStart);
+  }
+  return new ImageData(out, newW, newH);
+}
+
+export function cropImageData(
+  imageData: ImageData,
+  rect: { xRatio: number; yRatio: number; wRatio: number; hRatio: number },
+  quietZonePad = 24
+): ImageData {
+  const { width, height, data } = imageData;
+  const sx = Math.max(0, Math.min(width - 1, Math.floor(width * rect.xRatio)));
+  const sy = Math.max(0, Math.min(height - 1, Math.floor(height * rect.yRatio)));
+  const sw = Math.max(1, Math.min(width - sx, Math.ceil(width * rect.wRatio)));
+  const sh = Math.max(1, Math.min(height - sy, Math.ceil(height * rect.hRatio)));
+
+  const dstW = sw + quietZonePad * 2;
+  const dstH = sh + quietZonePad * 2;
+  const out = new Uint8ClampedArray(dstW * dstH * 4);
+  out.fill(255);
+
+  for (let y = 0; y < sh; y++) {
+    const srcStart = ((sy + y) * width + sx) * 4;
+    const dstStart = ((y + quietZonePad) * dstW + quietZonePad) * 4;
+    out.set(data.subarray(srcStart, srcStart + sw * 4), dstStart);
+  }
+  return new ImageData(out, dstW, dstH);
+}
+
+export function upscaleImageData2x(imageData: ImageData): ImageData {
+  const { width, height, data } = imageData;
+  const newW = width * 2;
+  const newH = height * 2;
+  const out = new Uint8ClampedArray(newW * newH * 4);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sIdx = (y * width + x) * 4;
+      const r = data[sIdx];
+      const g = data[sIdx + 1];
+      const b = data[sIdx + 2];
+      const a = data[sIdx + 3];
+      const dx = x * 2;
+      const dy = y * 2;
+      const d0 = (dy * newW + dx) * 4;
+      const d1 = d0 + 4;
+      const d2 = ((dy + 1) * newW + dx) * 4;
+      const d3 = d2 + 4;
+      out[d0] = out[d1] = out[d2] = out[d3] = r;
+      out[d0 + 1] = out[d1 + 1] = out[d2 + 1] = out[d3 + 1] = g;
+      out[d0 + 2] = out[d1 + 2] = out[d2 + 2] = out[d3 + 2] = b;
+      out[d0 + 3] = out[d1 + 3] = out[d2 + 3] = out[d3 + 3] = a;
+    }
+  }
+  return new ImageData(out, newW, newH);
+}
+
+export function buildInvertedImageData(imageData: ImageData): ImageData {
   const { width, height, data } = imageData;
   const out = new Uint8ClampedArray(data.length);
   for (let i = 0; i < data.length; i += 4) {
@@ -134,54 +338,7 @@ function buildInvertedImageData(imageData: ImageData): ImageData {
   return new ImageData(out, width, height);
 }
 
-/**
- * Pure helper for decoding an EAN-13/ISBN barcode directly from raw ImageData
- * (supports headless/Node Vitest testing as well as canvas frame scans).
- */
-export async function decodeBarcodeFromRawImageData(imageData: ImageData): Promise<string | null> {
-  const first = await detectWithZxingInput(imageData, {
-    binarizer: 'LocalAverage',
-    minLineCount: 2,
-  });
-  if (first) return first;
-
-  const globalHit = await detectWithZxingInput(imageData, {
-    binarizer: 'GlobalHistogram',
-    minLineCount: 1,
-  });
-  if (globalHit) return globalHit;
-
-  const inverted = buildInvertedImageData(imageData);
-  return detectWithZxingInput(inverted, {
-    binarizer: 'LocalAverage',
-    minLineCount: 1,
-  });
-}
-
-function drawRegionToCanvas(
-  source: CanvasImageSource,
-  srcW: number,
-  srcH: number,
-  crop: { sx: number; sy: number; sw: number; sh: number },
-  targetCanvas: HTMLCanvasElement,
-  maxDim = 1400
-): ImageData | null {
-  const scale = Math.min(1, maxDim / Math.max(crop.sw, crop.sh));
-  const dstW = Math.max(1, Math.round(crop.sw * scale));
-  const dstH = Math.max(1, Math.round(crop.sh * scale));
-  if (dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0) return null;
-
-  targetCanvas.width = dstW;
-  targetCanvas.height = dstH;
-  const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, dstW, dstH);
-  ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, dstW, dstH);
-  return ctx.getImageData(0, 0, dstW, dstH);
-}
-
-function buildContrastEnhancedImageData(imageData: ImageData): ImageData {
+export function buildContrastEnhancedImageData(imageData: ImageData): ImageData {
   const { width, height, data } = imageData;
   const gray = new Uint8ClampedArray(width * height);
   let minLum = 255;
@@ -199,8 +356,12 @@ function buildContrastEnhancedImageData(imageData: ImageData): ImageData {
 
   for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
     const stretched = Math.max(0, Math.min(255, Math.round(((gray[p] - minLum) * 255) / range)));
-    // Slight S-curve contrast boost while preserving gray transitions for subpixel ZXing edges
-    const boosted = stretched < 110 ? Math.max(0, stretched - 25) : stretched > 145 ? Math.min(255, stretched + 25) : stretched;
+    const boosted =
+      stretched < 110
+        ? Math.max(0, stretched - 25)
+        : stretched > 145
+          ? Math.min(255, stretched + 25)
+          : stretched;
     out[i] = boosted;
     out[i + 1] = boosted;
     out[i + 2] = boosted;
@@ -208,6 +369,203 @@ function buildContrastEnhancedImageData(imageData: ImageData): ImageData {
   }
 
   return new ImageData(out, width, height);
+}
+
+export function rotateImageData90Cw(imageData: ImageData): ImageData {
+  const { width, height, data } = imageData;
+  const out = new Uint8ClampedArray(data.length);
+  const newW = height;
+  const newH = width;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sIdx = (y * width + x) * 4;
+      const nx = height - 1 - y;
+      const ny = x;
+      const dIdx = (ny * newW + nx) * 4;
+      out[dIdx] = data[sIdx];
+      out[dIdx + 1] = data[sIdx + 1];
+      out[dIdx + 2] = data[sIdx + 2];
+      out[dIdx + 3] = data[sIdx + 3];
+    }
+  }
+  return new ImageData(out, newW, newH);
+}
+
+interface ScanRegionDef {
+  id: string;
+  xRatio: number;
+  yRatio: number;
+  wRatio: number;
+  hRatio: number;
+}
+
+const MULTI_SCAN_REGIONS: ScanRegionDef[] = [
+  { id: 'center_band', xRatio: 0.08, yRatio: 0.22, wRatio: 0.84, hRatio: 0.56 },
+  { id: 'lower_half', xRatio: 0, yRatio: 0.45, wRatio: 1, hRatio: 0.55 },
+  { id: 'upper_half', xRatio: 0, yRatio: 0, wRatio: 1, hRatio: 0.55 },
+  { id: 'left_band', xRatio: 0, yRatio: 0.08, wRatio: 0.58, hRatio: 0.84 },
+  { id: 'right_band', xRatio: 0.42, yRatio: 0.08, wRatio: 0.58, hRatio: 0.84 },
+  { id: 'bottom_left', xRatio: 0, yRatio: 0.48, wRatio: 0.6, hRatio: 0.52 },
+  { id: 'bottom_right', xRatio: 0.4, yRatio: 0.48, wRatio: 0.6, hRatio: 0.52 },
+];
+
+/**
+ * Pure multi-region, multi-scale, multi-binarizer decoder operating directly on lossless ImageData.
+ * Works identically in browser canvas flows and headless Vitest suites.
+ */
+export async function decodeBarcodeFromRawImageDataDetailed(
+  imageData: ImageData,
+  options?: { regionSubset?: string[]; skipHeavyPasses?: boolean }
+): Promise<BarcodeScanAttemptResult> {
+  const start = nowMs();
+  const regionsExamined: string[] = [];
+  let lastRawHit: BarcodeEvaluationResult | null = null;
+  let lastError: string | null = null;
+
+  const tryCandidate = async (
+    regionName: string,
+    img: ImageData,
+    binarizer: 'LocalAverage' | 'GlobalHistogram',
+    minLineCount: number
+  ): Promise<BarcodeScanAttemptResult | null> => {
+    if (!regionsExamined.includes(regionName)) regionsExamined.push(regionName);
+    const { evalResult, error } = await detectWithZxingInput(img, { binarizer, minLineCount });
+    if (error && !lastError) lastError = error;
+    if (evalResult.rawValue && !lastRawHit) {
+      lastRawHit = evalResult;
+    }
+    if (evalResult.validIsbn13) {
+      return {
+        ...evalResult,
+        decoderUsed: 'zxing',
+        matchedRegion: regionName,
+        regionsExamined,
+        nativeSupported: isNativeBarcodeDetectorSupported(),
+        zxingStatus,
+        zxingError: zxingLastError,
+        durationMs: Math.round(nowMs() - start),
+        error: lastError,
+      };
+    }
+    return null;
+  };
+
+  // 1. Full frame lossless pass (LocalAverage -> padded full frame if bars touch edges -> GlobalHistogram)
+  const fullHit = await tryCandidate('full_frame', imageData, 'LocalAverage', 2);
+  if (fullHit) return fullHit;
+
+  const paddedFull = addQuietZonePadding(imageData, 24);
+  const fullPaddedHit = await tryCandidate('full_frame_padded', paddedFull, 'LocalAverage', 1);
+  if (fullPaddedHit) return fullPaddedHit;
+
+  // Upscale small/low-res full frame so narrow EAN-13 bars meet ZXing's minimum module width
+  if (imageData.width < 560 || imageData.height < 220) {
+    const upscaled = upscaleImageData2x(paddedFull);
+    const upHit =
+      (await tryCandidate('full_frame_upscaled', upscaled, 'LocalAverage', 1)) ||
+      (await tryCandidate('full_frame_upscaled', upscaled, 'GlobalHistogram', 1));
+    if (upHit) return upHit;
+  }
+
+  const fullGlobalHit = await tryCandidate('full_frame', paddedFull, 'GlobalHistogram', 1);
+  if (fullGlobalHit) return fullGlobalHit;
+
+  // 2. Multi-region crops with quiet-zone padding (and upscaling when small)
+  const regionList = options?.regionSubset
+    ? MULTI_SCAN_REGIONS.filter((r) => options.regionSubset!.includes(r.id))
+    : MULTI_SCAN_REGIONS;
+
+  for (const region of regionList) {
+    const cropped = cropImageData(imageData, region, 24);
+    const prepared = cropped.width < 520 ? upscaleImageData2x(cropped) : cropped;
+    const hit = await tryCandidate(region.id, prepared, 'LocalAverage', 1);
+    if (hit) return hit;
+  }
+
+  // 3. Contrast-enhanced, GlobalHistogram, inverted, & explicit 90° rotated fallback
+  if (!options?.skipHeavyPasses) {
+    await yieldToUi();
+    const contrastFull = buildContrastEnhancedImageData(paddedFull);
+    const contrastHit =
+      (await tryCandidate('full_frame_contrast', contrastFull, 'LocalAverage', 1)) ||
+      (await tryCandidate('full_frame_contrast', contrastFull, 'GlobalHistogram', 1));
+    if (contrastHit) return contrastHit;
+
+    // Regional contrast + GlobalHistogram on lower_half & center_band (most common book barcode zones)
+    for (const rId of ['lower_half', 'center_band']) {
+      const def = MULTI_SCAN_REGIONS.find((r) => r.id === rId);
+      if (!def) continue;
+      const cropped = cropImageData(imageData, def, 24);
+      const contrastCrop = buildContrastEnhancedImageData(
+        cropped.width < 520 ? upscaleImageData2x(cropped) : cropped
+      );
+      const cropHit =
+        (await tryCandidate(`${rId}_contrast`, contrastCrop, 'LocalAverage', 1)) ||
+        (await tryCandidate(`${rId}_contrast`, contrastCrop, 'GlobalHistogram', 1));
+      if (cropHit) return cropHit;
+    }
+
+    const invertedFull = buildInvertedImageData(paddedFull);
+    const invHit = await tryCandidate('full_frame_inverted', invertedFull, 'LocalAverage', 1);
+    if (invHit) return invHit;
+
+    // Explicit 90-degree rotation pass (in case narrow vertical barcode sits in dense cover art)
+    const rotated = rotateImageData90Cw(paddedFull);
+    const rotHit = await tryCandidate('full_frame_rotated_90', rotated, 'LocalAverage', 1);
+    if (rotHit) return rotHit;
+  }
+
+  return {
+    ...(lastRawHit ?? {
+      validIsbn13: null,
+      isbn10: null,
+      rawValue: null,
+      format: null,
+      isValidIsbn: false,
+      checksumError: null,
+    }),
+    decoderUsed: lastRawHit ? 'zxing' : null,
+    matchedRegion: null,
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+  };
+}
+
+export async function decodeBarcodeFromRawImageData(imageData: ImageData): Promise<string | null> {
+  const res = await decodeBarcodeFromRawImageDataDetailed(imageData);
+  return res.validIsbn13;
+}
+
+// ============================================================================
+// Canvas Drawing & Uploaded Photo / Live Camera Entry Points
+// ============================================================================
+
+function drawRegionToCanvas(
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  crop: { sx: number; sy: number; sw: number; sh: number },
+  targetCanvas: HTMLCanvasElement,
+  maxDim = 1600
+): ImageData | null {
+  const scale = Math.min(1, maxDim / Math.max(crop.sw, crop.sh));
+  const dstW = Math.max(1, Math.round(crop.sw * scale));
+  const dstH = Math.max(1, Math.round(crop.sh * scale));
+  if (dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0) return null;
+
+  targetCanvas.width = dstW;
+  targetCanvas.height = dstH;
+  const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, dstW, dstH);
+  ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, dstW, dstH);
+  return ctx.getImageData(0, 0, dstW, dstH);
 }
 
 function drawRotatedCanvas(
@@ -282,68 +640,104 @@ async function decodeImageElementOrBitmap(blob: Blob): Promise<{
 }
 
 /**
- * Multi-pass barcode decoder for still image uploads (handles high/low res,
- * tilted photos, uneven lighting, low contrast, and surrounding book cover text).
+ * Multi-region, multi-pass barcode decoder for uploaded barcode photos.
+ * Uses the same lossless multi-region + preprocessing pipeline as live camera frames,
+ * plus skewed/orthogonal rotation fallbacks.
  */
-export async function detectBarcodeFromImageFile(file: Blob): Promise<string | null> {
-  // Pass 1: Direct blob detection (fast path for crisp photos)
-  const nativeDirect = await detectWithNativeDetector(file);
-  if (nativeDirect) return nativeDirect;
+export async function detectBarcodeFromImageFileDetailed(
+  file: Blob
+): Promise<BarcodeScanAttemptResult> {
+  const start = nowMs();
+  const regionsExamined: string[] = [];
+  let lastRawHit: BarcodeEvaluationResult | null = null;
+  let lastError: string | null = null;
 
-  const zxingDirect = await detectWithZxingInput(file, { binarizer: 'LocalAverage', minLineCount: 2 });
-  if (zxingDirect) return zxingDirect;
+  // Fast path: Native BarcodeDetector on direct Blob
+  if (isNativeBarcodeDetectorSupported()) {
+    regionsExamined.push('native_blob');
+    const nativeDirect = await detectWithNativeDetector(file);
+    if (nativeDirect.error) lastError = nativeDirect.error;
+    if (nativeDirect.evalResult.rawValue) lastRawHit = nativeDirect.evalResult;
+    if (nativeDirect.evalResult.validIsbn13) {
+      return {
+        ...nativeDirect.evalResult,
+        decoderUsed: 'native',
+        matchedRegion: 'native_blob',
+        regionsExamined,
+        nativeSupported: true,
+        zxingStatus,
+        zxingError: zxingLastError,
+        durationMs: Math.round(nowMs() - start),
+        error: lastError,
+      };
+    }
+  }
 
+  // Decode Blob directly via canvas/ImageData (shared lossless pipeline)
   const decoded = await decodeImageElementOrBitmap(file);
-  if (!decoded) return null;
+  if (!decoded) {
+    // Fallback to passing raw Blob directly to ZXing if DOM image decode unavailable
+    const zDirect = await detectWithZxingInput(file, { binarizer: 'LocalAverage', minLineCount: 1 });
+    return {
+      ...zDirect.evalResult,
+      decoderUsed: zDirect.evalResult.rawValue ? 'zxing' : null,
+      matchedRegion: zDirect.evalResult.validIsbn13 ? 'blob_direct' : null,
+      regionsExamined: [...regionsExamined, 'blob_direct'],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: Math.round(nowMs() - start),
+      error: zDirect.error ?? 'Could not decode image file into canvas',
+    };
+  }
 
   const { source, width, height, cleanup } = decoded;
   try {
     const workCanvas = document.createElement('canvas');
     const rotCanvas = document.createElement('canvas');
 
-    // Pass 2: Scaled full image + GlobalHistogram
     const fullImgData = drawRegionToCanvas(
       source,
       width,
       height,
       { sx: 0, sy: 0, sw: width, sh: height },
       workCanvas,
-      1600
+      1800
     );
+
     if (fullImgData) {
-      const zGlobal = await detectWithZxingInput(fullImgData, {
-        binarizer: 'GlobalHistogram',
-        minLineCount: 1,
-      });
-      if (zGlobal) return zGlobal;
+      const nativeFull = await detectWithNativeDetector(workCanvas);
+      if (nativeFull.evalResult.validIsbn13) {
+        return {
+          ...nativeFull.evalResult,
+          decoderUsed: 'native',
+          matchedRegion: 'full_frame_native',
+          regionsExamined: [...regionsExamined, 'full_frame_native'],
+          nativeSupported: isNativeBarcodeDetectorSupported(),
+          zxingStatus,
+          zxingError: zxingLastError,
+          durationMs: Math.round(nowMs() - start),
+          error: lastError,
+        };
+      }
+
+      const zRes = await decodeBarcodeFromRawImageDataDetailed(fullImgData);
+      for (const r of zRes.regionsExamined) {
+        if (!regionsExamined.includes(r)) regionsExamined.push(r);
+      }
+      if (zRes.rawValue && !lastRawHit) lastRawHit = zRes;
+      if (zRes.error && !lastError) lastError = zRes.error;
+      if (zRes.validIsbn13) {
+        return {
+          ...zRes,
+          regionsExamined,
+          durationMs: Math.round(nowMs() - start),
+        };
+      }
     }
 
-    await yieldToUi();
-
-    // Pass 3: Focused region crops (center band, bottom half, top half — cuts cover clutter)
-    const crops = [
-      { sx: width * 0.08, sy: height * 0.25, sw: width * 0.84, sh: height * 0.5 },
-      { sx: width * 0.05, sy: height * 0.5, sw: width * 0.9, sh: height * 0.45 },
-      { sx: width * 0.05, sy: height * 0.05, sw: width * 0.9, sh: height * 0.45 },
-    ];
-    for (const crop of crops) {
-      const cropData = drawRegionToCanvas(source, width, height, crop, workCanvas, 1400);
-      if (!cropData) continue;
-      const hit =
-        (await detectWithNativeDetector(workCanvas)) ||
-        (await decodeBarcodeFromRawImageData(cropData));
-      if (hit) return hit;
-
-      // Contrast-boosted pass on the cropped region
-      const contrastData = buildContrastEnhancedImageData(cropData);
-      const contrastHit = await decodeBarcodeFromRawImageData(contrastData);
-      if (contrastHit) return contrastHit;
-
-      await yieldToUi();
-    }
-
-    // Pass 4: Contrast-enhanced full image + slight skew & orthogonal rotations
-    const baseData = drawRegionToCanvas(
+    // Skewed phone-angle rotations (-12, +12, -6, +6, 90, 270, 180)
+    const rotSourceData = drawRegionToCanvas(
       source,
       width,
       height,
@@ -351,86 +745,365 @@ export async function detectBarcodeFromImageFile(file: Blob): Promise<string | n
       workCanvas,
       1200
     );
-    if (baseData) {
-      const enhanced = buildContrastEnhancedImageData(baseData);
-      const enhancedHit = await decodeBarcodeFromRawImageData(enhanced);
-      if (enhancedHit) return enhancedHit;
-
-      // Handle slight smartphone tilts (-12, +12, -6, +6) and 90/180/270
+    if (rotSourceData) {
       for (const angle of [-12, 12, -6, 6, 90, 270, 180]) {
         await yieldToUi();
         const rotData = drawRotatedCanvas(workCanvas, angle, rotCanvas);
         if (!rotData) continue;
-        const rotHit =
-          (await detectWithNativeDetector(rotCanvas)) ||
-          (await decodeBarcodeFromRawImageData(rotData));
-        if (rotHit) return rotHit;
+        const rotLabel = `rotated_${angle}`;
+        regionsExamined.push(rotLabel);
+
+        const nativeRot = await detectWithNativeDetector(rotCanvas);
+        if (nativeRot.evalResult.validIsbn13) {
+          return {
+            ...nativeRot.evalResult,
+            decoderUsed: 'native',
+            matchedRegion: rotLabel,
+            regionsExamined,
+            nativeSupported: isNativeBarcodeDetectorSupported(),
+            zxingStatus,
+            zxingError: zxingLastError,
+            durationMs: Math.round(nowMs() - start),
+            error: lastError,
+          };
+        }
+
+        const zRot = await decodeBarcodeFromRawImageDataDetailed(rotData, {
+          regionSubset: ['center_band', 'lower_half'],
+          skipHeavyPasses: true,
+        });
+        if (zRot.rawValue && !lastRawHit) lastRawHit = zRot;
+        if (zRot.validIsbn13) {
+          return {
+            ...zRot,
+            matchedRegion: `${rotLabel}:${zRot.matchedRegion}`,
+            regionsExamined,
+            durationMs: Math.round(nowMs() - start),
+          };
+        }
       }
     }
   } finally {
     cleanup();
   }
 
-  return null;
+  return {
+    ...(lastRawHit ?? {
+      validIsbn13: null,
+      isbn10: null,
+      rawValue: null,
+      format: null,
+      isValidIsbn: false,
+      checksumError: null,
+    }),
+    decoderUsed: lastRawHit ? 'zxing' : null,
+    matchedRegion: null,
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+  };
+}
+
+export async function detectBarcodeFromImageFile(file: Blob): Promise<string | null> {
+  const res = await detectBarcodeFromImageFileDetailed(file);
+  return res.validIsbn13;
 }
 
 /**
- * Scans a single video frame around the visible target framing reticle (center crop)
- * with periodic full-frame support, using native BarcodeDetector or zxing-wasm ImageData.
+ * Scans a live video frame across full frame + multiple overlapping regions (center, lower back-cover,
+ * upper, edges) with lossless ImageData + quiet-zone padding + Native/ZXing fallback.
+ * Never restricts detection solely to the center reticle.
  */
+export async function scanVideoFrameForBarcodeDetailed(
+  video: HTMLVideoElement,
+  scratchCanvas: HTMLCanvasElement,
+  options?: { frameIndex?: number; fullPass?: boolean }
+): Promise<BarcodeScanAttemptResult> {
+  const start = nowMs();
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh || video.readyState < 2) {
+    return {
+      validIsbn13: null,
+      isbn10: null,
+      rawValue: null,
+      format: null,
+      isValidIsbn: false,
+      checksumError: null,
+      decoderUsed: null,
+      matchedRegion: null,
+      regionsExamined: [],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: 0,
+      error: null,
+    };
+  }
+
+  const regionsExamined: string[] = [];
+  const fullImgData = drawRegionToCanvas(
+    video,
+    vw,
+    vh,
+    { sx: 0, sy: 0, sw: vw, sh: vh },
+    scratchCanvas,
+    1400
+  );
+  if (!fullImgData) {
+    return {
+      validIsbn13: null,
+      isbn10: null,
+      rawValue: null,
+      format: null,
+      isValidIsbn: false,
+      checksumError: null,
+      decoderUsed: null,
+      matchedRegion: null,
+      regionsExamined: [],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: Math.round(nowMs() - start),
+      error: 'Unable to acquire 2D canvas context',
+    };
+  }
+
+  let lastRawHit: BarcodeEvaluationResult | null = null;
+  let lastError: string | null = null;
+
+  // 1. Fast native detector on full frame
+  if (isNativeBarcodeDetectorSupported()) {
+    regionsExamined.push('native_full_frame');
+    const nativeHit = await detectWithNativeDetector(scratchCanvas);
+    if (nativeHit.error) lastError = nativeHit.error;
+    if (nativeHit.evalResult.rawValue) lastRawHit = nativeHit.evalResult;
+    if (nativeHit.evalResult.validIsbn13) {
+      return {
+        ...nativeHit.evalResult,
+        decoderUsed: 'native',
+        matchedRegion: 'native_full_frame',
+        regionsExamined,
+        nativeSupported: true,
+        zxingStatus,
+        zxingError: zxingLastError,
+        durationMs: Math.round(nowMs() - start),
+        error: lastError,
+      };
+    }
+  }
+
+  // 2. Rotate secondary crops smoothly across live frames so every frame scans full + lower + center
+  //    plus alternating edge/corner/contrast/rotation passes without overloading CPU.
+  const idx = options?.frameIndex;
+  const fullPass = options?.fullPass ?? idx === undefined;
+  const subset = fullPass
+    ? undefined
+    : idx! % 3 === 0
+      ? ['center_band', 'lower_half', 'upper_half']
+      : idx! % 3 === 1
+        ? ['center_band', 'lower_half', 'left_band', 'right_band']
+        : ['center_band', 'lower_half', 'bottom_left', 'bottom_right'];
+
+  const zRes = await decodeBarcodeFromRawImageDataDetailed(fullImgData, {
+    regionSubset: subset,
+    skipHeavyPasses: !fullPass && idx! % 2 === 1,
+  });
+
+  for (const r of zRes.regionsExamined) {
+    if (!regionsExamined.includes(r)) regionsExamined.push(r);
+  }
+  if (zRes.rawValue && !lastRawHit) lastRawHit = zRes;
+  if (zRes.error && !lastError) lastError = zRes.error;
+
+  if (zRes.validIsbn13) {
+    return {
+      ...zRes,
+      regionsExamined,
+      durationMs: Math.round(nowMs() - start),
+    };
+  }
+
+  // 3. Explicit 90° native fallback when rotated barcodes miss on native-only frames
+  if (isNativeBarcodeDetectorSupported() && (fullPass || (idx ?? 0) % 3 === 2)) {
+    const rotCanvas = document.createElement('canvas');
+    if (drawRotatedCanvas(scratchCanvas, 90, rotCanvas)) {
+      regionsExamined.push('native_rotated_90');
+      const nativeRot = await detectWithNativeDetector(rotCanvas);
+      if (nativeRot.evalResult.validIsbn13) {
+        return {
+          ...nativeRot.evalResult,
+          decoderUsed: 'native',
+          matchedRegion: 'native_rotated_90',
+          regionsExamined,
+          nativeSupported: true,
+          zxingStatus,
+          zxingError: zxingLastError,
+          durationMs: Math.round(nowMs() - start),
+          error: lastError,
+        };
+      }
+    }
+  }
+
+  return {
+    ...(lastRawHit ?? {
+      validIsbn13: null,
+      isbn10: null,
+      rawValue: null,
+      format: null,
+      isValidIsbn: false,
+      checksumError: null,
+    }),
+    decoderUsed: lastRawHit ? zRes.decoderUsed ?? 'zxing' : null,
+    matchedRegion: null,
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+  };
+}
+
 export async function scanVideoFrameForBarcode(
   video: HTMLVideoElement,
   scratchCanvas: HTMLCanvasElement,
-  options?: { fullFrame?: boolean }
+  options?: { fullFrame?: boolean; frameIndex?: number; fullPass?: boolean }
 ): Promise<string | null> {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  if (!vw || !vh || video.readyState < 2) return null;
-
-  const crop = options?.fullFrame
-    ? { sx: 0, sy: 0, sw: vw, sh: vh }
-    : {
-        sx: Math.round(vw * 0.1),
-        sy: Math.round(vh * 0.24),
-        sw: Math.round(vw * 0.8),
-        sh: Math.round(vh * 0.52),
-      };
-
-  const imgData = drawRegionToCanvas(video, vw, vh, crop, scratchCanvas, 1000);
-  if (!imgData) return null;
-
-  const nativeHit = await detectWithNativeDetector(scratchCanvas);
-  if (nativeHit) return nativeHit;
-
-  return detectWithZxingInput(imgData, {
-    binarizer: 'LocalAverage',
-    minLineCount: 2,
+  const res = await scanVideoFrameForBarcodeDetailed(video, scratchCanvas, {
+    frameIndex: options?.frameIndex,
+    fullPass: options?.fullPass ?? options?.fullFrame,
   });
+  return res.validIsbn13;
 }
 
 /**
- * Unified entry point for still Blob/File, HTMLCanvasElement, or HTMLVideoElement frames.
+ * Unified detailed entry point for still Blob/File, HTMLCanvasElement, or HTMLVideoElement frames.
  */
-export async function detectBarcodeFromImageSource(
-  source: Blob | File | HTMLVideoElement | HTMLCanvasElement
-): Promise<string | null> {
+export async function detectBarcodeFromImageSourceDetailed(
+  source: Blob | File | HTMLVideoElement | HTMLCanvasElement,
+  scratchCanvas?: HTMLCanvasElement
+): Promise<BarcodeScanAttemptResult> {
   if (source instanceof Blob) {
-    return detectBarcodeFromImageFile(source);
+    return detectBarcodeFromImageFileDetailed(source);
   }
-  if (source instanceof HTMLVideoElement) {
-    const canvas = document.createElement('canvas');
-    return scanVideoFrameForBarcode(source, canvas, { fullFrame: false });
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+    const canvas = scratchCanvas ?? document.createElement('canvas');
+    return scanVideoFrameForBarcodeDetailed(source, canvas, { fullPass: true });
   }
-  if (source instanceof HTMLCanvasElement) {
+  if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
+    const start = nowMs();
     const nativeHit = await detectWithNativeDetector(source);
-    if (nativeHit) return nativeHit;
+    if (nativeHit.evalResult.validIsbn13) {
+      return {
+        ...nativeHit.evalResult,
+        decoderUsed: 'native',
+        matchedRegion: 'native_canvas',
+        regionsExamined: ['native_canvas'],
+        nativeSupported: true,
+        zxingStatus,
+        zxingError: zxingLastError,
+        durationMs: Math.round(nowMs() - start),
+        error: nativeHit.error,
+      };
+    }
     const ctx = source.getContext('2d', { willReadFrequently: true });
     if (ctx) {
       const imgData = ctx.getImageData(0, 0, source.width, source.height);
-      return decodeBarcodeFromRawImageData(imgData);
+      return decodeBarcodeFromRawImageDataDetailed(imgData);
     }
   }
-  return null;
+  return {
+    validIsbn13: null,
+    isbn10: null,
+    rawValue: null,
+    format: null,
+    isValidIsbn: false,
+    checksumError: null,
+    decoderUsed: null,
+    matchedRegion: null,
+    regionsExamined: [],
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: 0,
+    error: 'Unsupported image source',
+  };
+}
+
+export async function detectBarcodeFromImageSource(
+  source: Blob | File | HTMLVideoElement | HTMLCanvasElement
+): Promise<string | null> {
+  const res = await detectBarcodeFromImageSourceDetailed(source);
+  return res.validIsbn13;
+}
+
+export async function openCameraStreamWithFallback(): Promise<{
+  stream: MediaStream;
+  profile: string;
+}> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Camera access is unavailable in this browser. Upload a barcode photo instead.');
+  }
+
+  const profiles: Array<{ name: string; constraints: MediaStreamConstraints }> = [
+    {
+      name: 'environment-1080p',
+      constraints: {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      },
+    },
+    {
+      name: 'environment-720p',
+      constraints: {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      },
+    },
+    {
+      name: 'environment-basic',
+      constraints: {
+        video: { facingMode: 'environment' },
+        audio: false,
+      },
+    },
+    {
+      name: 'default-camera',
+      constraints: {
+        video: true,
+        audio: false,
+      },
+    },
+  ];
+
+  let lastErr: unknown;
+  for (const prof of profiles) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(prof.constraints);
+      return { stream, profile: prof.name };
+    } catch (err) {
+      lastErr = err;
+      const errName = err && typeof err === 'object' && 'name' in err ? String((err as { name: string }).name) : '';
+      // If user denied permission or hardware absent, don't keep prompting
+      if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errName === 'NotFoundError') {
+        throw err;
+      }
+    }
+  }
+  throw lastErr;
 }
 
 export function getCameraTrackTorchSupport(stream: MediaStream | null): boolean {

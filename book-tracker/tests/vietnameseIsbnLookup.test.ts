@@ -13,6 +13,7 @@ import {
 import {
   adcbookProvider,
   ALL_METADATA_PROVIDERS,
+  amakProvider,
   fahasaProvider,
   goodaProvider,
   googleBooksProvider,
@@ -466,11 +467,48 @@ describe('Strict verification, error isolation & manual-draft preservation', () 
     expect(res.candidates[0].title).toBe('Cô nàng Otaku nhà tôi – Tập 1');
 
     const byId = Object.fromEntries(res.providerStatuses.map((s) => [s.provider, s.status]));
-    expect(byId.gooda).toBe('matched');
-    expect(byId.fahasa).toBe('unsupported');
-    expect(byId.nlv_opac).toBe('temporarily_unavailable');
-    expect(byId.google_books).toBe('requires_configuration');
-    expect(byId.open_library).toBe('temporarily_unavailable');
+    expect(byId.gooda).toBe('exact_match');
+    expect(byId.fahasa).toBe('access_denied');
+    expect(byId.nlv_opac).toBe('upstream_error');
+    expect(byId.google_books).toBe('api_key_required');
+    expect(byId.open_library).toBe('timeout');
+  });
+
+  it('reports unsupported_interface when NLV OPAC serves its soft-404 search widget', async () => {
+    const soft404Fetch = createMockFetch([
+      [
+        'https://opac.nlv.gov.vn/',
+        () => htmlResponse('<html><body>/khong-tim-thay-tai-nguyen-yeu-cau</body></html>', 200),
+      ],
+    ]);
+    const res = await lookupMetadataWithReportByIsbn('9786043590296', {
+      fetchFn: soft404Fetch,
+      preferEdgeFunction: false,
+      adapters: [nlvOpacProvider],
+    });
+    expect(res.providerStatuses[0].status).toBe('unsupported_interface');
+  });
+
+  it('marks CORS-restricted providers (Tiki, HCM Library, Amak) as proxy_required in browser DOM mode', async () => {
+    const prevWin = globalThis.window;
+    const prevDoc = globalThis.document;
+    (globalThis as Record<string, unknown>).window = {};
+    (globalThis as Record<string, unknown>).document = {};
+    try {
+      const res = await lookupMetadataWithReportByIsbn('9786043590296', {
+        preferEdgeFunction: false,
+        adapters: [tikiProvider, hcmLibraryProvider, amakProvider, fahasaProvider, nlvOpacProvider],
+      });
+      const byId = Object.fromEntries(res.providerStatuses.map((s) => [s.provider, s.status]));
+      expect(byId.tiki).toBe('proxy_required');
+      expect(byId.hcm_library).toBe('proxy_required');
+      expect(byId.amak).toBe('proxy_required');
+      expect(byId.fahasa).toBe('access_denied');
+      expect(byId.nlv_opac).toBe('unsupported_interface');
+    } finally {
+      (globalThis as Record<string, unknown>).window = prevWin;
+      (globalThis as Record<string, unknown>).document = prevDoc;
+    }
   });
 
   it('supports keyword search with Vietnamese Unicode diacritics preserved', async () => {
