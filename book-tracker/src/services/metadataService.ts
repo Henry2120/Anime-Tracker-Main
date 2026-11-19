@@ -83,6 +83,7 @@ export interface LookupOptions {
   isbndbApiKey?: string;
   worldcatToken?: string;
   nlkApiKey?: string;
+  preferServerProxy?: boolean;
   preferEdgeFunction?: boolean;
   bypassCache?: boolean;
   retryFailedOnly?: boolean;
@@ -147,6 +148,42 @@ function resolveCacheTtl(result: MetadataLookupResult, options: LookupOptions): 
 
 function isBrowserDomEnvironment(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function canUseSameOriginLookupProxy(): boolean {
+  if (!isBrowserDomEnvironment()) return false;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  const protocol = window.location?.protocol;
+  return protocol === 'http:' || protocol === 'https:';
+}
+
+async function fetchSameOriginBookLookup(
+  payload: { isbn?: string; query?: string; forceAllProviders?: boolean },
+  timeoutMs: number
+): Promise<Record<string, unknown> | null> {
+  if (!canUseSameOriginLookupProxy()) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs + 5000, 12000));
+  try {
+    const response = await fetch('/api/book-tracker/lookup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function hasCredentialForAdapter(name: MetadataProviderName, ctx: ProviderExecutionContext): boolean {
@@ -397,7 +434,47 @@ export async function lookupMetadataWithReportByIsbn(
     return merged;
   }
 
-  // Prefer server-side Supabase Edge Function when configured & online (no browser CORS limits)
+  // Prefer same-origin AniVerse Express server proxy when running in browser (no CORS limits)
+  if (!isCustomHarness && options.preferServerProxy !== false) {
+    const proxyData = await fetchSameOriginBookLookup(
+      { isbn: normalizedKey, forceAllProviders: options.forceAllProviders },
+      ctx.timeoutMs
+    );
+    if (proxyData && Array.isArray(proxyData.candidates)) {
+      const proxyRes = normalizeEdgePayload(
+        proxyData.candidates as MetadataCandidate[],
+        Array.isArray(proxyData.providerStatuses)
+          ? (proxyData.providerStatuses as ProviderStatusReport[])
+          : [],
+        parsed.isbn13 ?? normalizedKey,
+        {
+          possibleEditionMatches: Array.isArray(proxyData.possibleEditionMatches)
+            ? (proxyData.possibleEditionMatches as MetadataCandidate[])
+            : undefined,
+          relatedEditions: Array.isArray(proxyData.relatedEditions)
+            ? (proxyData.relatedEditions as MetadataCandidate[])
+            : undefined,
+          workMatches: Array.isArray(proxyData.workMatches)
+            ? (proxyData.workMatches as MetadataCandidate[])
+            : undefined,
+          approximateMatches: Array.isArray(proxyData.approximateMatches)
+            ? (proxyData.approximateMatches as MetadataCandidate[])
+            : undefined,
+          stagesExecuted: Array.isArray(proxyData.stagesExecuted)
+            ? (proxyData.stagesExecuted as string[])
+            : ['server_proxy'],
+        }
+      );
+      if (proxyRes.candidates.length > 0 || proxyRes.providerStatuses.length > 0) {
+        if (shouldUseCache || options.useCache === true) {
+          setCachedResult(cacheKey, proxyRes, resolveCacheTtl(proxyRes, options));
+        }
+        return proxyRes;
+      }
+    }
+  }
+
+  // Fallback to server-side Supabase Edge Function when configured & online (no browser CORS limits)
   if (options.preferEdgeFunction !== false) {
     const supabase = getSupabaseClient();
     if (supabase && typeof navigator !== 'undefined' && navigator.onLine) {
@@ -562,6 +639,36 @@ export async function searchMetadataWithReportByQuery(
   if (shouldUseCache) {
     const cached = getCachedResult(cacheKey);
     if (cached) return cached;
+  }
+
+  if (!isCustomHarness && options.preferServerProxy !== false) {
+    const proxyData = await fetchSameOriginBookLookup(
+      { query: trimmed },
+      options.timeoutMs ?? 7000
+    );
+    if (proxyData && Array.isArray(proxyData.candidates)) {
+      const proxyRes = normalizeEdgePayload(
+        proxyData.candidates as MetadataCandidate[],
+        Array.isArray(proxyData.providerStatuses)
+          ? (proxyData.providerStatuses as ProviderStatusReport[])
+          : [],
+        null,
+        {
+          workMatches: Array.isArray(proxyData.workMatches)
+            ? (proxyData.workMatches as MetadataCandidate[])
+            : undefined,
+          stagesExecuted: Array.isArray(proxyData.stagesExecuted)
+            ? (proxyData.stagesExecuted as string[])
+            : ['server_proxy'],
+        }
+      );
+      if (proxyRes.candidates.length > 0 || proxyRes.providerStatuses.length > 0) {
+        if (shouldUseCache || options.useCache === true) {
+          setCachedResult(cacheKey, proxyRes, resolveCacheTtl(proxyRes, options));
+        }
+        return proxyRes;
+      }
+    }
   }
 
   if (options.preferEdgeFunction !== false) {

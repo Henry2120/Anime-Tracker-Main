@@ -70,7 +70,17 @@ import { ConcertMusicProvider } from './components/CharacterViewer/ConcertMusicC
 import { PersistentConcertHost } from './components/CharacterViewer/PersistentConcertHost';
 import { AnimeHeaderConcertWidget } from './components/CharacterViewer/AnimeHeaderConcertWidget';
 
+// Lazily loaded Book Tracker world component (renders existing /book-tracker/src/App.tsx directly inside root)
+const BookTrackerApp = lazyWithRetry(() =>
+  import('../book-tracker/src/App').then((m) => ({ default: m.App }))
+);
+
 import { WorldSwitcher, AppMode } from './components/WorldSwitcher';
+import {
+  persistAppMode,
+  resolveInitialAppMode,
+  retireLegacyBookTrackerServiceWorker,
+} from './utils/worldMode';
 import { AppearanceSelector } from './components/AppearanceSelector';
 import { AtmosphericCanvas } from './components/AtmosphericCanvas';
 import {
@@ -109,8 +119,18 @@ import {
 const SHOW_TOP_500_EASTER_EGG = true;
 
 function AppContent() {
-  // Application mode state: 'anime' (default Anime Tracker) | 'music' (Music Lab)
-  const [appMode, setAppMode] = useState<AppMode>('anime');
+  // Application mode state: 'anime' (Anime Tracker) | 'music' (3D Character Viewer) | 'books' (Book Tracker)
+  const [appMode, setAppMode] = useState<AppMode>(() => resolveInitialAppMode());
+
+  // Persist active world mode under dedicated key without touching theme or auth storage
+  useEffect(() => {
+    persistAppMode(appMode);
+  }, [appMode]);
+
+  // Safely retire obsolete standalone /book-tracker/ service worker registrations & caches once on boot
+  useEffect(() => {
+    void retireLegacyBookTrackerServiceWorker();
+  }, []);
 
   // Navigation tab state ('home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review')
   const [activeTab, setActiveTab] = useState<'home' | 'season' | 'mal' | 'calendar' | 'status' | 'gemini' | 'review'>('season');
@@ -1847,6 +1867,11 @@ function AppContent() {
   const isEffectiveDark = isDarkThemeFamily(theme, customThemeConfig.pageBg);
 
   useEffect(() => {
+    if (appMode === 'books') {
+      document.documentElement.removeAttribute('data-theme');
+      document.body.removeAttribute('data-theme');
+      return;
+    }
     document.documentElement.setAttribute('data-theme', theme);
     document.body.setAttribute('data-theme', theme);
     if (isEffectiveDark) {
@@ -1856,15 +1881,39 @@ function AppContent() {
       document.documentElement.classList.remove('dark');
       document.body.classList.remove('dark');
     }
-  }, [theme, isEffectiveDark]);
+  }, [theme, isEffectiveDark, appMode]);
 
   return (
-    <div
-      data-theme={theme}
-      className={`app-theme-root w-full min-w-full min-h-screen flex-1 ${
-        isEffectiveDark ? 'dark text-[#F4F2F7]' : 'text-[#25242A]'
-      } font-sans antialiased flex flex-col justify-between relative`}
-    >
+    <>
+      {appMode === 'books' ? (
+        <div className="w-full min-w-full min-h-screen flex-1">
+          <ViewErrorBoundary viewName="AniVerse Book Tracker">
+            <Suspense
+              fallback={
+                <div className="flex min-h-screen items-center justify-center bg-[#FAF9F6] dark:bg-slate-950 text-sm text-stone-500">
+                  Loading AniVerse Book Tracker...
+                </div>
+              }
+            >
+              <BookTrackerApp
+                embedded
+                worldSwitcher={
+                  <WorldSwitcher
+                    currentMode={appMode}
+                    onSelectMode={(mode) => setAppMode(mode)}
+                  />
+                }
+              />
+            </Suspense>
+          </ViewErrorBoundary>
+        </div>
+      ) : (
+        <div
+          data-theme={theme}
+          className={`app-theme-root w-full min-w-full min-h-screen flex-1 ${
+            isEffectiveDark ? 'dark text-[#F4F2F7]' : 'text-[#25242A]'
+          } font-sans antialiased flex flex-col justify-between relative`}
+        >
       {/* ATMOSPHERIC CANVAS (SAKURA, RAIN, STARLIGHT, AUTUMN, SNOW, SUNNY, CLOUDY) */}
       <AtmosphericCanvas
         theme={theme}
@@ -2924,6 +2973,8 @@ function AppContent() {
       {SHOW_TOP_500_EASTER_EGG && (
         <Top500EasterEgg onOpenAbout={() => setIsAboutModalOpen(true)} />
       )}
+        </div>
+      )}
 
       {/* PERSISTENT BLUE ARCHIVE CONCERT HOST (FULL VIEWPORT OVERLAY OR FLOATING MINI PIP) */}
       {MUSIC_LAB_ENABLED && (
@@ -2936,7 +2987,7 @@ function AppContent() {
           malUser={malUser}
         />
       )}
-    </div>
+    </>
   );
 }
 

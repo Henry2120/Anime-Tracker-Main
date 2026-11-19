@@ -1,4 +1,27 @@
 @import "tailwindcss";
+@source "../book-tracker/src";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Book Tracker editorial typography & mobile safe-area helpers */
+:root {
+  --font-serif: 'Fraunces', Georgia, Cambria, serif;
+}
+
+.font-editorial {
+  font-family: var(--font-serif);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
 
 /* Base canvas background to prevent white subpixel leakage */
 html {

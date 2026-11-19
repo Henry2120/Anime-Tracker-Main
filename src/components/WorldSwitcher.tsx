@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Tv, Sparkles, BookOpen, Layers, Check } from 'lucide-react';
 import { MUSIC_LAB_ENABLED } from '../config/features';
 
-export type AppMode = 'anime' | 'music';
+export type AppMode = 'anime' | 'music' | 'books';
 
 interface WorldSwitcherProps {
   currentMode: AppMode;
@@ -20,7 +20,6 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
 
   // Close on outside click
   useEffect(() => {
-    if (!MUSIC_LAB_ENABLED) return;
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
@@ -37,7 +36,6 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
 
   // Close on Esc key
   useEffect(() => {
-    if (!MUSIC_LAB_ENABLED) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         setIsOpen(false);
@@ -49,26 +47,26 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
 
   const handleModeChange = (mode: AppMode) => {
     if (mode === 'music' && !MUSIC_LAB_ENABLED) return;
-    onSelectMode(mode);
+    if (mode !== currentMode) {
+      onSelectMode(mode);
+    }
     setIsOpen(false);
   };
 
-  // When Music Lab is disabled, render clean static header brand
-  if (!MUSIC_LAB_ENABLED) {
-    return (
-      <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl text-[#25242A] dark:text-[#F4F2F7]">
-        <span className="text-base sm:text-lg font-bold text-[#7567C7]">✦</span>
-        <div className="flex flex-col text-left">
-          <div className="flex items-center gap-1.5">
-            <span className="text-base sm:text-lg font-bold tracking-tight">AniVerse</span>
-            <span className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden sm:inline-block">
-              アニバース
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const triggerGlyph =
+    currentMode === 'music' ? '✨' : currentMode === 'books' ? '📚' : '✦';
+  const triggerTitle =
+    currentMode === 'music'
+      ? '3D Character Viewer'
+      : currentMode === 'books'
+        ? 'Book Tracker'
+        : 'AniVerse';
+  const triggerSubtitle =
+    currentMode === 'music'
+      ? '3Dモデル'
+      : currentMode === 'books'
+        ? 'ブック'
+        : 'アニバース';
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
@@ -87,20 +85,16 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
         }`}
       >
         <div className="flex items-center gap-2">
-          <span
-            className={`text-base sm:text-lg font-bold transition-transform duration-200 group-hover:scale-110 ${
-              currentMode === 'music' ? 'text-[#7567C7]' : 'text-[#7567C7]'
-            }`}
-          >
-            {currentMode === 'music' ? '✨' : '✦'}
+          <span className="text-base sm:text-lg font-bold transition-transform duration-200 group-hover:scale-110 text-[#7567C7]">
+            {triggerGlyph}
           </span>
           <div className="flex flex-col text-left">
             <div className="flex items-center gap-1.5">
-              <span className="text-base sm:text-lg font-bold tracking-tight">
-                {currentMode === 'music' ? '3D Character Viewer' : 'AniVerse'}
+              <span className="text-base sm:text-lg font-bold tracking-tight whitespace-nowrap">
+                {triggerTitle}
               </span>
               <span className="text-[10px] font-medium text-[#77747D] dark:text-[#9E9AA6] tracking-wider hidden sm:inline-block">
-                {currentMode === 'music' ? '3Dモデル' : 'アニバース'}
+                {triggerSubtitle}
               </span>
             </div>
           </div>
@@ -179,64 +173,84 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
             </div>
           </button>
 
+          {/* Mode 2: 3D Character Viewer */}
+          {MUSIC_LAB_ENABLED && (
+            <>
+              <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
+
+              <button
+                type="button"
+                role="menuitem"
+                id="world-select-music"
+                onClick={() => handleModeChange('music')}
+                className={`w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative ${
+                  currentMode === 'music'
+                    ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF] border border-[#7567C7]/30'
+                    : 'text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]'
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 ${
+                    currentMode === 'music'
+                      ? 'bg-gradient-to-br from-[#7567C7] to-[#8B5CF6] text-white shadow-sm'
+                      : 'bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]'
+                  }`}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
+                      ✨ 3D Character Viewer
+                    </span>
+                    {currentMode === 'music' ? (
+                      <span className="text-[10px] font-semibold bg-[#7567C7] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                        <Check className="h-2.5 w-2.5" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
+                        295 Models
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
+                    Browse, load & inspect 295 Blue Archive 3D GLB character models.
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#7567C7] dark:text-[#A898F8] uppercase tracking-wider">
+                    <span>Blue Archive</span>
+                    <span>•</span>
+                    <span>Multi-GLB Engine</span>
+                    <span>•</span>
+                    <span>Studio Viewport</span>
+                  </div>
+                </div>
+              </button>
+            </>
+          )}
+
           {/* Divider */}
           <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
 
-          {/* Mode 2: 3D Character Viewer */}
+          {/* Mode 3: AniVerse Book Tracker */}
           <button
             type="button"
             role="menuitem"
-            id="world-select-music"
-            onClick={() => handleModeChange('music')}
+            id="world-select-books"
+            onClick={() => handleModeChange('books')}
             className={`w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative ${
-              currentMode === 'music'
+              currentMode === 'books'
                 ? 'bg-[#F0EDFA] text-[#7567C7] dark:bg-[#7567C7]/20 dark:text-[#D8D2FF] border border-[#7567C7]/30'
                 : 'text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]'
             }`}
           >
             <div
               className={`p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 ${
-                currentMode === 'music'
-                  ? 'bg-gradient-to-br from-[#7567C7] to-[#8B5CF6] text-white shadow-sm'
+                currentMode === 'books'
+                  ? 'bg-[#7567C7] text-white shadow-sm'
                   : 'bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]'
               }`}
             >
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
-                  ✨ 3D Character Viewer
-                </span>
-                <span className="text-[10px] font-bold bg-gradient-to-r from-[#7567C7] to-[#8B5CF6] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
-                  295 Models
-                </span>
-              </div>
-              <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
-                Browse, load & inspect 295 Blue Archive 3D GLB character models.
-              </p>
-              <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#7567C7] dark:text-[#A898F8] uppercase tracking-wider">
-                <span>Blue Archive</span>
-                <span>•</span>
-                <span>Multi-GLB Engine</span>
-                <span>•</span>
-                <span>Studio Viewport</span>
-              </div>
-            </div>
-          </button>
-
-          {/* Divider */}
-          <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
-
-          {/* Mode 3: AniVerse Book Tracker */}
-          <a
-            href="/book-tracker/"
-            role="menuitem"
-            id="world-select-books"
-            onClick={() => setIsOpen(false)}
-            className="w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]"
-          >
-            <div className="p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]">
               <BookOpen className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">
@@ -244,6 +258,12 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
                 <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
                   📚 AniVerse Book Tracker
                 </span>
+                {currentMode === 'books' && (
+                  <span className="text-[10px] font-semibold bg-[#7567C7] text-white px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <Check className="h-2.5 w-2.5" />
+                    Active
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
                 Track your books, reading progress, personal library, and reading history.
@@ -256,7 +276,7 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
                 <span>Statistics</span>
               </div>
             </div>
-          </a>
+          </button>
         </div>
       )}
     </div>

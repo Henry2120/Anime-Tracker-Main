@@ -25,6 +25,7 @@ import {
   AudioAssessment,
   TimeRange,
 } from "./src/utils/audioCoverageRecovery.js";
+import { executeServerBookLookup } from "./book-tracker/src/services/metadata/serverLookup";
 
 dotenv.config();
 
@@ -3028,21 +3029,66 @@ app.get("/api/weather", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// BOOK TRACKER METADATA LOOKUP PROXY (CORS-FREE SERVER EXECUTION)
+// ----------------------------------------------------
+app.post("/api/book-tracker/lookup", async (req, res) => {
+  try {
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as {
+      isbn?: unknown;
+      query?: unknown;
+      forceAllProviders?: unknown;
+    };
+    const isbn = typeof body.isbn === "string" ? body.isbn.trim() : "";
+    const query = typeof body.query === "string" ? body.query.trim() : "";
+    const forceAllProviders = body.forceAllProviders === true;
+
+    if (!isbn && !query) {
+      return res.status(400).json({ error: "Provide isbn or query" });
+    }
+
+    const result = await executeServerBookLookup({
+      isbn: isbn || undefined,
+      query: query || undefined,
+      forceAllProviders,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[BOOK-TRACKER-LOOKUP] Error:", err);
+    return res.status(502).json({
+      error: err?.message || "Book metadata lookup failed",
+    });
+  }
+});
+
+// ----------------------------------------------------
 // VITE MIDDLEWARE SETUP
 // ----------------------------------------------------
 async function startServer() {
-  const bookTrackerDist = path.join(process.cwd(), "book-tracker", "dist");
-  app.use("/book-tracker", (req, res, next) => {
-    const pathname = req.originalUrl.split("?")[0];
-    if (pathname === "/book-tracker") {
-      const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
-      return res.redirect(301, `/book-tracker/${qs}`);
+  // Legacy standalone Book Tracker page URL redirect -> unified root app with Book Tracker active.
+  // In dev mode, Vite serves Book Tracker's ES modules from /book-tracker/src/*, so only redirect
+  // actual page/SPA navigations and let module/source/asset requests pass through to Vite middleware.
+  const MODULE_OR_ASSET_EXT =
+    /\.(tsx?|jsx?|mjs|cjs|css|scss|less|json|wasm|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot)$/i;
+
+  app.get(["/book-tracker", "/book-tracker/*"], (req, res, next) => {
+    const pathname = req.path || "";
+    const fetchDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+    const isViteSourceOrAsset =
+      pathname.startsWith("/book-tracker/src/") ||
+      pathname.startsWith("/book-tracker/node_modules/") ||
+      MODULE_OR_ASSET_EXT.test(pathname) ||
+      (fetchDest !== "" && fetchDest !== "document" && fetchDest !== "iframe");
+
+    if (isViteSourceOrAsset) {
+      return next();
     }
-    next();
-  });
-  app.use("/book-tracker", express.static(bookTrackerDist));
-  app.get("/book-tracker/*", (_req, res) => {
-    res.sendFile(path.join(bookTrackerDist, "index.html"));
+
+    const queryIndex = req.originalUrl.indexOf("?");
+    const params = new URLSearchParams(
+      queryIndex >= 0 ? req.originalUrl.slice(queryIndex + 1) : ""
+    );
+    params.set("world", "books");
+    return res.redirect(302, `/?${params.toString()}`);
   });
 
   if (process.env.NODE_ENV !== "production") {

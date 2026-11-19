@@ -1641,13 +1641,18 @@ export function parseNdlOpenSearchXml(xml: string, targetIsbn: string | null): M
     const creatorsRaw = extractXmlTags(itemXml, 'dc:creator').map((name) =>
       name.replace(/,\s*/g, ' ').trim()
     );
-    const descCdata = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? '';
+    const descCdataRaw = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] ?? '';
+    const descCdata = descCdataRaw
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const authorTag = extractXmlTags(itemXml, 'author')[0] ?? '';
 
     const authors: string[] = [];
     const illustrators: string[] = [];
     const translators: string[] = [];
-    const respHint = `${authorTag} ${descCdata}`;
+    const respHint = `${authorTag}; ${descCdata}`;
 
     // Parse Japanese responsibility roles: e.g. 平尾友秀 原作,依田瑞稀 漫画 / Name 訳
     for (const seg of respHint.split(/[,、;]/)) {
@@ -1656,13 +1661,17 @@ export function parseNdlOpenSearchXml(xml: string, targetIsbn: string | null): M
       const transM = s.match(/^(.+?)\s*(?:共?訳|翻訳|監訳)$/);
       if (transM?.[1]) {
         const cleanName = transM[1].replace(/^責任表示[：:]\s*/, '').trim();
-        if (cleanName && !translators.includes(cleanName)) translators.push(cleanName);
+        if (cleanName && !/^(?:原作|著|編|監修|イラスト|漫画)[・･]?$/.test(cleanName) && !translators.includes(cleanName)) {
+          translators.push(cleanName);
+        }
         continue;
       }
       const illM = s.match(/^(.+?)\s*(?:漫画|画|イラスト|作画)$/);
       if (illM?.[1]) {
         const cleanName = illM[1].replace(/^責任表示[：:]\s*/, '').trim();
-        if (cleanName && !illustrators.includes(cleanName)) illustrators.push(cleanName);
+        if (cleanName && !/^(?:原作|著|編|監修|イラスト|漫画)[・･]?$/.test(cleanName) && !illustrators.includes(cleanName)) {
+          illustrators.push(cleanName);
+        }
       }
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -49,18 +49,35 @@ type NavTab =
   | 'stats'
   | 'settings';
 
-export function App() {
+export interface BookTrackerAppProps {
+  worldSwitcher?: ReactNode;
+  embedded?: boolean;
+}
+
+export function App({ worldSwitcher, embedded = false }: BookTrackerAppProps = {}) {
   const snapshot = useLibrarySnapshot();
   const locale = snapshot.settings?.language ?? 'en';
 
   return (
     <I18nProvider locale={locale}>
-      <AppShell snapshot={snapshot} />
+      <AppShell
+        snapshot={snapshot}
+        worldSwitcher={worldSwitcher}
+        embedded={embedded}
+      />
     </I18nProvider>
   );
 }
 
-function AppShell({ snapshot }: { snapshot: ReturnType<typeof useLibrarySnapshot> }) {
+function AppShell({
+  snapshot,
+  worldSwitcher,
+  embedded,
+}: {
+  snapshot: ReturnType<typeof useLibrarySnapshot>;
+  worldSwitcher?: ReactNode;
+  embedded: boolean;
+}) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [addOpen, setAddOpen] = useState(false);
@@ -77,7 +94,9 @@ function AppShell({ snapshot }: { snapshot: ReturnType<typeof useLibrarySnapshot
 
   useEffect(() => {
     const theme = settings?.theme ?? 'light';
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    const isDark = theme === 'dark';
+    document.documentElement.classList.toggle('dark', isDark);
+    document.body.classList.toggle('dark', isDark);
   }, [settings?.theme]);
 
   useEffect(() => {
@@ -213,6 +232,15 @@ function AppShell({ snapshot }: { snapshot: ReturnType<typeof useLibrarySnapshot
             >
               <Menu className="h-5 w-5" />
             </button>
+            {worldSwitcher && (
+              <div className="shrink-0 flex items-center gap-2">
+                {worldSwitcher}
+                <span
+                  aria-hidden="true"
+                  className="hidden sm:inline-block h-5 w-px bg-stone-200 dark:bg-slate-800"
+                />
+              </div>
+            )}
             <h1 className="font-editorial text-base lg:text-lg font-semibold truncate">
               {currentNavLabel}
             </h1>
@@ -230,7 +258,7 @@ function AppShell({ snapshot }: { snapshot: ReturnType<typeof useLibrarySnapshot
               </button>
             )}
 
-            <PWAInstallPrompt />
+            {!embedded && <PWAInstallPrompt />}
 
             <button
               type="button"

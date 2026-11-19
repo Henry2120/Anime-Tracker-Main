@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 interface PersistentConcertHostProps {
-  currentMode: AppMode; // 'anime' | 'music'
+  currentMode: AppMode; // 'anime' | 'music' | 'books'
   theme: AppTheme;
   onSelectMode: (mode: AppMode) => void;
   onReturnToAnime: () => void;

@@ -23,5 +23,16 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["node_modules", "dist", "book-tracker"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "book-tracker/node_modules",
+    "book-tracker/dist",
+    "book-tracker/supabase",
+    "book-tracker/tests",
+    "book-tracker/scripts",
+    "book-tracker/vite.config.ts",
+    "book-tracker/vitest.config.ts",
+    "book-tracker/src/main.tsx"
+  ]
 }
