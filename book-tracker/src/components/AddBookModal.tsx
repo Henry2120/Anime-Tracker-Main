@@ -1,26 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Camera,
   CheckCircle2,
+  ExternalLink,
   FileSearch,
+  Flashlight,
   ImagePlus,
   Loader2,
   Search,
   Sparkles,
+  Square,
   X,
 } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import { saveLocalCoverBlob } from '../services/covers';
 import { createBookBundle } from '../services/libraryService';
 import {
-  lookupMetadataByIsbn,
+  lookupMetadataByIsbnDetailed,
   recordProviderMetadata,
-  searchMetadataByQuery,
+  searchMetadataByQueryDetailed,
 } from '../services/metadataService';
 import {
-  detectBarcodeFromImageSource,
+  detectBarcodeFromImageFile,
+  getCameraTrackTorchSupport,
+  mapCameraErrorMessage,
   requestCoverAiAssist,
   runLocalCoverOcr,
+  type ScannerUiState,
+  scanVideoFrameForBarcode,
+  setCameraTrackTorch,
 } from '../services/scannerAndOcr';
 import type {
   AcquisitionMethod,
@@ -29,6 +38,7 @@ import type {
   CurrencyCode,
   MetadataCandidate,
   OwnershipStatus,
+  ProviderLookupStatus,
   ReadingStatus,
   Shelf,
   Work,
@@ -63,12 +73,21 @@ export function AddBookModal({
   // Scanner & lookup state
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const inFlightScanRef = useRef(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [scannerState, setScannerState] = useState<ScannerUiState>('idle');
+  const [scannerMessage, setScannerMessage] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+
   const [isbnInput, setIsbnInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingLookup, setLoadingLookup] = useState(false);
+  const [hasSearchedIsbn, setHasSearchedIsbn] = useState(false);
+  const [hasSearchedQuery, setHasSearchedQuery] = useState(false);
   const [candidates, setCandidates] = useState<MetadataCandidate[]>([]);
+  const [providerStatuses, setProviderStatuses] = useState<ProviderLookupStatus[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<MetadataCandidate | null>(null);
 
   // OCR / Cover state
@@ -82,6 +101,7 @@ export function AddBookModal({
   const [title, setTitle] = useState('');
   const [originalTitle, setOriginalTitle] = useState('');
   const [authorsText, setAuthorsText] = useState('');
+  const [illustratorsText, setIllustratorsText] = useState('');
   const [translatorsText, setTranslatorsText] = useState('');
   const [publishersText, setPublishersText] = useState('');
   const [genresText, setGenresText] = useState('');
@@ -118,10 +138,19 @@ export function AddBookModal({
 
   const stopCamera = () => {
     if (streamRef.current) {
+      if (torchEnabled) {
+        void setCameraTrackTorch(streamRef.current, false);
+      }
       streamRef.current.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
     }
+    inFlightScanRef.current = false;
+    setTorchEnabled(false);
+    setTorchSupported(false);
     setCameraActive(false);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   };
 
   useEffect(() => {
@@ -134,48 +163,102 @@ export function AddBookModal({
   useEffect(() => {
     if (!cameraActive) return;
     let cancelled = false;
-    const timer = window.setInterval(async () => {
-      if (cancelled || !videoRef.current || videoRef.current.readyState < 2) return;
-      const isbn = await detectBarcodeFromImageSource(videoRef.current);
-      if (isbn && !cancelled) {
-        stopCamera();
-        setIsbnInput(isbn);
-        setTab('isbn');
-        void handleIsbnLookup(isbn);
+    let timerId: number | null = null;
+    let frameTick = 0;
+
+    if (!scratchCanvasRef.current) {
+      scratchCanvasRef.current = document.createElement('canvas');
+    }
+
+    const stepScan = async () => {
+      if (cancelled || !videoRef.current) return;
+      if (!inFlightScanRef.current && videoRef.current.readyState >= 2) {
+        inFlightScanRef.current = true;
+        frameTick += 1;
+        try {
+          const isbn = await scanVideoFrameForBarcode(
+            videoRef.current,
+            scratchCanvasRef.current!,
+            { fullFrame: frameTick % 4 === 0 }
+          );
+          if (isbn && !cancelled) {
+            stopCamera();
+            setScannerState('decoded');
+            setScannerMessage(`Decoded ISBN ${formatIsbn13(isbn)}`);
+            setIsbnInput(isbn);
+            const result = await handleIsbnLookup(isbn, { stayOnScanIfEmpty: true });
+            if (!cancelled && result && result.candidates.length === 0) {
+              setScannerState('decoded_not_found');
+              setScannerMessage(
+                `ISBN ${formatIsbn13(isbn)} is valid, but no catalogue match was found.`
+              );
+            } else if (!cancelled && result && result.candidates.length > 0) {
+              setTab('isbn');
+            }
+            return;
+          }
+        } finally {
+          inFlightScanRef.current = false;
+        }
       }
-    }, 450);
+
+      if (!cancelled) {
+        timerId = window.setTimeout(() => void stepScan(), 260);
+      }
+    };
+
+    timerId = window.setTimeout(() => void stepScan(), 260);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timerId !== null) window.clearTimeout(timerId);
     };
   }, [cameraActive]);
 
   if (!open) return null;
 
   const startCamera = async () => {
-    setCameraError(null);
+    stopCamera();
+    setScannerMessage(null);
+    setScannerState('initializing');
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError('Camera access is unavailable in this browser. Upload a barcode photo instead.');
+      setScannerState('permission_error');
+      setScannerMessage(
+        window.isSecureContext === false
+          ? 'Camera scanning requires HTTPS. Upload a barcode photo instead.'
+          : 'Camera access is unavailable in this browser. Upload a barcode photo instead.'
+      );
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       });
       streamRef.current = stream;
+      setTorchSupported(getCameraTrackTorchSupport(stream));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
       setCameraActive(true);
+      setScannerState('searching');
+      setScannerMessage('Center the EAN-13 barcode inside the guide box.');
     } catch (err) {
-      setCameraError(
-        err instanceof Error
-          ? err.message
-          : 'Could not open camera. Check permissions or upload a barcode image.'
-      );
+      stopCamera();
+      setScannerState('permission_error');
+      setScannerMessage(mapCameraErrorMessage(err));
     }
+  };
+
+  const handleToggleTorch = async () => {
+    if (!streamRef.current || !torchSupported) return;
+    const next = !torchEnabled;
+    const ok = await setCameraTrackTorch(streamRef.current, next);
+    if (ok) setTorchEnabled(next);
   };
 
   const applyCandidateToForm = (cand: MetadataCandidate) => {
@@ -183,11 +266,13 @@ export function AddBookModal({
     setTitle(cand.title || '');
     setOriginalTitle(cand.originalTitle || '');
     setAuthorsText(cand.authors.join(', '));
+    setIllustratorsText((cand.illustrators ?? []).join(', '));
     setTranslatorsText(cand.translators.join(', '));
     setPublishersText(cand.publishers.join(', '));
     setGenresText(cand.genres.join(', '));
     setLanguage(cand.language || 'vi');
     if (cand.format) setFormat(cand.format);
+    if (cand.editionName) setEditionName(cand.editionName);
     setPageCount(cand.pageCount ? String(cand.pageCount) : '');
     setPublishedYear(cand.publishedYear ? String(cand.publishedYear) : '');
     setSeriesName(cand.seriesName || '');
@@ -198,19 +283,26 @@ export function AddBookModal({
     setTab('manual');
   };
 
-  const handleIsbnLookup = async (overrideIsbn?: string) => {
+  const handleIsbnLookup = async (
+    overrideIsbn?: string,
+    opts?: { stayOnScanIfEmpty?: boolean }
+  ) => {
     const raw = (overrideIsbn ?? isbnInput).trim();
-    if (!raw) return;
+    if (!raw) return null;
     setLoadingLookup(true);
+    setHasSearchedIsbn(true);
     setErrorMsg(null);
     try {
-      const res = await lookupMetadataByIsbn(raw);
-      setCandidates(res);
-      if (res.length === 1) {
-        applyCandidateToForm(res[0]);
+      const res = await lookupMetadataByIsbnDetailed(raw);
+      setCandidates(res.candidates);
+      setProviderStatuses(res.providerStatuses);
+      if (res.candidates.length === 1 && res.candidates[0].matchQuality === 'exact_isbn' && !opts?.stayOnScanIfEmpty) {
+        applyCandidateToForm(res.candidates[0]);
       }
+      return res;
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Lookup failed');
+      return null;
     } finally {
       setLoadingLookup(false);
     }
@@ -220,10 +312,12 @@ export function AddBookModal({
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setLoadingLookup(true);
+    setHasSearchedQuery(true);
     setErrorMsg(null);
     try {
-      const res = await searchMetadataByQuery(searchQuery);
-      setCandidates(res);
+      const res = await searchMetadataByQueryDetailed(searchQuery);
+      setCandidates(res.candidates);
+      setProviderStatuses(res.providerStatuses);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Search failed');
     } finally {
@@ -233,17 +327,32 @@ export function AddBookModal({
 
   const handleBarcodeImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+    stopCamera();
     setLoadingLookup(true);
-    setCameraError(null);
+    setScannerState('searching');
+    setScannerMessage('Analyzing uploaded photo across multi-angle & contrast passes...');
     try {
-      const isbn = await detectBarcodeFromImageSource(file);
+      const isbn = await detectBarcodeFromImageFile(file);
       if (isbn) {
+        setScannerState('decoded');
+        setScannerMessage(`Decoded ISBN ${formatIsbn13(isbn)}`);
         setIsbnInput(isbn);
-        setTab('isbn');
-        await handleIsbnLookup(isbn);
+        const res = await handleIsbnLookup(isbn, { stayOnScanIfEmpty: true });
+        if (res && res.candidates.length === 0) {
+          setScannerState('decoded_not_found');
+          setScannerMessage(
+            `ISBN ${formatIsbn13(isbn)} is valid, but no catalogue match was found.`
+          );
+        } else {
+          setTab('isbn');
+        }
       } else {
-        setCameraError('No valid ISBN-13/10 barcode detected in image. Try OCR or manual ISBN.');
+        setScannerState('no_barcode_detected');
+        setScannerMessage(
+          'No barcode detected in this photo. Try a sharper photo, Cover OCR, or manual ISBN entry.'
+        );
       }
     } finally {
       setLoadingLookup(false);
@@ -313,6 +422,10 @@ export function AddBookModal({
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+      const illustrators = illustratorsText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const translators = translatorsText
         .split(',')
         .map((s) => s.trim())
@@ -333,6 +446,7 @@ export function AddBookModal({
           title: selectedWork ? selectedWork.title : title.trim(),
           originalTitle: originalTitle.trim() || undefined,
           authors,
+          illustrators,
           genres,
           description: description.trim() || undefined,
           originalLanguage: language,
@@ -346,6 +460,7 @@ export function AddBookModal({
           title: title.trim() || selectedWork?.title || 'Untitled Edition',
           editionName: editionName.trim() || undefined,
           translators,
+          illustrators,
           publishers,
           publishedYear: publishedYear ? Number(publishedYear) || null : null,
           language,
@@ -447,32 +562,115 @@ export function AddBookModal({
             <div className="space-y-4">
               <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-stone-300 dark:border-slate-700 bg-stone-900 flex items-center justify-center">
                 <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
+
+                {cameraActive && (
+                  <>
+                    {/* Target reticle / framing guide matching scanVideoFrameForBarcode crop */}
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="relative w-[80%] h-[52%] rounded-xl border-2 border-amber-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)]">
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 rounded bg-black/75 px-2.5 py-0.5 text-[11px] font-medium text-amber-300 whitespace-nowrap">
+                          Align EAN-13 barcode here
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Top-right controls: Torch + Stop */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      {torchSupported && (
+                        <button
+                          type="button"
+                          onClick={handleToggleTorch}
+                          aria-label={torchEnabled ? 'Turn off flashlight' : 'Turn on flashlight'}
+                          className={`min-h-[38px] inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-xs ${
+                            torchEnabled
+                              ? 'bg-amber-500 text-stone-950'
+                              : 'bg-black/65 text-white hover:bg-black/80'
+                          }`}
+                        >
+                          <Flashlight className="h-3.5 w-3.5" />
+                          {torchEnabled ? 'Light On' : 'Torch'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopCamera();
+                          setScannerState('idle');
+                          setScannerMessage(null);
+                        }}
+                        className="min-h-[38px] inline-flex items-center gap-1.5 rounded-lg bg-black/65 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black/80"
+                      >
+                        <Square className="h-3 w-3 fill-current" />
+                        Stop
+                      </button>
+                    </div>
+                  </>
+                )}
+
                 {!cameraActive && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-white">
-                    <Camera className="h-10 w-10 text-amber-400" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-white bg-stone-900/90">
+                    {scannerState === 'initializing' ? (
+                      <Loader2 className="h-9 w-9 animate-spin text-amber-400" />
+                    ) : (
+                      <Camera className="h-10 w-10 text-amber-400" />
+                    )}
                     <p className="text-sm max-w-sm">
-                      Point the camera at the EAN-13 barcode on the back cover. Works natively and via WASM fallback on iOS/mobile.
+                      {scannerState === 'initializing'
+                        ? 'Initializing rear camera...'
+                        : 'Point the camera at the EAN-13 barcode on the back cover. Supports native BarcodeDetector and offline WASM fallback.'}
                     </p>
                     <button
                       type="button"
                       onClick={startCamera}
-                      className="min-h-[44px] rounded-xl bg-[#C2410C] px-4 py-2 text-sm font-semibold text-white hover:bg-[#9A3412]"
+                      disabled={scannerState === 'initializing'}
+                      className="min-h-[44px] rounded-xl bg-[#C2410C] px-4 py-2 text-sm font-semibold text-white hover:bg-[#9A3412] disabled:opacity-60"
                     >
-                      Start Camera Scanner
+                      {scannerState === 'initializing' ? 'Starting Camera...' : 'Start Camera Scanner'}
                     </button>
                   </div>
                 )}
               </div>
-              {cameraError && (
-                <p className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-                  {cameraError}
-                </p>
+
+              {/* Explicit 6-state scanner feedback banner */}
+              {scannerState !== 'idle' && scannerMessage && (
+                <div
+                  className={`rounded-xl border px-3.5 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2 ${
+                    scannerState === 'decoded'
+                      ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200'
+                      : scannerState === 'decoded_not_found' || scannerState === 'no_barcode_detected' || scannerState === 'permission_error'
+                        ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'
+                        : 'border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-stone-700 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {(scannerState === 'initializing' || (scannerState === 'searching' && loadingLookup)) && (
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    )}
+                    {scannerState === 'decoded' && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+                    {(scannerState === 'decoded_not_found' ||
+                      scannerState === 'no_barcode_detected' ||
+                      scannerState === 'permission_error') && (
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                    )}
+                    <span>{scannerMessage}</span>
+                  </div>
+                  {scannerState === 'decoded_not_found' && (
+                    <button
+                      type="button"
+                      onClick={() => setTab('manual')}
+                      className="rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#9A3412]"
+                    >
+                      Fill Manually with ISBN
+                    </button>
+                  )}
+                </div>
               )}
+
               <div className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
                 <span className="text-xs text-stone-600 dark:text-slate-400">
-                  Or upload a photo of the barcode:
+                  Or upload a photo of the barcode (handles tilt, uneven light &amp; cover clutter):
                 </span>
-                <label className="cursor-pointer rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800">
+                <label className="cursor-pointer rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800 shrink-0">
                   Choose Image
                   <input
                     type="file"
@@ -487,23 +685,31 @@ export function AddBookModal({
 
           {tab === 'isbn' && (
             <div className="space-y-4">
-              <div className="flex gap-2">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleIsbnLookup();
+                }}
+                className="flex gap-2"
+              >
                 <input
                   type="text"
                   value={isbnInput}
-                  onChange={(e) => setIsbnInput(e.target.value)}
-                  placeholder="9786042289450 or 9791032300000"
+                  onChange={(e) => {
+                    setIsbnInput(e.target.value);
+                    setHasSearchedIsbn(false);
+                  }}
+                  placeholder="9786042243568 or 9791032300000"
                   className="flex-1 rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-mono tabular-nums"
                 />
                 <button
-                  type="button"
-                  onClick={() => handleIsbnLookup()}
+                  type="submit"
                   disabled={loadingLookup || !isbnInput.trim()}
                   className="min-h-[44px] rounded-xl bg-stone-900 dark:bg-[#C2410C] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {loadingLookup ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Lookup'}
                 </button>
-              </div>
+              </form>
               {parsedIsbn && (
                 <div className="rounded-lg border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs flex flex-wrap items-center gap-3">
                   <span className={parsedIsbn.isValid ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-red-600 font-semibold'}>
@@ -520,7 +726,10 @@ export function AddBookModal({
               )}
               <CandidateResultsList
                 candidates={candidates}
+                providerStatuses={providerStatuses}
                 loading={loadingLookup}
+                hasSearched={hasSearchedIsbn}
+                parsedIsbn={parsedIsbn}
                 onSelect={applyCandidateToForm}
                 onSwitchManual={() => setTab('manual')}
               />
@@ -533,7 +742,10 @@ export function AddBookModal({
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setHasSearchedQuery(false);
+                  }}
                   placeholder="Title, author, or publisher..."
                   className="flex-1 rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm"
                 />
@@ -547,7 +759,10 @@ export function AddBookModal({
               </form>
               <CandidateResultsList
                 candidates={candidates}
+                providerStatuses={providerStatuses}
                 loading={loadingLookup}
+                hasSearched={hasSearchedQuery}
+                parsedIsbn={null}
                 onSelect={applyCandidateToForm}
                 onSwitchManual={() => setTab('manual')}
               />
@@ -665,7 +880,16 @@ export function AddBookModal({
                   <input
                     value={authorsText}
                     onChange={(e) => setAuthorsText(e.target.value)}
-                    placeholder="Haruki Murakami, ..."
+                    placeholder="Takata, Haruki Murakami..."
+                    className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Illustrators (comma-separated)</label>
+                  <input
+                    value={illustratorsText}
+                    onChange={(e) => setIllustratorsText(e.target.value)}
+                    placeholder="Tom Osabe, Azuri Hyuga..."
                     className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                   />
                 </div>
@@ -674,7 +898,7 @@ export function AddBookModal({
                   <input
                     value={isbnInput}
                     onChange={(e) => setIsbnInput(e.target.value)}
-                    placeholder="978..."
+                    placeholder="9786042243568"
                     className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono tabular-nums"
                   />
                 </div>
@@ -691,6 +915,7 @@ export function AddBookModal({
                   <input
                     value={translatorsText}
                     onChange={(e) => setTranslatorsText(e.target.value)}
+                    placeholder="Thế Đăng..."
                     className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                   />
                 </div>
@@ -1011,14 +1236,35 @@ export function AddBookModal({
   );
 }
 
+function formatProviderLabel(p: string): string {
+  const map: Record<string, string> = {
+    adcbook: 'ADCBook',
+    nxb_kim_dong: 'NXB Kim Đồng',
+    nha_nam: 'Nhã Nam',
+    ipm: 'IPM',
+    tiki_books: 'Tiki',
+    google_books: 'Google Books',
+    open_library: 'Open Library',
+    openbd: 'openBD',
+    isbndb: 'ISBNdb',
+  };
+  return map[p] ?? p;
+}
+
 function CandidateResultsList({
   candidates,
+  providerStatuses,
   loading,
+  hasSearched,
+  parsedIsbn,
   onSelect,
   onSwitchManual,
 }: {
   candidates: MetadataCandidate[];
+  providerStatuses: ProviderLookupStatus[];
   loading: boolean;
+  hasSearched: boolean;
+  parsedIsbn: ReturnType<typeof parseIsbn> | null;
   onSelect: (c: MetadataCandidate) => void;
   onSwitchManual: () => void;
 }) {
@@ -1026,62 +1272,137 @@ function CandidateResultsList({
     return (
       <div className="flex items-center justify-center py-8 text-sm text-stone-500">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Searching book metadata providers...
+        Querying Vietnamese &amp; global book catalogues...
       </div>
     );
   }
   if (candidates.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-6 text-center space-y-2">
-        <p className="text-xs text-stone-500">
-          Search by ISBN or keywords, or switch directly to Cover OCR / Manual entry.
-        </p>
-        <button
-          type="button"
-          onClick={onSwitchManual}
-          className="text-xs font-semibold text-[#C2410C] hover:underline"
-        >
-          Open Manual Entry
-        </button>
+      <div className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-6 text-center space-y-2.5">
+        {hasSearched && parsedIsbn?.isValid ? (
+          <p className="text-xs font-medium text-stone-700 dark:text-slate-200">
+            ISBN <span className="font-mono">{parsedIsbn.isbn13}</span> is valid, but no catalogue match was found.
+          </p>
+        ) : hasSearched ? (
+          <p className="text-xs font-medium text-stone-700 dark:text-slate-200">
+            No matching book records were found across the queried catalogues.
+          </p>
+        ) : (
+          <p className="text-xs text-stone-500">
+            Search by ISBN or keywords, or switch directly to Cover OCR / Manual entry.
+          </p>
+        )}
+
+        {hasSearched && providerStatuses.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+            {providerStatuses.map((st) => (
+              <span
+                key={st.provider}
+                title={st.message || st.status}
+                className={`rounded px-2 py-0.5 text-[10px] font-mono ${
+                  st.status === 'error'
+                    ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
+                    : 'bg-stone-100 dark:bg-slate-800 text-stone-500 dark:text-slate-400'
+                }`}
+              >
+                {formatProviderLabel(st.provider)}: {st.status === 'error' ? 'unavailable' : st.status === 'skipped' ? 'skipped' : '0'}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <button
+            type="button"
+            onClick={onSwitchManual}
+            className="rounded-lg bg-[#C2410C] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#9A3412]"
+          >
+            {parsedIsbn?.isValid ? 'Fill Manually with This ISBN' : 'Open Manual Entry'}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {candidates.map((c) => (
-        <button
-          key={`${c.provider}-${c.externalId}`}
-          type="button"
-          onClick={() => onSelect(c)}
-          className="flex w-full items-start gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-left hover:border-[#C2410C] transition-colors"
-        >
-          {c.coverUrl ? (
-            <img
-              src={c.coverUrl}
-              alt={c.title}
-              className="h-16 w-11 rounded object-cover border border-stone-200 dark:border-slate-700 shrink-0"
-            />
-          ) : (
-            <div className="h-16 w-11 rounded bg-stone-200 dark:bg-slate-800 shrink-0" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-sm text-stone-900 dark:text-slate-100 truncate">
-              {c.title}
-            </p>
-            <p className="text-xs text-stone-600 dark:text-slate-400 truncate">
-              {c.authors.join(', ') || 'Unknown Author'}
-            </p>
-            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-stone-500 font-mono">
-              <span>{c.provider}</span>
-              {c.isbn13 && <span>ISBN: {c.isbn13}</span>}
-              {c.pageCount && <span>{c.pageCount}p</span>}
-              {c.publishedYear && <span>{c.publishedYear}</span>}
+    <div className="space-y-2.5">
+      {candidates.map((c) => {
+        const sources = c.contributingProviders?.length ? c.contributingProviders : [c.provider];
+        const conflicts = c.fieldConflicts ? Object.entries(c.fieldConflicts) : [];
+        return (
+          <div
+            key={`${c.provider}-${c.externalId}`}
+            onClick={() => onSelect(c)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(c);
+              }
+            }}
+            className="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-left hover:border-[#C2410C] transition-colors"
+          >
+            {c.coverUrl ? (
+              <img
+                src={c.coverUrl}
+                alt={c.title}
+                className="h-18 w-12 rounded object-cover border border-stone-200 dark:border-slate-700 shrink-0"
+              />
+            ) : (
+              <div className="h-18 w-12 rounded bg-stone-200 dark:bg-slate-800 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <p className="font-semibold text-sm text-stone-900 dark:text-slate-100 truncate">
+                  {c.title}
+                </p>
+                {c.matchQuality === 'exact_isbn' && (
+                  <span className="rounded bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:text-emerald-300">
+                    Exact ISBN Match
+                  </span>
+                )}
+                {c.matchQuality === 'approximate' && (
+                  <span className="rounded bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
+                    Approximate
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-stone-600 dark:text-slate-400 truncate">
+                {c.authors.join(', ') || 'Unknown Author'}
+                {c.illustrators?.length ? ` · Illus: ${c.illustrators.join(', ')}` : ''}
+                {c.translators?.length ? ` · Trans: ${c.translators.join(', ')}` : ''}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 font-mono">
+                <span>{sources.map(formatProviderLabel).join(' + ')}</span>
+                {c.publishers[0] && <span>· {c.publishers[0]}</span>}
+                {c.isbn13 && <span>· {c.isbn13}</span>}
+                {c.pageCount && <span>· {c.pageCount}p</span>}
+                {c.publishedYear && <span>· {c.publishedYear}</span>}
+                {c.language && <span>· {c.language.toUpperCase()}</span>}
+              </div>
+              {conflicts.length > 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  Source discrepancy ({conflicts.map(([k, list]) => `${k}: ${list.map((x) => `${formatProviderLabel(x.provider)}=${x.value}`).join(' vs ')}`).join('; ')})
+                </p>
+              )}
+              {c.sourceUrl && (
+                <a
+                  href={c.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-[11px] text-[#C2410C] hover:underline"
+                >
+                  Source record
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
+            <span className="text-xs font-semibold text-[#C2410C] shrink-0">Use</span>
           </div>
-          <span className="text-xs font-semibold text-[#C2410C] shrink-0">Use</span>
-        </button>
-      ))}
+        );
+      })}
     </div>
   );
 }

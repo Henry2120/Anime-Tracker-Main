@@ -45,7 +45,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,wasm}'],
         navigateFallback: '/book-tracker/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/functions\//],
         runtimeCaching: [

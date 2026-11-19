@@ -142,6 +142,8 @@ export function BookDetailModal({
   const [editingMeta, setEditingMeta] = useState(false);
   const [metaTitle, setMetaTitle] = useState('');
   const [metaAuthors, setMetaAuthors] = useState('');
+  const [metaIllustrators, setMetaIllustrators] = useState('');
+  const [metaTranslators, setMetaTranslators] = useState('');
   const [metaGenres, setMetaGenres] = useState('');
   const [metaPages, setMetaPages] = useState('');
   const [metaPublisher, setMetaPublisher] = useState('');
@@ -159,6 +161,8 @@ export function BookDetailModal({
     setCopyCurrency(defaultCurrency);
     setMetaTitle(book.work.title);
     setMetaAuthors(book.work.authors.join(', '));
+    setMetaIllustrators((book.work.illustrators ?? book.primaryEdition.illustrators ?? []).join(', '));
+    setMetaTranslators(book.primaryEdition.translators.join(', '));
     setMetaGenres(book.work.genres.join(', '));
     setMetaPages(book.primaryEdition.pageCount ? String(book.primaryEdition.pageCount) : '');
     setMetaPublisher(book.primaryEdition.publishers.join(', '));
@@ -330,18 +334,30 @@ export function BookDetailModal({
 
   const handleSaveMetadataEdit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const illustrators = metaIllustrators
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const translators = metaTranslators
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     await updateWork(book.work.id, {
       title: metaTitle.trim() || book.work.title,
       authors: metaAuthors
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
+      illustrators,
       genres: metaGenres
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
     });
     await updateEdition(activeEdition.id, {
+      illustrators,
+      translators,
       pageCount: metaPages ? Number(metaPages) || null : null,
       publishers: metaPublisher
         .split(',')
@@ -386,6 +402,31 @@ export function BookDetailModal({
               <p className="text-sm text-stone-600 dark:text-slate-400">
                 {book.work.authors.join(', ') || 'Unknown Author'}
               </p>
+              {((book.work.illustrators && book.work.illustrators.length > 0) ||
+                (activeEdition.illustrators && activeEdition.illustrators.length > 0) ||
+                activeEdition.translators.length > 0) && (
+                <p className="text-xs text-stone-500 dark:text-slate-400">
+                  {((book.work.illustrators?.length
+                    ? book.work.illustrators
+                    : activeEdition.illustrators) ?? []).length > 0 && (
+                    <span>
+                      Illus.{' '}
+                      {(
+                        (book.work.illustrators?.length
+                          ? book.work.illustrators
+                          : activeEdition.illustrators) ?? []
+                      ).join(', ')}
+                    </span>
+                  )}
+                  {((book.work.illustrators?.length
+                    ? book.work.illustrators
+                    : activeEdition.illustrators) ?? []).length > 0 &&
+                    activeEdition.translators.length > 0 && <span> · </span>}
+                  {activeEdition.translators.length > 0 && (
+                    <span>Trans. {activeEdition.translators.join(', ')}</span>
+                  )}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500 font-mono tabular-nums">
                 <span>{book.ownedCopiesCount} owned</span>
                 <span>·</span>
@@ -478,6 +519,18 @@ export function BookDetailModal({
               value={metaAuthors}
               onChange={(e) => setMetaAuthors(e.target.value)}
               placeholder="Authors (comma-separated)"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              value={metaIllustrators}
+              onChange={(e) => setMetaIllustrators(e.target.value)}
+              placeholder="Illustrators (comma-separated)"
+              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+            />
+            <input
+              value={metaTranslators}
+              onChange={(e) => setMetaTranslators(e.target.value)}
+              placeholder="Translators (comma-separated)"
               className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
             />
             <input

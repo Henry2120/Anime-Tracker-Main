@@ -42,10 +42,28 @@ describe('ISBN validation & strict 978 vs 979 conversion', () => {
     expect(parseIsbn('9780140449130').isValid).toBe(false);
   });
 
+  it('validates and normalizes critical Vietnamese test ISBN 9786042243568 with hyphens or spaces', () => {
+    expect(isValidIsbn13('9786042243568')).toBe(true);
+    expect(isValidIsbn13('978-604-224-356-8')).toBe(true);
+    expect(isValidIsbn13('978 604 224 356 8')).toBe(true);
+
+    const parsed = parseIsbn('978-604-224-356-8');
+    expect(parsed.isValid).toBe(true);
+    expect(parsed.isbn13).toBe('9786042243568');
+    expect(parsed.prefixGroup).toBe('978');
+    expect(parsed.isbn10).toBe('604224356X');
+    expect(isValidIsbn10('604224356X')).toBe(true);
+    expect(isbn10ToIsbn13('604224356X')).toBe('9786042243568');
+  });
+
   it('extracts valid formatted ISBNs from OCR text', () => {
-    const ocr = 'First Vietnamese Edition\nISBN 978-0-14-044913-6\nAlso 979-10-90636-07-1';
+    const ocr = 'First Vietnamese Edition\nISBN 978-0-14-044913-6\nAlso 979-10-90636-07-1 and 978 604 224 356 8';
     const found = extractIsbnsFromText(ocr);
-    expect(found.map((f) => f.isbn13)).toEqual(['9780140449136', '9791090636071']);
+    expect(found.map((f) => f.isbn13)).toEqual([
+      '9780140449136',
+      '9791090636071',
+      '9786042243568',
+    ]);
     expect(found[1].isbn10).toBeNull();
   });
 });
