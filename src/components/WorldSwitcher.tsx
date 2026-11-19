@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Tv, Sparkles, Music2, Layers, Check } from 'lucide-react';
+import { ChevronDown, Tv, Sparkles, BookOpen, Layers, Check } from 'lucide-react';
 import { MUSIC_LAB_ENABLED } from '../config/features';
 
 export type AppMode = 'anime' | 'music';
@@ -224,6 +224,39 @@ export const WorldSwitcher: React.FC<WorldSwitcherProps> = ({
               </div>
             </div>
           </button>
+
+          {/* Divider */}
+          <div className="my-1.5 border-t border-[#E7E3DF] dark:border-[#2D2A4A]" />
+
+          {/* Mode 3: AniVerse Book Tracker */}
+          <a
+            href="/book-tracker/"
+            role="menuitem"
+            id="world-select-books"
+            onClick={() => setIsOpen(false)}
+            className="w-full text-left p-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-3 group relative text-[#25242A] dark:text-[#F4F2F7] hover:bg-[#F7F5F2] dark:hover:bg-[#25223D]"
+          >
+            <div className="p-2 rounded-xl shrink-0 transition-transform group-hover:scale-105 bg-[#F0EDFA] dark:bg-[#2E284A] text-[#7567C7]">
+              <BookOpen className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-bold text-xs sm:text-sm text-[#25242A] dark:text-white flex items-center gap-1.5">
+                  📚 AniVerse Book Tracker
+                </span>
+              </div>
+              <p className="text-[11px] text-[#77747D] dark:text-[#AEA8C9] mt-0.5 leading-snug line-clamp-2">
+                Track your books, reading progress, personal library, and reading history.
+              </p>
+              <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-semibold text-[#77747D] dark:text-[#AEA8C9]/80 uppercase tracking-wider">
+                <span>My Library</span>
+                <span>•</span>
+                <span>Reading Tracker</span>
+                <span>•</span>
+                <span>Statistics</span>
+              </div>
+            </div>
+          </a>
         </div>
       )}
     </div>

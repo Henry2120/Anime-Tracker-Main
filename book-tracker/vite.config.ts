@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  base: '/book-tracker/',
   plugins: [
     react(),
     tailwindcss(),
@@ -11,7 +12,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        id: '/',
+        id: '/book-tracker/',
         name: 'AniVerse Book Tracker',
         short_name: 'Book Tracker',
         description: 'Offline-first personal physical book library, edition catalog, reading cycle tracker, and journal.',
@@ -19,24 +20,24 @@ export default defineConfig({
         background_color: '#FAF9F6',
         display: 'standalone',
         orientation: 'any',
-        start_url: '/',
-        scope: '/',
+        start_url: '/book-tracker/',
+        scope: '/book-tracker/',
         categories: ['books', 'productivity', 'lifestyle'],
         icons: [
           {
-            src: '/icons/icon-192.png',
+            src: '/book-tracker/icons/icon-192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/icons/icon-512.png',
+            src: '/book-tracker/icons/icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/icons/icon-maskable-512.png',
+            src: '/book-tracker/icons/icon-maskable-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
@@ -45,7 +46,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallback: '/index.html',
+        navigateFallback: '/book-tracker/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/functions\//],
         runtimeCaching: [
           {

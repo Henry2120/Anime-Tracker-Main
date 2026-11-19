@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
+import { liveQuery } from 'dexie';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { db } from '../src/db/dexie';
+import { db, ensureAppSettings } from '../src/db/dexie';
 import {
   createBookBundle,
   deleteReviewOnly,
@@ -15,6 +16,28 @@ import { calculateCycleMetrics, calculateStreaks } from '../src/utils/statsCalcu
 describe('Reading cycles, intentional rewind, session edits, loans, and safe review deletion', () => {
   beforeEach(async () => {
     await Promise.all(db.tables.map((t) => t.clear()));
+  });
+
+  it('reads app_settings cleanly via read-only liveQuery after ensureAppSettings()', async () => {
+    const seeded = await ensureAppSettings();
+    expect(seeded.id).toBe('default');
+    expect(seeded.defaultCurrency).toBe('VND');
+
+    const observed = await new Promise((resolve, reject) => {
+      const sub = liveQuery(() => db.app_settings.get('default')).subscribe({
+        next: (val) => {
+          if (val) {
+            sub.unsubscribe();
+            resolve(val);
+          }
+        },
+        error: (err) => {
+          sub.unsubscribe();
+          reject(err);
+        },
+      });
+    });
+    expect((observed as { defaultCurrency: string }).defaultCurrency).toBe('VND');
   });
 
   it('preserves multiple reading cycles, intentional progress rewinds, and recalculates edited sessions', async () => {

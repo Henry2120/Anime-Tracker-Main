@@ -3031,6 +3031,20 @@ app.get("/api/weather", async (req, res) => {
 // VITE MIDDLEWARE SETUP
 // ----------------------------------------------------
 async function startServer() {
+  const bookTrackerDist = path.join(process.cwd(), "book-tracker", "dist");
+  app.use("/book-tracker", (req, res, next) => {
+    const pathname = req.originalUrl.split("?")[0];
+    if (pathname === "/book-tracker") {
+      const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+      return res.redirect(301, `/book-tracker/${qs}`);
+    }
+    next();
+  });
+  app.use("/book-tracker", express.static(bookTrackerDist));
+  app.get("/book-tracker/*", (_req, res) => {
+    res.sendFile(path.join(bookTrackerDist, "index.html"));
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

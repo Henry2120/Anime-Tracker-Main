@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, ensureAppSettings } from '../db/dexie';
 import type {
@@ -41,7 +42,11 @@ export interface EnrichedBookRecord {
 }
 
 export function useLibrarySnapshot() {
-  const settings = useLiveQuery(async () => ensureAppSettings(), []);
+  useEffect(() => {
+    void ensureAppSettings();
+  }, []);
+
+  const settings = useLiveQuery(() => db.app_settings.get('default'), []);
   const works = useLiveQuery(() => db.works.filter((w) => !w.deletedAt).toArray(), []) ?? [];
   const editions = useLiveQuery(() => db.editions.filter((e) => !e.deletedAt).toArray(), []) ?? [];
   const editionIsbns =
