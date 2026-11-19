@@ -62,7 +62,6 @@ export interface CreateBookBundleInput {
     originalTitle?: string;
     subtitle?: string;
     authors: string[];
-    illustrators?: string[];
     genres: string[];
     tags?: string[];
     description?: string;
@@ -81,6 +80,7 @@ export interface CreateBookBundleInput {
     translators?: string[];
     illustrators?: string[];
     publishers?: string[];
+    publishingPartner?: string;
     publishedDate?: string;
     publishedYear?: number | null;
     language: string;
@@ -145,7 +145,6 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           originalTitle: input.work.originalTitle?.trim() || undefined,
           subtitle: input.work.subtitle?.trim() || undefined,
           authors: input.work.authors.filter(Boolean),
-          illustrators: (input.work.illustrators ?? []).filter(Boolean),
           genres: input.work.genres.filter(Boolean),
           tags: (input.work.tags ?? []).filter(Boolean),
           description: input.work.description?.trim() || undefined,
@@ -182,6 +181,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
         translators: (input.edition.translators ?? []).filter(Boolean),
         illustrators: (input.edition.illustrators ?? []).filter(Boolean),
         publishers: (input.edition.publishers ?? []).filter(Boolean),
+        publishingPartner: input.edition.publishingPartner?.trim() || undefined,
         publishedDate: input.edition.publishedDate?.trim() || undefined,
         publishedYear: input.edition.publishedYear ?? null,
         language: input.edition.language || 'vi',

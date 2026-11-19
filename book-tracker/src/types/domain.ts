@@ -49,14 +49,52 @@ export type MetadataProviderName =
   | 'google_books'
   | 'open_library'
   | 'openbd'
+  | 'hcm_library'
+  | 'nlv_opac'
   | 'adcbook'
+  | 'hikaru'
+  | 'gooda'
   | 'nxb_kim_dong'
   | 'nha_nam'
   | 'ipm'
-  | 'tiki_books'
-  | 'isbndb'
+  | 'amak'
+  | 'phuong_nam'
+  | 'tiki'
+  | 'fahasa'
   | 'ocr_local'
   | 'ai_assist';
+
+export type MatchConfidence = 'exact_isbn' | 'unverified_isbn' | 'title_match';
+
+export type ProviderLookupStatusCode =
+  | 'matched'
+  | 'no_match'
+  | 'temporarily_unavailable'
+  | 'unsupported'
+  | 'requires_configuration';
+
+export interface ProviderStatusReport {
+  provider: MetadataProviderName;
+  label: string;
+  status: ProviderLookupStatusCode;
+  candidateCount: number;
+  exactMatchCount: number;
+  message?: string;
+}
+
+export interface MetadataConflict {
+  field:
+    | 'title'
+    | 'authors'
+    | 'translators'
+    | 'illustrators'
+    | 'publishers'
+    | 'publishingPartner'
+    | 'pageCount'
+    | 'publishedYear'
+    | 'language';
+  values: Array<{ provider: MetadataProviderName; value: string }>;
+}
 
 export type CurrencyCode = 'VND' | 'USD' | 'JPY' | 'EUR' | 'GBP' | 'KRW' | 'CNY';
 
@@ -90,7 +128,6 @@ export interface Work extends BaseEntity {
   originalTitle?: string;
   subtitle?: string;
   authors: string[];
-  illustrators?: string[];
   genres: string[];
   tags: string[];
   description?: string;
@@ -112,6 +149,7 @@ export interface Edition extends BaseEntity {
   translators: string[];
   illustrators?: string[];
   publishers: string[];
+  publishingPartner?: string;
   publishedDate?: string;
   publishedYear?: number | null;
   language: string;
@@ -327,30 +365,21 @@ export interface AppSettings {
   deviceId: string;
 }
 
-export type MetadataMatchQuality = 'exact_isbn' | 'approximate' | 'title_search';
-
-export interface ProviderSourceLink {
-  provider: MetadataProviderName;
-  url: string;
-}
-
-export interface MetadataFieldConflictEntry {
-  provider: MetadataProviderName;
-  value: string;
-}
-
 export interface MetadataCandidate {
   externalId: string;
   provider: MetadataProviderName;
+  sources?: MetadataProviderName[];
   verified: boolean;
+  matchConfidence?: MatchConfidence;
+  matchedIsbns?: string[];
   title: string;
   originalTitle?: string;
   subtitle?: string;
-  editionName?: string;
   authors: string[];
-  illustrators: string[];
   translators: string[];
+  illustrators?: string[];
   publishers: string[];
+  publishingPartner?: string;
   publishedDate?: string;
   publishedYear?: number | null;
   language: string;
@@ -364,28 +393,13 @@ export interface MetadataCandidate {
   seriesName?: string;
   volumeNumber?: string;
   sourceUrl?: string;
-  matchQuality?: MetadataMatchQuality;
-  matchedIsbn?: string | null;
-  contributingProviders?: MetadataProviderName[];
-  sourceUrls?: ProviderSourceLink[];
-  fieldConflicts?: Record<string, MetadataFieldConflictEntry[]>;
+  conflicts?: MetadataConflict[];
   rawPayload: Record<string, unknown>;
 }
 
-export interface ProviderLookupStatus {
-  provider: MetadataProviderName;
-  status: 'matched' | 'no_match' | 'error' | 'skipped';
-  candidateCount: number;
-  durationMs?: number;
-  message?: string;
-}
-
 export interface MetadataLookupResult {
-  query: string;
-  normalizedIsbn13?: string | null;
-  normalizedIsbn10?: string | null;
-  isValidIsbn?: boolean;
   candidates: MetadataCandidate[];
-  providerStatuses: ProviderLookupStatus[];
-  hasExactIsbnMatch: boolean;
+  providerStatuses: ProviderStatusReport[];
+  queriedIsbn: string | null;
+  exactMatchCount: number;
 }

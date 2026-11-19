@@ -119,7 +119,8 @@ export function formatIsbn13(isbn13: string): string {
 }
 
 export function extractIsbnsFromText(text: string): ParsedIsbn[] {
-  const matches = text.match(/(?:97[89][-\s]?(?:\d[-\s]?){9}\d)|(?:\b\d{9}[\dXx]\b)|(?:(?:\d[-\s]?){9}[\dXx])/g) ?? [];
+  const matches =
+    text.match(/(?:97[89][-\s]?(?:\d[-\s]?){9}\d)|(?:\b\d{9}[\dXx]\b)|(?:(?:\d[-\s]?){9}[\dXx])/g) ?? [];
   const seen = new Set<string>();
   const results: ParsedIsbn[] = [];
   for (const candidate of matches) {
@@ -131,3 +132,42 @@ export function extractIsbnsFromText(text: string): ParsedIsbn[] {
   }
   return results;
 }
+
+export function normalizeIsbnTo13(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const parsed = parseIsbn(input);
+  return parsed.isValid ? parsed.isbn13 : null;
+}
+
+export function isbnsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normalizeIsbnTo13(a);
+  const nb = normalizeIsbnTo13(b);
+  return Boolean(na && nb && na === nb);
+}
+
+/**
+ * Generates normalized ISBN-13 plus likely hyphenated forms used by Vietnamese publishers
+ * (group 604 uses 1- to 4-digit registrant codes, e.g., 978-604-2-..., 978-604-359-..., 978-604-477-...).
+ */
+export function generateSearchIsbnForms(rawIsbn: string): string[] {
+  const parsed = parseIsbn(rawIsbn);
+  const clean13 = parsed.isbn13 || stripIsbn(rawIsbn);
+  if (!clean13) return [];
+
+  const forms = new Set<string>([clean13]);
+  if (clean13.length === 13 && clean13.startsWith('978604')) {
+    const rest = clean13.slice(6, 12);
+    const check = clean13[12];
+    forms.add(`978-604-${rest[0]}-${rest.slice(1)}-${check}`);
+    forms.add(`978-604-${rest.slice(0, 2)}-${rest.slice(2)}-${check}`);
+    forms.add(`978-604-${rest.slice(0, 3)}-${rest.slice(3)}-${check}`);
+    forms.add(`978-604-${rest.slice(0, 4)}-${rest.slice(4)}-${check}`);
+  } else if (clean13.length === 13) {
+    forms.add(formatIsbn13(clean13));
+  }
+  if (parsed.isbn10) {
+    forms.add(parsed.isbn10);
+  }
+  return Array.from(forms);
+}
+

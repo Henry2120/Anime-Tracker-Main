@@ -3,463 +3,226 @@ import { getSupabaseClient } from '../lib/supabase';
 import type {
   MetadataCandidate,
   MetadataLookupResult,
-  MetadataProviderName,
   MetadataRecord,
-  ProviderLookupStatus,
+  ProviderStatusReport,
 } from '../types/domain';
 import { parseIsbn } from '../utils/isbn';
 import {
-  dedupeStrings,
-  extractYear,
-  mergeAndRankCandidates,
-  normalizeLanguageCode,
-  normalizeUrl,
-  parseOpenBdRecord,
-} from './metadata/normalizer';
+  classifyCandidateMatch,
+  mergeAndEnrichCandidates,
+  runProvidersWithIsolation,
+  type MetadataProviderAdapter,
+  type ProviderExecutionContext,
+} from './metadata/pipeline';
 import {
   adcbookProvider,
-  ipmProvider,
-  type MetadataProviderAdapter,
-  nhaNamProvider,
-  nxbKimDongProvider,
-} from './metadata/vietnameseProviders';
-
-const PROVIDER_TIMEOUT_MS = 7000;
-
-export const googleBooksProvider: MetadataProviderAdapter = {
-  name: 'google_books',
-  async lookupByIsbn(isbn) {
-    return this.search(`isbn:${isbn}`, isbn);
-  },
-  async search(query: string, queryIsbn?: string) {
-    const url = new URL('https://www.googleapis.com/books/v1/volumes');
-    url.searchParams.set('q', query);
-    url.searchParams.set('maxResults', '10');
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const json = (await res.json()) as {
-      items?: Array<{ id: string; volumeInfo?: Record<string, unknown> }>;
-    };
-    return (json.items ?? []).map((item) => {
-      const info = (item.volumeInfo ?? {}) as Record<string, unknown>;
-      const ids =
-        (info.industryIdentifiers as Array<{ type: string; identifier: string }> | undefined) ?? [];
-      const raw13 = ids.find((x) => x.type === 'ISBN_13')?.identifier ?? '';
-      const raw10 = ids.find((x) => x.type === 'ISBN_10')?.identifier ?? '';
-      const parsed = parseIsbn(raw13 || raw10);
-      const imageLinks = info.imageLinks as
-        | { thumbnail?: string; smallThumbnail?: string }
-        | undefined;
-      const pubDate = typeof info.publishedDate === 'string' ? info.publishedDate : undefined;
-      const publishers = typeof info.publisher === 'string' ? [info.publisher] : [];
-      const title = String(info.title ?? 'Untitled');
-      const sourceUrl =
-        typeof info.infoLink === 'string'
-          ? normalizeUrl(info.infoLink)
-          : `https://books.google.com/books?id=${encodeURIComponent(item.id)}`;
-
-      const isbn13 = parsed.isValid ? parsed.isbn13 : null;
-      const parsedQuery = queryIsbn ? parseIsbn(queryIsbn) : null;
-      const isExact = Boolean(parsedQuery?.isbn13 && isbn13 && parsedQuery.isbn13 === isbn13);
-
-      return {
-        externalId: item.id,
-        provider: 'google_books',
-        verified: false,
-        title,
-        subtitle: typeof info.subtitle === 'string' ? info.subtitle : undefined,
-        authors: Array.isArray(info.authors) ? dedupeStrings(info.authors.map(String)) : [],
-        illustrators: [],
-        translators: [],
-        publishers: dedupeStrings(publishers),
-        publishedDate: pubDate,
-        publishedYear: extractYear(pubDate),
-        language: normalizeLanguageCode(typeof info.language === 'string' ? info.language : undefined, {
-          title,
-          publisher: publishers[0],
-          isbn13,
-        }),
-        pageCount: typeof info.pageCount === 'number' ? info.pageCount : null,
-        genres: Array.isArray(info.categories) ? dedupeStrings(info.categories.map(String)) : [],
-        description: typeof info.description === 'string' ? info.description : undefined,
-        isbn13,
-        isbn10: parsed.isValid && parsed.prefixGroup === '978' ? parsed.isbn10 : null,
-        coverUrl: normalizeUrl(imageLinks?.thumbnail || imageLinks?.smallThumbnail),
-        sourceUrl,
-        matchQuality: queryIsbn ? (isExact ? 'exact_isbn' : 'approximate') : 'title_search',
-        matchedIsbn: isExact ? isbn13 : null,
-        contributingProviders: ['google_books'],
-        sourceUrls: sourceUrl ? [{ provider: 'google_books', url: sourceUrl }] : undefined,
-        rawPayload: item as unknown as Record<string, unknown>,
-      };
-    });
-  },
-} as MetadataProviderAdapter & {
-  search: (query: string, queryIsbn?: string) => Promise<MetadataCandidate[]>;
-};
-
-export const openLibraryProvider: MetadataProviderAdapter = {
-  name: 'open_library',
-  async lookupByIsbn(isbn) {
-    const clean = isbn.replace(/[^0-9Xx]/g, '').toUpperCase();
-    const res = await fetch(
-      `https://openlibrary.org/api/books?bibkeys=ISBN:${clean}&format=json&jscmd=data`,
-      { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as Record<string, Record<string, unknown>>;
-    const entry = data[`ISBN:${clean}`];
-    if (!entry) return [];
-
-    const parsed = parseIsbn(clean);
-    const cover = entry.cover as { large?: string; medium?: string } | undefined;
-    const pubDate = typeof entry.publish_date === 'string' ? entry.publish_date : undefined;
-    const publishers = Array.isArray(entry.publishers)
-      ? dedupeStrings((entry.publishers as Array<{ name: string }>).map((p) => p.name))
-      : [];
-    const title = String(entry.title ?? 'Untitled');
-    const sourceUrl =
-      typeof entry.url === 'string'
-        ? normalizeUrl(entry.url)
-        : `https://openlibrary.org/isbn/${clean}`;
-
-    return [
-      {
-        externalId: String(entry.key ?? `ol-${clean}`),
-        provider: 'open_library',
-        verified: false,
-        title,
-        subtitle: typeof entry.subtitle === 'string' ? entry.subtitle : undefined,
-        authors: Array.isArray(entry.authors)
-          ? dedupeStrings((entry.authors as Array<{ name: string }>).map((a) => a.name))
-          : [],
-        illustrators: [],
-        translators: [],
-        publishers,
-        publishedDate: pubDate,
-        publishedYear: extractYear(pubDate),
-        language: normalizeLanguageCode(undefined, {
-          title,
-          publisher: publishers[0],
-          isbn13: parsed.isbn13,
-        }),
-        pageCount: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : null,
-        genres: Array.isArray(entry.subjects)
-          ? dedupeStrings((entry.subjects as Array<{ name: string }>).slice(0, 6).map((s) => s.name))
-          : [],
-        isbn13: parsed.isbn13,
-        isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
-        coverUrl: normalizeUrl(cover?.large || cover?.medium),
-        sourceUrl,
-        matchQuality: parsed.isValid ? 'exact_isbn' : 'approximate',
-        matchedIsbn: parsed.isValid ? parsed.isbn13 : null,
-        contributingProviders: ['open_library'],
-        sourceUrls: sourceUrl ? [{ provider: 'open_library', url: sourceUrl }] : undefined,
-        rawPayload: entry,
-      },
-    ];
-  },
-  async search(query) {
-    const res = await fetch(
-      `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=10`,
-      { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { docs?: Array<Record<string, unknown>> };
-    return (data.docs ?? []).map((doc) => {
-      const isbns = Array.isArray(doc.isbn) ? doc.isbn.map(String) : [];
-      const bestIsbn = isbns.find((x) => x.length === 13) ?? isbns[0] ?? '';
-      const parsed = parseIsbn(bestIsbn);
-      const coverId = typeof doc.cover_i === 'number' ? doc.cover_i : null;
-      const publishers = Array.isArray(doc.publisher)
-        ? dedupeStrings(doc.publisher.slice(0, 2).map(String))
-        : [];
-      const title = String(doc.title ?? 'Untitled');
-      const rawLang =
-        Array.isArray(doc.language) && doc.language[0] ? String(doc.language[0]) : undefined;
-      const key = typeof doc.key === 'string' ? doc.key : '';
-      const sourceUrl = key ? `https://openlibrary.org${key}` : undefined;
-
-      return {
-        externalId: key || createUuid(),
-        provider: 'open_library',
-        verified: false,
-        title,
-        authors: Array.isArray(doc.author_name) ? dedupeStrings(doc.author_name.map(String)) : [],
-        illustrators: [],
-        translators: [],
-        publishers,
-        publishedYear: typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null,
-        language: normalizeLanguageCode(rawLang, {
-          title,
-          publisher: publishers[0],
-          isbn13: parsed.isbn13,
-        }),
-        pageCount:
-          typeof doc.number_of_pages_median === 'number' ? doc.number_of_pages_median : null,
-        genres: Array.isArray(doc.subject)
-          ? dedupeStrings(doc.subject.slice(0, 6).map(String))
-          : [],
-        isbn13: parsed.isValid ? parsed.isbn13 : null,
-        isbn10: parsed.isValid && parsed.prefixGroup === '978' ? parsed.isbn10 : null,
-        coverUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : undefined,
-        sourceUrl,
-        matchQuality: 'title_search',
-        matchedIsbn: null,
-        contributingProviders: ['open_library'],
-        sourceUrls: sourceUrl ? [{ provider: 'open_library', url: sourceUrl }] : undefined,
-        rawPayload: doc,
-      };
-    });
-  },
-};
-
-export const openBdProvider: MetadataProviderAdapter = {
-  name: 'openbd',
-  async lookupByIsbn(isbn) {
-    const parsed = parseIsbn(isbn);
-    if (!parsed.isbn13 || !parsed.isbn13.startsWith('9784')) return [];
-    const res = await fetch(`https://api.openbd.jp/v1/get?isbn=${parsed.isbn13}`, {
-      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const arr = (await res.json()) as Array<Record<string, unknown> | null>;
-    const item = arr?.[0];
-    if (!item) return [];
-    const cand = parseOpenBdRecord(item, parsed.isbn13);
-    return cand ? [cand] : [];
-  },
-  async search() {
-    return [];
-  },
-};
-
-const DIRECT_PROVIDERS: MetadataProviderAdapter[] = [
-  adcbookProvider,
-  nxbKimDongProvider,
-  nhaNamProvider,
-  ipmProvider,
+  ALL_METADATA_PROVIDERS,
+  fahasaProvider,
+  goodaProvider,
   googleBooksProvider,
-  openLibraryProvider,
+  hcmLibraryProvider,
+  hikaruProvider,
+  ipmProvider,
+  nhaNamProvider,
+  nlvOpacProvider,
+  nxbKimDongProvider,
   openBdProvider,
-];
+  openLibraryProvider,
+  tikiProvider,
+} from './metadata/providers';
 
-function isApplicableForIsbn(providerName: MetadataProviderName, isbn13: string | null): boolean {
-  if (providerName === 'openbd') {
-    return Boolean(isbn13 && isbn13.startsWith('9784'));
+export {
+  adcbookProvider,
+  ALL_METADATA_PROVIDERS,
+  fahasaProvider,
+  goodaProvider,
+  googleBooksProvider,
+  hcmLibraryProvider,
+  hikaruProvider,
+  ipmProvider,
+  nhaNamProvider,
+  nlvOpacProvider,
+  nxbKimDongProvider,
+  openBdProvider,
+  openLibraryProvider,
+  tikiProvider,
+};
+
+export interface LookupOptions {
+  fetchFn?: typeof fetch;
+  adapters?: MetadataProviderAdapter[];
+  timeoutMs?: number;
+  googleBooksApiKey?: string;
+  preferEdgeFunction?: boolean;
+}
+
+function isBrowserDomEnvironment(): boolean {
+  return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function splitBrowserAdapters(adapters: MetadataProviderAdapter[]): {
+  runnable: MetadataProviderAdapter[];
+  corsBlockedReports: ProviderStatusReport[];
+} {
+  if (!isBrowserDomEnvironment()) {
+    return { runnable: adapters, corsBlockedReports: [] };
   }
-  return true;
+  const runnable: MetadataProviderAdapter[] = [];
+  const corsBlockedReports: ProviderStatusReport[] = [];
+  for (const adapter of adapters) {
+    if (adapter.supportsDirectBrowserCors) {
+      runnable.push(adapter);
+    } else {
+      corsBlockedReports.push({
+        provider: adapter.name,
+        label: adapter.label,
+        status: adapter.name === 'fahasa' ? 'unsupported' : 'requires_configuration',
+        candidateCount: 0,
+        exactMatchCount: 0,
+        message:
+          adapter.name === 'fahasa'
+            ? 'Protected by anti-bot challenge; unavailable directly from browser'
+            : 'Requires Edge Function / server proxy (browser CORS restricted)',
+      });
+    }
+  }
+  return { runnable, corsBlockedReports };
 }
 
-async function runDirectProviders(params: {
-  mode: 'isbn' | 'query';
-  term: string;
-  isbn13: string | null;
-  skipProviders?: Set<MetadataProviderName>;
-}): Promise<{ candidates: MetadataCandidate[]; statuses: ProviderLookupStatus[] }> {
-  const statuses: ProviderLookupStatus[] = [];
-  const allCandidates: MetadataCandidate[] = [];
-
-  const tasks = DIRECT_PROVIDERS.map(async (provider) => {
-    if (params.skipProviders?.has(provider.name)) return;
-    if (params.mode === 'isbn' && !isApplicableForIsbn(provider.name, params.isbn13)) {
-      statuses.push({
-        provider: provider.name,
-        status: 'skipped',
-        candidateCount: 0,
-        message: 'Only applies to 978-4-* Japanese ISBNs',
-      });
-      return;
-    }
-    if (params.mode === 'query' && provider.name === 'openbd') {
-      statuses.push({
-        provider: provider.name,
-        status: 'skipped',
-        candidateCount: 0,
-        message: 'ISBN-only provider',
-      });
-      return;
-    }
-
-    const started = Date.now();
-    try {
-      const hits =
-        params.mode === 'isbn'
-          ? await provider.lookupByIsbn(params.term)
-          : await provider.search(params.term);
-      allCandidates.push(...hits);
-      statuses.push({
-        provider: provider.name,
-        status: hits.length > 0 ? 'matched' : 'no_match',
-        candidateCount: hits.length,
-        durationMs: Date.now() - started,
-      });
-    } catch (err) {
-      statuses.push({
-        provider: provider.name,
-        status: 'error',
-        candidateCount: 0,
-        durationMs: Date.now() - started,
-        message: err instanceof Error ? err.message : 'Request failed',
-      });
-    }
-  });
-
-  await Promise.allSettled(tasks);
-  return { candidates: allCandidates, statuses };
-}
-
-export async function lookupMetadataByIsbnDetailed(
-  rawIsbn: string
+export async function lookupMetadataWithReportByIsbn(
+  rawIsbn: string,
+  options: LookupOptions = {}
 ): Promise<MetadataLookupResult> {
   const parsed = parseIsbn(rawIsbn);
-  const cleanDigits = rawIsbn.replace(/[^0-9Xx]/g, '').toUpperCase();
-  const queryIsbn = parsed.isbn13 || cleanDigits;
-
+  const queryIsbn = parsed.isbn13 || rawIsbn.replace(/[^0-9Xx]/g, '').toUpperCase();
   if (!queryIsbn) {
-    return {
-      query: rawIsbn,
-      normalizedIsbn13: null,
-      normalizedIsbn10: null,
-      isValidIsbn: false,
-      candidates: [],
-      providerStatuses: [],
-      hasExactIsbnMatch: false,
-    };
+    return { candidates: [], providerStatuses: [], queriedIsbn: null, exactMatchCount: 0 };
   }
 
-  const combinedCandidates: MetadataCandidate[] = [];
-  const statusMap = new Map<MetadataProviderName, ProviderLookupStatus>();
-  const completedInEdge = new Set<MetadataProviderName>();
-
-  // 1. Query Supabase Edge Function when configured (covers server-side providers like Tiki + keyed Google Books/ISBNdb)
-  const supabase = getSupabaseClient();
-  if (supabase && typeof navigator !== 'undefined' && navigator.onLine) {
-    try {
-      const { data, error } = await supabase.functions.invoke('book-lookup', {
-        body: { isbn: queryIsbn },
-      });
-      if (!error && data) {
-        if (Array.isArray(data.candidates)) {
-          combinedCandidates.push(...(data.candidates as MetadataCandidate[]));
-        }
-        if (Array.isArray(data.providerStatuses)) {
-          for (const st of data.providerStatuses as ProviderLookupStatus[]) {
-            statusMap.set(st.provider, st);
-            if (st.status === 'matched' || st.status === 'no_match' || st.status === 'skipped') {
-              completedInEdge.add(st.provider);
-            }
+  // Prefer server-side Supabase Edge Function when configured & online (no browser CORS limits)
+  if (options.preferEdgeFunction !== false) {
+    const supabase = getSupabaseClient();
+    if (supabase && typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        const { data, error } = await supabase.functions.invoke('book-lookup', {
+          body: { isbn: queryIsbn },
+        });
+        if (!error && Array.isArray(data?.candidates)) {
+          const normalized = mergeAndEnrichCandidates(
+            (data.candidates as MetadataCandidate[]).map(
+              (c) => classifyCandidateMatch(c, parsed.isbn13 || queryIsbn).candidate
+            ),
+            parsed.isbn13 || queryIsbn
+          );
+          const providerStatuses = Array.isArray(data.providerStatuses)
+            ? (data.providerStatuses as ProviderStatusReport[])
+            : [];
+          if (normalized.length > 0 || providerStatuses.length > 0) {
+            return {
+              candidates: normalized,
+              providerStatuses,
+              queriedIsbn: parsed.isbn13 || queryIsbn,
+              exactMatchCount: normalized.filter((c) => c.matchConfidence === 'exact_isbn').length,
+            };
           }
         }
+      } catch {
+        // Fall through cleanly to direct CORS-compatible provider calls
       }
-    } catch {
-      // Non-fatal: continue with direct providers below
     }
   }
 
-  // 2. Always run ALL remaining applicable direct providers concurrently (never short-circuit on partial hits)
-  const direct = await runDirectProviders({
+  const adapters = options.adapters ?? ALL_METADATA_PROVIDERS;
+  const { runnable, corsBlockedReports } = options.fetchFn
+    ? { runnable: adapters, corsBlockedReports: [] }
+    : splitBrowserAdapters(adapters);
+
+  const ctx: ProviderExecutionContext = {
+    fetchFn: options.fetchFn ?? fetch,
+    timeoutMs: options.timeoutMs ?? 7000,
+    googleBooksApiKey: options.googleBooksApiKey,
+  };
+
+  const result = await runProvidersWithIsolation({
     mode: 'isbn',
-    term: queryIsbn,
-    isbn13: parsed.isbn13 ?? (queryIsbn.length === 13 ? queryIsbn : null),
-    skipProviders: completedInEdge,
+    input: parsed.isbn13 || queryIsbn,
+    adapters: runnable,
+    ctx,
   });
 
-  combinedCandidates.push(...direct.candidates);
-  for (const st of direct.statuses) {
-    statusMap.set(st.provider, st);
-  }
-
-  const merged = mergeAndRankCandidates(combinedCandidates, queryIsbn);
-  const hasExactIsbnMatch = merged.some((c) => c.matchQuality === 'exact_isbn');
-
   return {
-    query: rawIsbn,
-    normalizedIsbn13: parsed.isbn13,
-    normalizedIsbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
-    isValidIsbn: parsed.isValid,
-    candidates: merged,
-    providerStatuses: Array.from(statusMap.values()),
-    hasExactIsbnMatch,
+    ...result,
+    providerStatuses: [...result.providerStatuses, ...corsBlockedReports],
   };
 }
 
-export async function searchMetadataByQueryDetailed(
-  query: string
+export async function searchMetadataWithReportByQuery(
+  query: string,
+  options: LookupOptions = {}
 ): Promise<MetadataLookupResult> {
   const trimmed = query.trim();
   if (!trimmed) {
-    return {
-      query,
-      candidates: [],
-      providerStatuses: [],
-      hasExactIsbnMatch: false,
-    };
+    return { candidates: [], providerStatuses: [], queriedIsbn: null, exactMatchCount: 0 };
   }
 
-  const parsedAsIsbn = parseIsbn(trimmed);
-  if (parsedAsIsbn.isValid) {
-    return lookupMetadataByIsbnDetailed(trimmed);
-  }
-
-  const combinedCandidates: MetadataCandidate[] = [];
-  const statusMap = new Map<MetadataProviderName, ProviderLookupStatus>();
-  const completedInEdge = new Set<MetadataProviderName>();
-
-  const supabase = getSupabaseClient();
-  if (supabase && typeof navigator !== 'undefined' && navigator.onLine) {
-    try {
-      const { data, error } = await supabase.functions.invoke('book-lookup', {
-        body: { query: trimmed },
-      });
-      if (!error && data) {
-        if (Array.isArray(data.candidates)) {
-          combinedCandidates.push(...(data.candidates as MetadataCandidate[]));
-        }
-        if (Array.isArray(data.providerStatuses)) {
-          for (const st of data.providerStatuses as ProviderLookupStatus[]) {
-            statusMap.set(st.provider, st);
-            if (st.status === 'matched' || st.status === 'no_match' || st.status === 'skipped') {
-              completedInEdge.add(st.provider);
-            }
+  if (options.preferEdgeFunction !== false) {
+    const supabase = getSupabaseClient();
+    if (supabase && typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        const { data, error } = await supabase.functions.invoke('book-lookup', {
+          body: { query: trimmed },
+        });
+        if (!error && Array.isArray(data?.candidates)) {
+          const candidates = mergeAndEnrichCandidates(data.candidates as MetadataCandidate[], null);
+          const providerStatuses = Array.isArray(data.providerStatuses)
+            ? (data.providerStatuses as ProviderStatusReport[])
+            : [];
+          if (candidates.length > 0 || providerStatuses.length > 0) {
+            return {
+              candidates,
+              providerStatuses,
+              queriedIsbn: null,
+              exactMatchCount: 0,
+            };
           }
         }
+      } catch {
+        // Fall through cleanly
       }
-    } catch {
-      // Non-fatal fallback
     }
   }
 
-  const direct = await runDirectProviders({
+  const adapters = options.adapters ?? ALL_METADATA_PROVIDERS;
+  const { runnable, corsBlockedReports } = options.fetchFn
+    ? { runnable: adapters, corsBlockedReports: [] }
+    : splitBrowserAdapters(adapters);
+
+  const ctx: ProviderExecutionContext = {
+    fetchFn: options.fetchFn ?? fetch,
+    timeoutMs: options.timeoutMs ?? 7000,
+    googleBooksApiKey: options.googleBooksApiKey,
+  };
+
+  const result = await runProvidersWithIsolation({
     mode: 'query',
-    term: trimmed,
-    isbn13: null,
-    skipProviders: completedInEdge,
+    input: trimmed,
+    adapters: runnable,
+    ctx,
   });
 
-  combinedCandidates.push(...direct.candidates);
-  for (const st of direct.statuses) {
-    statusMap.set(st.provider, st);
-  }
-
-  const merged = mergeAndRankCandidates(combinedCandidates);
   return {
-    query: trimmed,
-    candidates: merged,
-    providerStatuses: Array.from(statusMap.values()),
-    hasExactIsbnMatch: false,
+    ...result,
+    providerStatuses: [...result.providerStatuses, ...corsBlockedReports],
   };
 }
 
 export async function lookupMetadataByIsbn(rawIsbn: string): Promise<MetadataCandidate[]> {
-  const res = await lookupMetadataByIsbnDetailed(rawIsbn);
+  const res = await lookupMetadataWithReportByIsbn(rawIsbn);
   return res.candidates;
 }
 
 export async function searchMetadataByQuery(query: string): Promise<MetadataCandidate[]> {
-  const res = await searchMetadataByQueryDetailed(query);
+  const res = await searchMetadataWithReportByQuery(query);
   return res.candidates;
 }
 
