@@ -1,4 +1,9 @@
-import { extractIsbnsFromText, parseIsbn } from '../../utils/isbn';
+import {
+  extractBookIdentifiersFromText,
+  extractIsbnsFromText,
+  parseBookIdentifier,
+  parseIsbn,
+} from '../../utils/isbn';
 
 const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
@@ -89,12 +94,14 @@ export interface VietnameseSpecs {
   illustrators: string[];
   publishers: string[];
   publishingPartner?: string;
+  distributor?: string;
   pageCount: number | null;
   publishedYear: number | null;
   publishedDate?: string;
   language?: string;
   genres: string[];
   isbns: string[];
+  identifiers: string[];
   format?: 'paperback' | 'hardcover';
 }
 
@@ -148,7 +155,7 @@ function normalizeLanguageLabel(val: string): string | undefined {
 export function extractVietnameseBookSpecs(htmlOrText: string): VietnameseSpecs {
   const rawLines = htmlOrText.includes('<') ? htmlToStructuredLines(htmlOrText) : htmlOrText.split(/\r?\n/);
   const INLINE_LABEL_SPLIT =
-    /(?=\b(?:Nhà phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|ISBN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
+    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|ISBN|EAN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
   const lines = rawLines.flatMap((line) =>
     line.includes('\t')
       ? [line]
@@ -166,11 +173,18 @@ export function extractVietnameseBookSpecs(htmlOrText: string): VietnameseSpecs 
     publishedYear: null,
     genres: [],
     isbns: [],
+    identifiers: [],
   };
 
-  for (const found of extractIsbnsFromText(lines.join('\n'))) {
+  const joined = lines.join('\n');
+  for (const found of extractIsbnsFromText(joined)) {
     if (found.isbn13 && !specs.isbns.includes(found.isbn13)) {
       specs.isbns.push(found.isbn13);
+    }
+  }
+  for (const found of extractBookIdentifiersFromText(joined)) {
+    if (found.normalizedId && !specs.identifiers.includes(found.normalizedId)) {
+      specs.identifiers.push(found.normalizedId);
     }
   }
 
@@ -251,17 +265,30 @@ function applyKeyValue(specs: VietnameseSpecs, rawLabel: string, rawValue: strin
   } else if (
     label === 'nhà phát hành' ||
     label === 'công ty phát hành' ||
-    label === 'đơn vị phát hành' ||
-    label === 'phát hành' ||
-    label === 'thương hiệu'
+    label === 'đơn vị phát hành'
   ) {
-    // Distinguish "Phát hành: 15/07/2022" (release date) from publisher/distributor name
     const dateParsed = parseYearFromText(value);
     if (dateParsed.year && /^\d/.test(value)) {
       if (!specs.publishedYear) specs.publishedYear = dateParsed.year;
       if (!specs.publishedDate && dateParsed.date) specs.publishedDate = dateParsed.date;
     } else if (!/^(vui lòng|liên hệ)/i.test(value)) {
-      addUnique(specs.publishers, [value]);
+      if (!specs.distributor) specs.distributor = value;
+    }
+  } else if (
+    label === 'phát hành' ||
+    label === 'thương hiệu'
+  ) {
+    // Distinguish "Phát hành: 15/07/2022" (release date) from distributor/imprint name
+    const dateParsed = parseYearFromText(value);
+    if (dateParsed.year && /^\d/.test(value)) {
+      if (!specs.publishedYear) specs.publishedYear = dateParsed.year;
+      if (!specs.publishedDate && dateParsed.date) specs.publishedDate = dateParsed.date;
+    } else if (!/^(vui lòng|liên hệ)/i.test(value)) {
+      if (label === 'phát hành') {
+        if (!specs.distributor) specs.distributor = value;
+      } else {
+        addUnique(specs.publishers, [value]);
+      }
     }
   } else if (label === 'số trang' || label === 'pages') {
     const m = value.match(/\d{1,5}/);
@@ -284,15 +311,31 @@ function applyKeyValue(specs: VietnameseSpecs, rawLabel: string, rawValue: strin
     else if (lower.includes('bìa mềm') || lower.includes('bìa rời') || lower.includes('paperback')) {
       specs.format = 'paperback';
     }
-  } else if (label === 'isbn' || label === 'mã sản phẩm' || label === 'sku' || label === 'mã vạch') {
+  } else if (
+    label === 'isbn' ||
+    label === 'ean' ||
+    label === 'mã sản phẩm' ||
+    label === 'sku' ||
+    label === 'mã vạch' ||
+    label === 'mã vạch / isbn'
+  ) {
     for (const found of extractIsbnsFromText(value)) {
       if (found.isbn13 && !specs.isbns.includes(found.isbn13)) {
         specs.isbns.push(found.isbn13);
       }
     }
-    const direct = parseIsbn(value);
-    if (direct.isValid && direct.isbn13 && !specs.isbns.includes(direct.isbn13)) {
-      specs.isbns.push(direct.isbn13);
+    const directIsbn = parseIsbn(value);
+    if (directIsbn.isValid && directIsbn.isbn13 && !specs.isbns.includes(directIsbn.isbn13)) {
+      specs.isbns.push(directIsbn.isbn13);
+    }
+    for (const found of extractBookIdentifiersFromText(value, { includeAllEan13: true })) {
+      if (found.normalizedId && !specs.identifiers.includes(found.normalizedId)) {
+        specs.identifiers.push(found.normalizedId);
+      }
+    }
+    const directId = parseBookIdentifier(value);
+    if (directId.isValid && directId.normalizedId && !specs.identifiers.includes(directId.normalizedId)) {
+      specs.identifiers.push(directId.normalizedId);
     }
   }
 }
@@ -302,6 +345,7 @@ export interface JsonLdBookData {
   authors: string[];
   publishers: string[];
   isbns: string[];
+  identifiers: string[];
   pageCount: number | null;
   publishedDate?: string;
   publishedYear: number | null;
@@ -322,10 +366,15 @@ export function extractJsonLdBooks(html: string): JsonLdBookData[] {
         if (!type.includes('book') && !type.includes('product')) continue;
 
         const isbns: string[] = [];
+        const identifiers: string[] = [];
         for (const field of [obj.isbn, obj.gtin13, obj.gtin, obj.sku, obj.mpn]) {
           if (typeof field === 'string') {
             const p = parseIsbn(field);
             if (p.isValid && p.isbn13 && !isbns.includes(p.isbn13)) isbns.push(p.isbn13);
+            const idParsed = parseBookIdentifier(field);
+            if (idParsed.isValid && idParsed.normalizedId && !identifiers.includes(idParsed.normalizedId)) {
+              identifiers.push(idParsed.normalizedId);
+            }
           }
         }
 
@@ -359,6 +408,7 @@ export function extractJsonLdBooks(html: string): JsonLdBookData[] {
           authors,
           publishers,
           isbns,
+          identifiers,
           pageCount: typeof obj.numberOfPages === 'number' ? obj.numberOfPages : null,
           publishedDate: pubDate,
           publishedYear: yearMatch ? Number(yearMatch[0]) : null,

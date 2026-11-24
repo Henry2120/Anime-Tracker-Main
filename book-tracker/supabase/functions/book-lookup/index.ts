@@ -16,6 +16,14 @@ const corsHeaders = {
 type ProviderTier = 'tier1_international' | 'tier2_national' | 'tier3_publisher';
 type MatchConfidence = 'exact_isbn' | 'approximate_match' | 'unverified_isbn' | 'title_match';
 type EditionMatchLevel = 'exact_edition' | 'possible_edition' | 'related_edition' | 'work_match';
+type BookIdentifierType = 'isbn13' | 'isbn10' | 'ean13' | 'invalid';
+type VerificationStatus =
+  | 'verified_match'
+  | 'valid_identifier_unconfirmed'
+  | 'conflicting_records'
+  | 'identity_mismatch'
+  | 'not_found'
+  | 'invalid_identifier';
 type ProviderStatusCode =
   | 'exact_match'
   | 'approximate_match'
@@ -48,6 +56,7 @@ interface Candidate {
   matchConfidence: MatchConfidence;
   editionMatchLevel?: EditionMatchLevel;
   matchedIsbns: string[];
+  matchedIdentifiers?: string[];
   title: string;
   originalTitle?: string;
   translationTitle?: string;
@@ -59,6 +68,7 @@ interface Candidate {
   editors?: string[];
   publishers: string[];
   publishingPartner?: string;
+  distributor?: string;
   publishedDate?: string;
   publishedYear?: number | null;
   language: string;
@@ -68,10 +78,14 @@ interface Candidate {
   description?: string;
   isbn13?: string | null;
   isbn10?: string | null;
+  ean13?: string | null;
+  identifierType?: BookIdentifierType;
   coverUrl?: string;
   seriesName?: string;
   volumeNumber?: string;
   sourceUrl?: string;
+  retrievedAt?: string;
+  mismatchReason?: string;
   conflicts?: Array<{ field: string; values: Array<{ provider: string; value: string }> }>;
   contradictions?: string[];
   fieldProvenance?: Record<string, { provider: string; trust: 'verified' | 'approximate' }>;
@@ -107,10 +121,14 @@ const EDGE_PRIORITY: Record<string, number> = {
 };
 
 // ----------------------------------------------------------------------------
-// ISBN & Language Helpers
+// ISBN, EAN-13 & Language Helpers
 // ----------------------------------------------------------------------------
 function stripIsbn(input: string): string {
-  return input.toUpperCase().replace(/[^0-9X]/g, '');
+  return input
+    .trim()
+    .replace(/^(?:ISBN(?:-1[03])?|EAN(?:-13)?|BARCODE)[:\s#-]*/i, '')
+    .toUpperCase()
+    .replace(/[^0-9X]/g, '');
 }
 
 function isbn13Check(first12: string): string {
@@ -130,46 +148,203 @@ function isbn10Check(first9: string): string {
   return rem === 10 ? 'X' : String(rem);
 }
 
-function normalizeIsbnTo13(raw?: string | null): string | null {
-  if (!raw) return null;
-  const clean = stripIsbn(raw);
-  if (/^(978|979)\d{10}$/.test(clean) && isbn13Check(clean.slice(0, 12)) === clean[12]) {
-    return clean;
-  }
-  if (/^\d{9}[\dX]$/.test(clean) && isbn10Check(clean.slice(0, 9)) === clean[9]) {
-    const first12 = `978${clean.slice(0, 9)}`;
-    return `${first12}${isbn13Check(first12)}`;
-  }
-  return null;
-}
-
 function isbn13To10(isbn13: string): string | null {
   if (!isbn13.startsWith('978') || isbn13.length !== 13) return null;
   const body = isbn13.slice(3, 12);
   return `${body}${isbn10Check(body)}`;
 }
 
-function extractIsbnsFromText(text: string): string[] {
+interface ParsedIdentifier {
+  raw: string;
+  normalizedId: string | null;
+  identifierType: BookIdentifierType;
+  isValid: boolean;
+  isIsbn: boolean;
+  isbn13: string | null;
+  isbn10: string | null;
+  ean13: string | null;
+  prefixGroup: '978' | '979' | '893' | 'gs1_ean13' | null;
+  errorReason: string | null;
+}
+
+function parseBookIdentifier(raw?: string | null): ParsedIdentifier {
+  const input = raw ?? '';
+  const clean = stripIsbn(input);
+  if (!clean) {
+    return {
+      raw: input,
+      normalizedId: null,
+      identifierType: 'invalid',
+      isValid: false,
+      isIsbn: false,
+      isbn13: null,
+      isbn10: null,
+      ean13: null,
+      prefixGroup: null,
+      errorReason: 'Identifier is empty.',
+    };
+  }
+  if (/^\d{13}$/.test(clean)) {
+    const expected = isbn13Check(clean.slice(0, 12));
+    if (expected !== clean[12]) {
+      return {
+        raw: input,
+        normalizedId: null,
+        identifierType: 'invalid',
+        isValid: false,
+        isIsbn: false,
+        isbn13: null,
+        isbn10: null,
+        ean13: null,
+        prefixGroup: null,
+        errorReason: `Invalid 13-digit check digit (got ${clean[12]}, expected ${expected}).`,
+      };
+    }
+    if (clean.startsWith('978') || clean.startsWith('979')) {
+      const pg = clean.startsWith('978') ? '978' : '979';
+      return {
+        raw: input,
+        normalizedId: clean,
+        identifierType: 'isbn13',
+        isValid: true,
+        isIsbn: true,
+        isbn13: clean,
+        isbn10: pg === '978' ? isbn13To10(clean) : null,
+        ean13: clean,
+        prefixGroup: pg,
+        errorReason: null,
+      };
+    }
+    return {
+      raw: input,
+      normalizedId: clean,
+      identifierType: 'ean13',
+      isValid: true,
+      isIsbn: false,
+      isbn13: null,
+      isbn10: null,
+      ean13: clean,
+      prefixGroup: clean.startsWith('893') ? '893' : 'gs1_ean13',
+      errorReason: null,
+    };
+  }
+  if (/^\d{9}[\dX]$/.test(clean)) {
+    const expected = isbn10Check(clean.slice(0, 9));
+    if (expected !== clean[9]) {
+      return {
+        raw: input,
+        normalizedId: null,
+        identifierType: 'invalid',
+        isValid: false,
+        isIsbn: false,
+        isbn13: null,
+        isbn10: null,
+        ean13: null,
+        prefixGroup: null,
+        errorReason: `Invalid ISBN-10 check digit (got ${clean[9]}, expected ${expected}).`,
+      };
+    }
+    const first12 = `978${clean.slice(0, 9)}`;
+    const isbn13 = `${first12}${isbn13Check(first12)}`;
+    return {
+      raw: input,
+      normalizedId: isbn13,
+      identifierType: 'isbn10',
+      isValid: true,
+      isIsbn: true,
+      isbn13,
+      isbn10: clean,
+      ean13: isbn13,
+      prefixGroup: '978',
+      errorReason: null,
+    };
+  }
+  return {
+    raw: input,
+    normalizedId: null,
+    identifierType: 'invalid',
+    isValid: false,
+    isIsbn: false,
+    isbn13: null,
+    isbn10: null,
+    ean13: null,
+    prefixGroup: null,
+    errorReason: 'Identifier must be a valid 10-digit ISBN-10, 13-digit ISBN-13, or 13-digit EAN-13.',
+  };
+}
+
+function normalizeIsbnTo13(raw?: string | null): string | null {
+  const parsed = parseBookIdentifier(raw);
+  return parsed.isValid && parsed.isIsbn ? parsed.isbn13 : null;
+}
+
+function extractBookIdentifiersFromText(text: string, includeAllEan13 = false): string[] {
   const matches =
-    text.match(/(?:97[89][-\s]?(?:\d[-\s]?){9}\d)|(?:\b\d{9}[\dXx]\b)|(?:(?:\d[-\s]?){9}[\dXx])/g) ?? [];
+    text.match(
+      includeAllEan13
+        ? /(?:\d[-\s]?){12}\d|(?:\b\d{9}[\dXx]\b)|(?:(?:\d[-\s]?){9}[\dXx])/g
+        : /(?:(?:97[89]|893)[-\s]?(?:\d[-\s]?){9}\d)|(?:\b\d{9}[\dXx]\b)|(?:(?:\d[-\s]?){9}[\dXx])/g
+    ) ?? [];
   const out: string[] = [];
   for (const m of matches) {
-    const norm = normalizeIsbnTo13(m);
-    if (norm && !out.includes(norm)) out.push(norm);
+    const parsed = parseBookIdentifier(m);
+    if (parsed.isValid && parsed.normalizedId && !out.includes(parsed.normalizedId)) {
+      out.push(parsed.normalizedId);
+    }
   }
   return out;
 }
 
-function vnSearchForms(isbn13: string): string[] {
-  const forms = [isbn13];
-  if (isbn13.startsWith('978604') && isbn13.length === 13) {
-    const r = isbn13.slice(6, 12);
-    const c = isbn13[12];
+function collectValidIdentifiers(
+  values: Array<string | null | undefined>,
+  fallbackText?: string,
+  includeAllEan13InValues = false
+): string[] {
+  const out: string[] = [];
+  const pushId = (id: string | null) => {
+    if (id && !out.includes(id)) out.push(id);
+  };
+  for (const val of values) {
+    if (!val) continue;
+    const direct = parseBookIdentifier(val);
+    if (direct.isValid && direct.normalizedId) {
+      if (direct.isIsbn || includeAllEan13InValues || direct.normalizedId.startsWith('893')) {
+        pushId(direct.normalizedId);
+      }
+    }
+    for (const id of extractBookIdentifiersFromText(val, includeAllEan13InValues)) {
+      pushId(id);
+    }
+  }
+  if (fallbackText) {
+    for (const id of extractBookIdentifiersFromText(fallbackText, false)) {
+      pushId(id);
+    }
+  }
+  return out;
+}
+
+function extractIsbnsFromText(text: string): string[] {
+  return extractBookIdentifiersFromText(text, false).filter(
+    (id) => id.startsWith('978') || id.startsWith('979')
+  );
+}
+
+function vnSearchForms(id13: string): string[] {
+  const forms = [id13];
+  const prefix = id13.startsWith('978604')
+    ? '978-604'
+    : id13.startsWith('978632')
+      ? '978-632'
+      : null;
+  if (prefix && id13.length === 13) {
+    const r = id13.slice(6, 12);
+    const c = id13[12];
     forms.push(
-      `978-604-${r[0]}-${r.slice(1)}-${c}`,
-      `978-604-${r.slice(0, 2)}-${r.slice(2)}-${c}`,
-      `978-604-${r.slice(0, 3)}-${r.slice(3)}-${c}`,
-      `978-604-${r.slice(0, 4)}-${r.slice(4)}-${c}`
+      `${prefix}-${r[0]}-${r.slice(1)}-${c}`,
+      `${prefix}-${r.slice(0, 2)}-${r.slice(2)}-${c}`,
+      `${prefix}-${r.slice(0, 3)}-${r.slice(3)}-${c}`,
+      `${prefix}-${r.slice(0, 4)}-${r.slice(4)}-${c}`
     );
   }
   return forms;
@@ -186,32 +361,90 @@ const ISO_LANG: Record<string, string> = {
   es: 'es', spa: 'es', it: 'it', ita: 'it', pt: 'pt', por: 'pt', ru: 'ru', rus: 'ru',
 };
 
-function normLang(raw?: string | null, isbn13?: string | null): string {
+function normLang(raw?: string | null, id13?: string | null): string {
   if (raw) {
     const c = raw.replace(/^\/languages\//i, '').trim().toLowerCase();
     if (ISO_LANG[c]) return ISO_LANG[c];
     if (/^[a-z]{2}(-[a-z0-9]{2,8})?$/i.test(c)) return c;
   }
-  if (isbn13?.startsWith('978604')) return 'vi';
-  if (isbn13?.startsWith('9784')) return 'ja';
-  if (isbn13?.startsWith('97889')) return 'ko';
-  if (isbn13?.startsWith('9787')) return 'zh';
-  if (isbn13?.startsWith('978957') || isbn13?.startsWith('978986')) return 'zh-Hant';
-  if (isbn13?.startsWith('9782')) return 'fr';
-  if (isbn13?.startsWith('9783')) return 'de';
+  if (id13?.startsWith('978604') || id13?.startsWith('978632') || id13?.startsWith('893')) return 'vi';
+  if (id13?.startsWith('9784')) return 'ja';
+  if (id13?.startsWith('97889')) return 'ko';
+  if (id13?.startsWith('9787')) return 'zh';
+  if (id13?.startsWith('978957') || id13?.startsWith('978986')) return 'zh-Hant';
+  if (id13?.startsWith('9782')) return 'fr';
+  if (id13?.startsWith('9783')) return 'de';
   return 'und';
 }
 
-function getAffinity(isbn13: string): string {
-  if (isbn13.startsWith('978604')) return 'vi';
-  if (isbn13.startsWith('9784')) return 'jp';
-  if (isbn13.startsWith('97889')) return 'kr';
-  if (isbn13.startsWith('9787')) return 'cn';
-  if (isbn13.startsWith('978957') || isbn13.startsWith('978986')) return 'tw';
-  if (isbn13.startsWith('9782')) return 'fr';
-  if (isbn13.startsWith('9783')) return 'de';
-  if (isbn13.startsWith('9780') || isbn13.startsWith('9781')) return 'en';
+function getAffinity(id13: string): string {
+  if (id13.startsWith('978604') || id13.startsWith('978632') || id13.startsWith('893')) return 'vi';
+  if (id13.startsWith('9784')) return 'jp';
+  if (id13.startsWith('97889')) return 'kr';
+  if (id13.startsWith('9787')) return 'cn';
+  if (id13.startsWith('978957') || id13.startsWith('978986')) return 'tw';
+  if (id13.startsWith('9782')) return 'fr';
+  if (id13.startsWith('9783')) return 'de';
+  if (id13.startsWith('9780') || id13.startsWith('9781')) return 'en';
   return 'global';
+}
+
+class EdgeProviderError extends Error {
+  readonly status: ProviderStatusCode;
+  constructor(status: ProviderStatusCode, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function isHtmlChallengeBody(body: string): boolean {
+  const sample = body.slice(0, 3000);
+  return (
+    /cf-browser-verification|just a moment\.\.\.|challenge-platform|_cf_chl|enable javascript and cookies|access denied|attention required!\s*\|\s*cloudflare|captcha-delivery|hcaptcha/i.test(
+      sample
+    )
+  );
+}
+
+function assertCleanResponse(res: Response, label: string): void {
+  if (res.status === 401 || res.status === 403) {
+    throw new EdgeProviderError('access_denied', `${label} HTTP ${res.status}`);
+  }
+  if (res.status === 429) {
+    throw new EdgeProviderError('upstream_error', `${label} rate limited (HTTP 429)`);
+  }
+  if (res.status >= 500) {
+    throw new EdgeProviderError('upstream_error', `${label} HTTP ${res.status}`);
+  }
+}
+
+function assertCleanTextBody(body: string, label: string): void {
+  if (isHtmlChallengeBody(body)) {
+    throw new EdgeProviderError('access_denied', `${label} returned an anti-bot or Cloudflare challenge`);
+  }
+}
+
+async function safeReadJson<T>(res: Response, label: string): Promise<T> {
+  const text = await res.text();
+  if (isHtmlChallengeBody(text)) {
+    throw new EdgeProviderError('access_denied', `${label} returned an HTML challenge instead of JSON`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new EdgeProviderError('upstream_error', `${label} returned malformed JSON`);
+  }
+}
+
+async function safeReadXml(res: Response, label: string): Promise<string> {
+  const text = await res.text();
+  if (isHtmlChallengeBody(text)) {
+    throw new EdgeProviderError('access_denied', `${label} returned an HTML challenge instead of XML`);
+  }
+  if (/^\s*<!DOCTYPE\s+html\b/i.test(text) && !/<(?:recordData|feed|rss|searchRetrieveResponse)\b/i.test(text)) {
+    throw new EdgeProviderError('upstream_error', `${label} returned HTML instead of bibliographic XML`);
+  }
+  return text;
 }
 
 // ----------------------------------------------------------------------------
@@ -297,7 +530,7 @@ function addUnique(list: string[], vals: string[]): void {
 
 function extractVnSpecs(html: string) {
   const INLINE_LABEL_SPLIT =
-    /(?=\b(?:Nhà phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|ISBN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
+    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|Barcode|EAN(?:-13)?|SKU|ISBN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
   const lines = htmlLines(html).flatMap((line) =>
     line.includes('\t')
       ? [line]
@@ -311,8 +544,9 @@ function extractVnSpecs(html: string) {
   const illustrators: string[] = [];
   const publishers: string[] = [];
   const genres: string[] = [];
-  const isbns = extractIsbnsFromText(lines.join('\n'));
+  const identifiers = extractBookIdentifiersFromText(lines.join('\n'), false);
   let publishingPartner: string | undefined;
+  let distributor: string | undefined;
   let pageCount: number | null = null;
   let publishedYear: number | null = null;
   let language: string | undefined;
@@ -329,11 +563,19 @@ function extractVnSpecs(html: string) {
     else if (k === 'nxb liên kết') {
       publishingPartner = publishingPartner || v;
       addUnique(publishers, [v]);
-    } else if (k === 'nhà xuất bản' || k === 'nxb') addUnique(publishers, [v]);
-    else if (k === 'nhà phát hành' || k === 'phát hành' || k === 'thương hiệu') {
+    } else if (k === 'nhà xuất bản' || k === 'nxb') {
+      addUnique(publishers, [v]);
+    } else if (
+      k === 'nhà phát hành' ||
+      k === 'công ty phát hành' ||
+      k === 'đơn vị phát hành' ||
+      k === 'phát hành'
+    ) {
       const yr = v.match(/\b((?:19|20)\d{2})\b/);
       if (yr && /^\d/.test(v)) publishedYear = publishedYear ?? Number(yr[1]);
-      else addUnique(publishers, [v]);
+      else distributor = distributor || v;
+    } else if (k === 'thương hiệu') {
+      addUnique(publishers, [v]);
     } else if (k === 'số trang') {
       const m = v.match(/\d{1,5}/);
       if (m && !pageCount) pageCount = Number(m[0]);
@@ -346,9 +588,9 @@ function extractVnSpecs(html: string) {
     else if (k === 'hình thức bìa' || k === 'định dạng') {
       if (v.toLocaleLowerCase('vi').includes('bìa cứng')) format = 'hardcover';
       else if (v.toLocaleLowerCase('vi').includes('bìa')) format = 'paperback';
-    } else if (k === 'isbn' || k === 'mã sản phẩm') {
-      for (const code of extractIsbnsFromText(v)) {
-        if (!isbns.includes(code)) isbns.push(code);
+    } else if (/^(?:isbn|mã sản phẩm|mã vạch|barcode|ean(?:-13)?|sku)$/i.test(k)) {
+      for (const code of extractBookIdentifiersFromText(v, true)) {
+        if (!identifiers.includes(code)) identifiers.push(code);
       }
     }
   };
@@ -377,7 +619,22 @@ function extractVnSpecs(html: string) {
       }
     }
   }
-  return { authors, translators, illustrators, publishers, publishingPartner, pageCount, publishedYear, language, format, genres, isbns };
+  const isbns = identifiers.filter((id) => id.startsWith('978') || id.startsWith('979'));
+  return {
+    authors,
+    translators,
+    illustrators,
+    publishers,
+    publishingPartner,
+    distributor,
+    pageCount,
+    publishedYear,
+    language,
+    format,
+    genres,
+    isbns,
+    identifiers,
+  };
 }
 
 function parseMarc21(html: string) {
@@ -387,7 +644,7 @@ function parseMarc21(html: string) {
   const illustrators: string[] = [];
   const publishers: string[] = [];
   const subjects: string[] = [];
-  const isbns: string[] = [];
+  const identifiers: string[] = [];
   let title = '';
   let subtitle: string | undefined;
   let publishedYear: number | null = null;
@@ -438,7 +695,9 @@ function parseMarc21(html: string) {
   for (const f of fields) {
     if (f.tag === '020') {
       for (const a of f.subs.a ?? [f.raw]) {
-        for (const c of extractIsbnsFromText(a)) if (!isbns.includes(c)) isbns.push(c);
+        for (const c of extractBookIdentifiersFromText(a, true)) {
+          if (!identifiers.includes(c)) identifiers.push(c);
+        }
       }
     } else if (f.tag === '041') {
       const code = (f.subs.a?.[0] ?? f.raw).toLowerCase().slice(0, 3);
@@ -476,7 +735,8 @@ function parseMarc21(html: string) {
       if (v.startsWith('/')) coverPath = v;
     }
   }
-  return title ? { title, subtitle, authors, translators, illustrators, publishers, publishedYear, pageCount, language, subjects, description, isbns, coverPath } : null;
+  const isbns = identifiers.filter((id) => id.startsWith('978') || id.startsWith('979'));
+  return title ? { title, subtitle, authors, translators, illustrators, publishers, publishedYear, pageCount, language, subjects, description, isbns, identifiers, coverPath } : null;
 }
 
 async function fTimeout(url: string, init?: RequestInit, ms = 7000): Promise<Response> {
@@ -511,14 +771,18 @@ function buildProv(c: Candidate): Record<string, { provider: string; trust: 'ver
   if (c.illustrators?.length) out.illustrators = { provider: c.provider, trust };
   if (c.editors?.length) out.editors = { provider: c.provider, trust };
   if (c.publishers.length) out.publishers = { provider: c.provider, trust };
+  if (c.publishingPartner) out.publishingPartner = { provider: c.provider, trust };
+  if (c.distributor) out.distributor = { provider: c.provider, trust };
   if (c.pageCount) out.pageCount = { provider: c.provider, trust };
   if (c.publishedYear) out.publishedYear = { provider: c.provider, trust };
   if (c.coverUrl) out.coverUrl = { provider: c.provider, trust };
   if (c.language && c.language !== 'und') out.language = { provider: c.provider, trust };
+  if (c.isbn13) out.isbn13 = { provider: c.provider, trust };
+  if (c.ean13) out.ean13 = { provider: c.provider, trust };
   return out;
 }
 
-function isSufficientEdge(exacts: Candidate[]): boolean {
+function isSufficientlyVerifiedEdge(exacts: Candidate[]): boolean {
   const best = exacts.find((c) => c.matchConfidence === 'exact_isbn' && (!c.contradictions || c.contradictions.length === 0));
   if (!best || !best.title || best.title === 'Untitled' || best.authors.length === 0) return false;
   let score = 0;
@@ -530,16 +794,45 @@ function isSufficientEdge(exacts: Candidate[]): boolean {
   return score >= 2;
 }
 
-function mergeCandidatesEdge(rawList: Candidate[], cleanIsbn: string) {
+function isSufficientEdge(exacts: Candidate[]): boolean {
+  return isSufficientlyVerifiedEdge(exacts);
+}
+
+function collectCandidateIdsEdge(c: Candidate): string[] {
+  return collectValidIdentifiers([
+    c.isbn13,
+    c.ean13,
+    c.isbn10,
+    ...(c.matchedIsbns ?? []),
+    ...(c.matchedIdentifiers ?? []),
+  ], undefined, true);
+}
+
+function mergeCandidatesEdge(rawList: Candidate[], targetId: string) {
   const sorted = [...rawList].sort((a, b) => (EDGE_PRIORITY[b.provider] ?? 50) - (EDGE_PRIORITY[a.provider] ?? 50));
-  const byIsbn = new Map<string, Candidate>();
+  const byId = new Map<string, Candidate>();
   const possibleOrWork: Candidate[] = [];
+  const identityMismatches: Candidate[] = [];
 
   for (const c of sorted) {
-    if (cleanIsbn && c.matchConfidence === 'exact_isbn' && c.isbn13) {
-      const prev = byIsbn.get(c.isbn13);
+    const ids = collectCandidateIdsEdge(c);
+    if (targetId && ids.length > 0 && !ids.includes(targetId)) {
+      identityMismatches.push({
+        ...c,
+        matchConfidence: 'unverified_isbn',
+        editionMatchLevel: 'related_edition',
+        mismatchReason: `Returned record carries identifier ${ids[0]} instead of ${targetId}`,
+        fieldProvenance: buildProv({ ...c, matchConfidence: 'unverified_isbn' }),
+      });
+      continue;
+    }
+
+    const primaryId = c.isbn13 || c.ean13 || ids[0] || '';
+    const isExact = Boolean(targetId && ids.includes(targetId) && c.matchConfidence !== 'unverified_isbn' && c.matchConfidence !== 'approximate_match' && c.matchConfidence !== 'title_match');
+    if (targetId && isExact && primaryId) {
+      const prev = byId.get(primaryId);
       if (!prev) {
-        byIsbn.set(c.isbn13, {
+        byId.set(primaryId, {
           ...c,
           sources: [c.provider],
           editionMatchLevel: 'exact_edition',
@@ -560,6 +853,15 @@ function mergeCandidatesEdge(rawList: Candidate[], cleanIsbn: string) {
             ],
           });
         }
+        if (prev.distributor && c.distributor && normKey(prev.distributor) !== normKey(c.distributor)) {
+          conflicts.push({
+            field: 'distributor',
+            values: [
+              { provider: prev.provider, value: prev.distributor },
+              { provider: c.provider, value: c.distributor },
+            ],
+          });
+        }
         const secProv = buildProv(c);
         const mergedProv = { ...(prev.fieldProvenance ?? {}) };
         for (const [f, entry] of Object.entries(secProv)) {
@@ -577,11 +879,16 @@ function mergeCandidatesEdge(rawList: Candidate[], cleanIsbn: string) {
         prev.editors = eds;
         prev.originalTitle = prev.originalTitle || c.originalTitle;
         prev.publishingPartner = prev.publishingPartner || c.publishingPartner;
+        prev.distributor = prev.distributor || c.distributor;
         prev.pageCount = prev.pageCount ?? c.pageCount ?? null;
         prev.publishedYear = prev.publishedYear ?? c.publishedYear ?? null;
         if (prev.language === 'und' && c.language && c.language !== 'und') prev.language = c.language;
         prev.coverUrl = prev.coverUrl || c.coverUrl;
         prev.description = prev.description || c.description;
+        prev.isbn13 = prev.isbn13 || c.isbn13 || null;
+        prev.isbn10 = prev.isbn10 || c.isbn10 || null;
+        prev.ean13 = prev.ean13 || c.ean13 || prev.isbn13 || null;
+        prev.identifierType = prev.identifierType || c.identifierType;
         prev.sources = Array.from(new Set([...(prev.sources ?? [prev.provider]), c.provider]));
         prev.fieldProvenance = mergedProv;
         if (conflicts.length) prev.conflicts = conflicts;
@@ -594,7 +901,7 @@ function mergeCandidatesEdge(rawList: Candidate[], cleanIsbn: string) {
       possibleOrWork.push({
         ...c,
         sources: [c.provider],
-        editionMatchLevel: cleanIsbn ? 'possible_edition' : 'work_match',
+        editionMatchLevel: targetId ? 'possible_edition' : 'work_match',
         fieldProvenance: buildProv(c),
       });
     }
@@ -602,16 +909,16 @@ function mergeCandidatesEdge(rawList: Candidate[], cleanIsbn: string) {
 
   const exactMatches: Candidate[] = [];
   const possibleEditionMatches: Candidate[] = [];
-  for (const c of byIsbn.values()) {
+  for (const c of byId.values()) {
     if (c.contradictions && c.contradictions.length > 0) possibleEditionMatches.push(c);
     else exactMatches.push(c);
   }
-  const workMatches = cleanIsbn ? [] : possibleOrWork;
-  if (cleanIsbn) possibleEditionMatches.push(...possibleOrWork);
+  const workMatches = targetId ? [] : possibleOrWork;
+  if (targetId) possibleEditionMatches.push(...possibleOrWork);
   const approximateMatches = [...possibleEditionMatches, ...workMatches];
-  const merged = cleanIsbn && exactMatches.length > 0 ? exactMatches : [...exactMatches, ...approximateMatches];
+  const merged = targetId && exactMatches.length > 0 ? exactMatches : [...exactMatches, ...approximateMatches];
 
-  return { merged, exactMatches, possibleEditionMatches, workMatches, approximateMatches };
+  return { merged, exactMatches, possibleEditionMatches, workMatches, approximateMatches, identityMismatches };
 }
 
 serve(async (req) => {
@@ -620,31 +927,59 @@ serve(async (req) => {
   }
 
   try {
+    const retrievedAt = new Date().toISOString();
     const { isbn, query, forceAllProviders } = (await req.json()) as {
       isbn?: string;
       query?: string;
       forceAllProviders?: boolean;
     };
-    const cleanIsbn = normalizeIsbnTo13(isbn ?? '') || '';
+    const rawIdentifier = (isbn ?? '').trim();
+    const parsedInput = rawIdentifier ? parseBookIdentifier(rawIdentifier) : null;
+    const cleanId = parsedInput?.isValid && parsedInput.normalizedId ? parsedInput.normalizedId : '';
+    const cleanIsbnOnly = parsedInput?.isValid && parsedInput.isIsbn && parsedInput.isbn13 ? parsedInput.isbn13 : '';
     const q = (query ?? '').trim();
 
-    if (!cleanIsbn && !q) {
+    if (rawIdentifier && (!parsedInput || !parsedInput.isValid || !cleanId)) {
       return new Response(
-        JSON.stringify({ candidates: [], providerStatuses: [], queriedIsbn: null, exactMatchCount: 0 }),
+        JSON.stringify({
+          candidates: [],
+          exactMatches: [],
+          possibleEditionMatches: [],
+          relatedEditions: [],
+          workMatches: [],
+          approximateMatches: [],
+          identityMismatches: [],
+          providerStatuses: [],
+          queriedIsbn: null,
+          rawIdentifier,
+          normalizedIdentifier: null,
+          identifierType: 'invalid',
+          verificationStatus: 'invalid_identifier',
+          verificationMessage: parsedInput?.errorReason ?? 'Invalid ISBN-10, ISBN-13, or EAN-13 identifier.',
+          retrievedAt,
+          exactMatchCount: 0,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!cleanId && !q) {
+      return new Response(
+        JSON.stringify({
+          candidates: [],
+          providerStatuses: [],
+          queriedIsbn: null,
+          exactMatchCount: 0,
+          verificationStatus: 'not_found',
+          verificationMessage: 'No identifier or search query provided.',
+          retrievedAt,
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const candidates: Candidate[] = [];
     const statuses: ProviderStatusReport[] = [];
-
-    class EdgeProviderError extends Error {
-      readonly status: ProviderStatusCode;
-      constructor(status: ProviderStatusCode, message: string) {
-        super(message);
-        this.status = status;
-      }
-    }
 
     interface ProviderTask {
       provider: string;
@@ -656,17 +991,39 @@ serve(async (req) => {
 
     const executeTask = async (task: ProviderTask) => {
       try {
-        const res = await task.run();
-        candidates.push(...res);
-        const exactCount = res.filter((c) => c.matchConfidence === 'exact_isbn').length;
+        const res = (await task.run()).map((item) => ({
+          ...item,
+          retrievedAt: item.retrievedAt ?? retrievedAt,
+        }));
+        const accepted: Candidate[] = [];
+        let rejectedMismatch = false;
+        for (const item of res) {
+          const ids = collectCandidateIdsEdge(item);
+          if (cleanId && ids.length > 0 && !ids.includes(cleanId)) {
+            candidates.push({
+              ...item,
+              matchConfidence: 'unverified_isbn',
+              mismatchReason: `Returned record carries ${ids[0]} instead of ${cleanId}`,
+            });
+            rejectedMismatch = true;
+            continue;
+          }
+          accepted.push(item);
+        }
+        candidates.push(...accepted);
+        const exactCount = accepted.filter((c) => c.matchConfidence === 'exact_isbn').length;
         statuses.push({
           provider: task.provider,
           label: task.label,
           tier: task.tier,
           region: task.region,
-          status: exactCount > 0 ? 'exact_match' : res.length > 0 ? 'approximate_match' : 'no_match',
-          candidateCount: res.length,
+          status: exactCount > 0 ? 'exact_match' : accepted.length > 0 ? 'approximate_match' : 'no_match',
+          candidateCount: accepted.length,
           exactMatchCount: exactCount,
+          message:
+            accepted.length === 0 && rejectedMismatch
+              ? 'Returned record(s) with non-matching identifier rejected'
+              : undefined,
         });
       } catch (err) {
         if (err instanceof EdgeProviderError) {
@@ -687,11 +1044,13 @@ serve(async (req) => {
         const status: ProviderStatusCode =
           lower.includes('abort') || lower.includes('timeout')
             ? 'timeout'
-            : /429|api key|quota/i.test(msg)
+            : lower.includes('api key') || lower.includes('quota') || (lower.includes('429') && task.provider === 'google_books')
               ? 'api_key_required'
-              : /403|cloudflare|denied/i.test(msg)
-                ? 'access_denied'
-                : 'upstream_error';
+              : lower.includes('429') || lower.includes('rate limit')
+                ? 'upstream_error'
+                : /401|403|cloudflare|denied|captcha/i.test(msg)
+                  ? 'access_denied'
+                  : 'upstream_error';
         statuses.push({
           provider: task.provider,
           label: task.label,
@@ -711,66 +1070,92 @@ serve(async (req) => {
       tier: 'tier3_publisher',
       region,
       run: async () => {
-        const searchTerms = cleanIsbn ? vnSearchForms(cleanIsbn).slice(0, 4) : [q];
-        const urls = new Set<string>();
-        for (const term of searchTerms) {
-          const r = await fTimeout(`${baseUrl}/search?q=${encodeURIComponent(term)}&view=json`);
-          if (!r.ok) continue;
-          const txt = await r.text();
-          try {
-            const j = JSON.parse(txt);
+        const searchTerms = cleanId ? vnSearchForms(cleanId).slice(0, 4) : [q];
+        const settled = await Promise.allSettled(
+          searchTerms.map(async (term) => {
+            const r = await fTimeout(`${baseUrl}/search?q=${encodeURIComponent(term)}&view=json`);
+            assertCleanResponse(r, label);
+            if (!r.ok) return [] as string[];
+            const j = await safeReadJson<Record<string, unknown>>(r, label);
             const list = Array.isArray(j.results) ? j.results : Object.values(j);
-            for (const item of list as Array<{ url?: string }>) {
-              if (item?.url && !String(item.url).includes('${')) urls.add(String(item.url));
-            }
-          } catch {
-            // ignore
-          }
-          if (urls.size > 0) break;
+            return (list as Array<{ url?: string }>)
+              .map((item) => item?.url)
+              .filter((u): u is string => Boolean(u) && !String(u).includes('${'));
+          })
+        );
+        const fulfilled = settled.filter((s): s is PromiseFulfilledResult<string[]> => s.status === 'fulfilled');
+        if (fulfilled.length === 0) {
+          const rej = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+          if (rej) throw rej.reason;
         }
+        const urls = Array.from(new Set(fulfilled.flatMap((s) => s.value)));
         const out: Candidate[] = [];
-        for (const u of Array.from(urls).slice(0, 4)) {
+        for (const u of urls.slice(0, 4)) {
           const full = u.startsWith('http') ? u : `${baseUrl}${u}`;
           const [jRes, hRes] = await Promise.all([
             fTimeout(`${full.split('?')[0]}.json`).catch(() => null),
             fTimeout(full.split('?')[0]).catch(() => null),
           ]);
-          const jData = jRes?.ok ? await jRes.json().catch(() => null) : null;
-          const prod = jData?.product ?? jData;
+          const jData = jRes?.ok ? await safeReadJson<{ product?: Record<string, unknown> }>(jRes, label).catch(() => null) : null;
+          const prod = (jData?.product ?? jData) as Record<string, unknown> | null;
           const html = hRes?.ok ? await hRes.text() : '';
+          if (html) assertCleanTextBody(html, label);
           const specs = extractVnSpecs(html);
-          const contentSpecs = prod?.content ? extractVnSpecs(prod.content) : null;
-          const variantIds = (prod?.variants ?? []).flatMap((v: { sku?: string; barcode?: string }) => [v.sku ?? '', v.barcode ?? '']);
-          const allIsbns = Array.from(new Set([...extractIsbnsFromText(variantIds.join(' ')), ...specs.isbns, ...(contentSpecs?.isbns ?? [])]));
-          if (cleanIsbn && !allIsbns.includes(cleanIsbn)) continue;
-          const title = prod?.name || html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '').trim();
+          const contentSpecs = typeof prod?.content === 'string' ? extractVnSpecs(prod.content) : null;
+          const variants = Array.isArray(prod?.variants) ? (prod.variants as Array<{ sku?: string; barcode?: string }>) : [];
+          const variantIds = variants.flatMap((v) => [v.sku ?? '', v.barcode ?? '']);
+          const allIds = collectValidIdentifiers(
+            [...variantIds, ...specs.identifiers, ...(contentSpecs?.identifiers ?? [])],
+            undefined,
+            true
+          );
+          if (cleanId && !allIds.includes(cleanId)) continue;
+          const title = (typeof prod?.name === 'string' ? prod.name : '') || html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '').trim();
           if (!title) continue;
-          const pubs: string[] = [];
-          if (prod?.vendor) addUnique(pubs, [prod.vendor]);
-          addUnique(pubs, specs.publishers);
-          addUnique(pubs, contentSpecs?.publishers ?? []);
-          const targetIsbn = cleanIsbn || allIsbns[0] || null;
+          let distributor = specs.distributor || contentSpecs?.distributor;
+          const explicitPubs: string[] = [];
+          addUnique(explicitPubs, specs.publishers);
+          addUnique(explicitPubs, contentSpecs?.publishers ?? []);
+          const rawTags = Array.isArray(prod?.tags) ? prod.tags.map(String) : typeof prod?.tags === 'string' ? prod.tags.split(',') : [];
+          for (const rawTag of rawTags) {
+            const t = rawTag.trim();
+            if (/^nxb_/i.test(t)) addUnique(explicitPubs, [t.slice(4)]);
+            else if (/^nph_/i.test(t) && !distributor) distributor = t.slice(4);
+          }
+          const pubs: string[] = [...explicitPubs];
+          const vendor = typeof prod?.vendor === 'string' ? prod.vendor.trim() : '';
+          if (vendor && (!distributor || normKey(vendor) !== normKey(distributor) || pubs.length === 0)) {
+            addUnique(pubs, [vendor]);
+          }
+          const targetId = cleanId || allIds[0] || '';
+          const parsedTarget = targetId ? parseBookIdentifier(targetId) : null;
+          const featured = prod?.featured_image as { src?: string } | string | undefined;
+          const featUrl = typeof featured === 'string' ? featured : featured?.src;
           out.push({
             externalId: String(prod?.id || full),
             provider,
             tier: 'tier3_publisher',
             verified: false,
-            matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
-            matchedIsbns: allIsbns,
+            matchConfidence: cleanId ? 'exact_isbn' : 'title_match',
+            matchedIsbns: allIds.filter((id) => id.startsWith('978') || id.startsWith('979')),
+            matchedIdentifiers: allIds,
             title,
             authors: specs.authors.length ? specs.authors : contentSpecs?.authors ?? [],
             translators: specs.translators.length ? specs.translators : contentSpecs?.translators ?? [],
             illustrators: specs.illustrators.length ? specs.illustrators : contentSpecs?.illustrators ?? [],
             publishers: pubs,
             publishingPartner: specs.publishingPartner || contentSpecs?.publishingPartner,
+            distributor,
             publishedYear: specs.publishedYear ?? contentSpecs?.publishedYear ?? null,
-            language: specs.language || 'vi',
+            language: specs.language || normLang(undefined, targetId) || 'vi',
             format: specs.format,
             pageCount: specs.pageCount ?? contentSpecs?.pageCount ?? null,
             genres: specs.genres,
-            isbn13: targetIsbn,
-            isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
-            coverUrl: normalizeUrl(prod?.featured_image?.src || prod?.featured_image || html.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]),
+            isbn13: parsedTarget?.isIsbn ? parsedTarget.isbn13 : null,
+            isbn10: parsedTarget?.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+            ean13: parsedTarget?.ean13 ?? (targetId || null),
+            identifierType: parsedTarget?.identifierType,
+            coverUrl: normalizeUrl(featUrl || html.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]),
             sourceUrl: full,
             rawPayload: { product: prod, specs },
           });
@@ -785,31 +1170,46 @@ serve(async (req) => {
       tier: 'tier3_publisher',
       region,
       run: async () => {
-        const terms = cleanIsbn ? vnSearchForms(cleanIsbn).slice(0, 4) : [q];
-        const htmls = await Promise.all(
-          terms.map((t) => fTimeout(`${baseUrl}/search?type=product&q=${encodeURIComponent(t)}`).then((r) => (r.ok ? r.text() : '')).catch(() => ''))
+        const terms = cleanId ? vnSearchForms(cleanId).slice(0, 4) : [q];
+        const settled = await Promise.allSettled(
+          terms.map(async (t) => {
+            const r = await fTimeout(`${baseUrl}/search?type=product&q=${encodeURIComponent(t)}`);
+            assertCleanResponse(r, label);
+            if (!r.ok) return '';
+            const txt = await r.text();
+            assertCleanTextBody(txt, label);
+            return txt;
+          })
         );
+        const fulfilled = settled.filter((s): s is PromiseFulfilledResult<string> => s.status === 'fulfilled');
+        if (fulfilled.length === 0) {
+          const rej = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+          if (rej) throw rej.reason;
+        }
         const slugs = Array.from(
           new Set(
-            htmls.flatMap((h) =>
-              [...h.matchAll(/href=["'](?:https?:\/\/[^"'\s]+)?(\/products\/[^"'?#]+)["']/gi)].map(
-                (m) => m[1]
+            fulfilled
+              .map((s) => s.value)
+              .flatMap((h) =>
+                [...h.matchAll(/href=["'](?:https?:\/\/[^"'\s]+)?(\/products\/[^"'?#]+)["']/gi)].map(
+                  (m) => m[1]
+                )
               )
-            )
           )
         ).slice(0, 5);
         const out: Candidate[] = [];
         for (const slug of slugs) {
           const r = await fTimeout(`${baseUrl}${slug}.json`).catch(() => null);
           if (!r?.ok) continue;
-          const data = await r.json();
-          const prod = data.product;
-          if (!prod?.title) continue;
-          const specs = extractVnSpecs(prod.body_html ?? '');
-          const variantIds = (prod.variants ?? []).flatMap((v: { sku?: string; barcode?: string }) => [v.sku ?? '', v.barcode ?? '']);
-          const allIsbns = Array.from(new Set([...extractIsbnsFromText(variantIds.join(' ')), ...specs.isbns]));
-          if (cleanIsbn && !allIsbns.includes(cleanIsbn)) continue;
-          const tags: string[] = Array.isArray(prod.tags) ? prod.tags : String(prod.tags ?? '').split(',');
+          const data = await safeReadJson<{ product?: Record<string, unknown> }>(r, label).catch(() => null);
+          const prod = data?.product as Record<string, unknown> | undefined;
+          if (typeof prod?.title !== 'string' || !prod.title) continue;
+          const specs = extractVnSpecs(typeof prod.body_html === 'string' ? prod.body_html : '');
+          const variants = Array.isArray(prod.variants) ? (prod.variants as Array<{ sku?: string; barcode?: string }>) : [];
+          const variantIds = variants.flatMap((v) => [v.sku ?? '', v.barcode ?? '']);
+          const allIds = collectValidIdentifiers([...variantIds, ...specs.identifiers], undefined, true);
+          if (cleanId && !allIds.includes(cleanId)) continue;
+          const tags: string[] = Array.isArray(prod.tags) ? prod.tags.map(String) : String(prod.tags ?? '').split(',');
           const authors = [...specs.authors];
           const translators = [...specs.translators];
           const illustrators = [...specs.illustrators];
@@ -819,32 +1219,42 @@ serve(async (req) => {
             else if (/^dichgia_/i.test(t)) addUnique(translators, [t.slice(8)]);
             else if (/^hoasi_/i.test(t)) addUnique(illustrators, [t.slice(6)]);
           }
-          const pubs: string[] = [];
-          if (prod.vendor) addUnique(pubs, [prod.vendor]);
-          addUnique(pubs, specs.publishers);
-          const targetIsbn = cleanIsbn || allIsbns[0] || null;
+          const pubs: string[] = [...specs.publishers];
+          const vendor = typeof prod.vendor === 'string' ? prod.vendor.trim() : '';
+          if (vendor && (!specs.distributor || normKey(vendor) !== normKey(specs.distributor) || pubs.length === 0)) {
+            addUnique(pubs, [vendor]);
+          }
+          const targetId = cleanId || allIds[0] || '';
+          const parsedTarget = targetId ? parseBookIdentifier(targetId) : null;
+          const img = prod.image as { src?: string } | undefined;
+          const imgs = prod.images as Array<{ src?: string }> | undefined;
           out.push({
             externalId: String(prod.id || slug),
             provider,
             tier: 'tier3_publisher',
             verified: false,
-            matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
-            matchedIsbns: allIsbns,
+            matchConfidence: cleanId ? 'exact_isbn' : 'title_match',
+            matchedIsbns: allIds.filter((id) => id.startsWith('978') || id.startsWith('979')),
+            matchedIdentifiers: allIds,
             title: prod.title,
             authors,
             translators,
             illustrators,
             publishers: pubs,
+            publishingPartner: specs.publishingPartner,
+            distributor: specs.distributor,
             publishedYear: specs.publishedYear,
-            language: specs.language || 'vi',
+            language: specs.language || normLang(undefined, targetId) || 'vi',
             format: specs.format,
             pageCount: specs.pageCount,
             genres: specs.genres,
-            isbn13: targetIsbn,
-            isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
-            coverUrl: normalizeUrl(prod.image?.src || prod.images?.[0]?.src),
+            isbn13: parsedTarget?.isIsbn ? parsedTarget.isbn13 : null,
+            isbn10: parsedTarget?.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+            ean13: parsedTarget?.ean13 ?? (targetId || null),
+            identifierType: parsedTarget?.identifierType,
+            coverUrl: normalizeUrl(img?.src || imgs?.[0]?.src),
             sourceUrl: `${baseUrl}${slug}`,
-            rawPayload: data,
+            rawPayload: data ?? {},
           });
         }
         return out;
@@ -859,78 +1269,134 @@ serve(async (req) => {
         tier: 'tier1_international',
         region: 'global',
         run: async () => {
-          if (!cleanIsbn) {
+          if (!cleanId) {
             const r = await fTimeout(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=8`);
+            assertCleanResponse(r, 'Open Library');
             if (!r.ok) return [];
-            const d = await r.json();
-            return (d.docs ?? []).map((doc: Record<string, unknown>) => ({
-              externalId: String(doc.key ?? doc.title),
-              provider: 'open_library',
-              tier: 'tier1_international',
-              verified: false,
-              matchConfidence: 'title_match' as const,
-              matchedIsbns: extractIsbnsFromText(((doc.isbn as string[]) ?? []).join(' ')),
-              title: String(doc.title ?? 'Untitled'),
-              authors: (doc.author_name as string[]) ?? [],
-              translators: [],
-              publishers: ((doc.publisher as string[]) ?? []).slice(0, 2),
-              publishedYear: (doc.first_publish_year as number) ?? null,
-              language: normLang((doc.language as string[])?.[0]),
-              pageCount: (doc.number_of_pages_median as number) ?? null,
-              genres: ((doc.subject as string[]) ?? []).slice(0, 5),
-              coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : undefined,
-              rawPayload: doc,
-            }));
+            const d = await safeReadJson<{ docs?: Array<Record<string, unknown>> }>(r, 'Open Library');
+            return (d.docs ?? []).map((doc) => {
+              const isbns = extractIsbnsFromText(((doc.isbn as string[]) ?? []).join(' '));
+              const best = isbns[0] || null;
+              return {
+                externalId: String(doc.key ?? doc.title),
+                provider: 'open_library',
+                tier: 'tier1_international',
+                verified: false,
+                matchConfidence: 'title_match' as const,
+                matchedIsbns: isbns,
+                matchedIdentifiers: isbns,
+                title: String(doc.title ?? 'Untitled'),
+                authors: (doc.author_name as string[]) ?? [],
+                translators: [],
+                publishers: ((doc.publisher as string[]) ?? []).slice(0, 2),
+                publishedYear: (doc.first_publish_year as number) ?? null,
+                language: normLang((doc.language as string[])?.[0], best),
+                pageCount: (doc.number_of_pages_median as number) ?? null,
+                genres: ((doc.subject as string[]) ?? []).slice(0, 5),
+                isbn13: best,
+                isbn10: best?.startsWith('978') ? isbn13To10(best) : null,
+                ean13: best,
+                coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : undefined,
+                rawPayload: doc,
+              };
+            });
           }
+          if (!cleanIsbnOnly) return [];
 
-          const [booksRes, edRes] = await Promise.all([
-            fTimeout(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`).catch(() => null),
-            fTimeout(`https://openlibrary.org/isbn/${cleanIsbn}.json`).catch(() => null),
+          const [booksRes, edRes, searchRes] = await Promise.all([
+            fTimeout(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbnOnly}&format=json&jscmd=data`).catch(() => null),
+            fTimeout(`https://openlibrary.org/isbn/${cleanIsbnOnly}.json`).catch(() => null),
+            fTimeout(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(cleanIsbnOnly)}&limit=3`).catch(() => null),
           ]);
-          const booksData = booksRes?.ok ? await booksRes.json().catch(() => null) : null;
-          const entry = booksData?.[`ISBN:${cleanIsbn}`];
-          const edJson = edRes?.ok ? await edRes.json().catch(() => null) : null;
+          const booksData = booksRes?.ok ? await safeReadJson<Record<string, Record<string, unknown>>>(booksRes, 'Open Library').catch(() => null) : null;
+          const entry = booksData?.[`ISBN:${cleanIsbnOnly}`] as Record<string, unknown> | undefined;
+          const edJson = edRes?.ok ? await safeReadJson<Record<string, unknown>>(edRes, 'Open Library').catch(() => null) : null;
 
-          const edLang = Array.isArray(edJson?.languages) && edJson.languages[0]?.key
-            ? normLang(String(edJson.languages[0].key), cleanIsbn)
-            : normLang(undefined, cleanIsbn);
+          const edLang = Array.isArray(edJson?.languages) && (edJson.languages[0] as { key?: string } | undefined)?.key
+            ? normLang(String((edJson.languages[0] as { key?: string }).key), cleanIsbnOnly)
+            : normLang(undefined, cleanIsbnOnly);
           const edOrig = Array.isArray(edJson?.work_titles) && edJson.work_titles[0] ? String(edJson.work_titles[0]) : undefined;
           const translators: string[] = [];
           if (typeof edJson?.by_statement === 'string') {
             const tm = edJson.by_statement.match(/translat(?:ed|ion)\s+(?:from[^;]+?\s+)?by\s+([^;.]+)/i);
             if (tm?.[1]) translators.push(tm[1].trim());
           }
-          if (!entry && !edJson?.title) return [];
-          const title = entry?.title || edJson?.title || 'Untitled';
-          const pubs = (entry?.publishers ?? []).map((p: { name: string }) => p.name);
-          if (pubs.length === 0 && Array.isArray(edJson?.publishers)) {
-            pubs.push(...edJson.publishers.map(String));
+          if (entry || edJson?.title) {
+            const entryIdentifiers = entry?.identifiers as { isbn_13?: string[]; isbn_10?: string[] } | undefined;
+            const explicitIsbns = collectValidIdentifiers([
+              ...(entryIdentifiers?.isbn_13 ?? []),
+              ...(entryIdentifiers?.isbn_10 ?? []),
+              ...(Array.isArray(edJson?.isbn_13) ? edJson.isbn_13.map(String) : []),
+              ...(Array.isArray(edJson?.isbn_10) ? edJson.isbn_10.map(String) : []),
+            ]);
+            const conflicting = explicitIsbns.length > 0 && !explicitIsbns.includes(cleanIsbnOnly);
+            const resolved = conflicting ? explicitIsbns[0] : cleanIsbnOnly;
+            const title = String(entry?.title || edJson?.title || 'Untitled');
+            const pubs = Array.isArray(entry?.publishers)
+              ? (entry.publishers as Array<{ name: string }>).map((p) => p.name)
+              : Array.isArray(edJson?.publishers)
+                ? edJson.publishers.map(String)
+                : [];
+            const pubDate = (typeof entry?.publish_date === 'string' ? entry.publish_date : undefined) || (typeof edJson?.publish_date === 'string' ? edJson.publish_date : undefined);
+            const edCoverId = Array.isArray(edJson?.covers) ? edJson.covers.find((x: unknown) => typeof x === 'number' && x > 0) : null;
+            const cover = entry?.cover as { large?: string; medium?: string } | undefined;
+            return [{
+              externalId: String(entry?.key || edJson?.key || `ol-${cleanIsbnOnly}`),
+              provider: 'open_library',
+              tier: 'tier1_international',
+              verified: false,
+              matchConfidence: conflicting ? 'unverified_isbn' : 'exact_isbn',
+              matchedIsbns: explicitIsbns.length > 0 ? explicitIsbns : [cleanIsbnOnly],
+              matchedIdentifiers: explicitIsbns.length > 0 ? explicitIsbns : [cleanIsbnOnly],
+              title,
+              originalTitle: edOrig,
+              editionName: typeof edJson?.edition_name === 'string' ? edJson.edition_name : undefined,
+              authors: Array.isArray(entry?.authors) ? (entry.authors as Array<{ name: string }>).map((a) => a.name) : [],
+              translators,
+              publishers: pubs,
+              publishedYear: pubDate ? Number(String(pubDate).match(/\d{4}/)?.[0]) || null : null,
+              language: edLang === 'und' ? 'en' : edLang,
+              pageCount: (typeof entry?.number_of_pages === 'number' ? entry.number_of_pages : undefined) ?? (typeof edJson?.number_of_pages === 'number' ? edJson.number_of_pages : null),
+              genres: Array.isArray(entry?.subjects) ? (entry.subjects as Array<{ name: string }>).slice(0, 6).map((s) => s.name) : [],
+              isbn13: resolved,
+              isbn10: resolved.startsWith('978') ? isbn13To10(resolved) : null,
+              ean13: resolved,
+              identifierType: 'isbn13',
+              coverUrl: normalizeUrl(cover?.large ?? cover?.medium ?? (edCoverId ? `https://covers.openlibrary.org/b/id/${edCoverId}-L.jpg` : undefined)),
+              rawPayload: { entry, edJson },
+            }];
           }
-          const pubDate = entry?.publish_date || edJson?.publish_date;
-          const edCoverId = Array.isArray(edJson?.covers) ? edJson.covers.find((x: unknown) => typeof x === 'number' && x > 0) : null;
-
-          return [{
-            externalId: entry?.key || edJson?.key || `ol-${cleanIsbn}`,
-            provider: 'open_library',
-            tier: 'tier1_international',
-            verified: false,
-            matchConfidence: 'exact_isbn',
-            matchedIsbns: [cleanIsbn],
-            title,
-            originalTitle: edOrig,
-            editionName: typeof edJson?.edition_name === 'string' ? edJson.edition_name : undefined,
-            authors: (entry?.authors ?? []).map((a: { name: string }) => a.name),
-            translators,
-            publishers: pubs,
-            publishedYear: pubDate ? Number(String(pubDate).match(/\d{4}/)?.[0]) || null : null,
-            language: edLang === 'und' ? 'en' : edLang,
-            pageCount: entry?.number_of_pages ?? edJson?.number_of_pages ?? null,
-            genres: (entry?.subjects ?? []).slice(0, 6).map((s: { name: string }) => s.name),
-            isbn13: cleanIsbn,
-            isbn10: isbn13To10(cleanIsbn),
-            coverUrl: normalizeUrl(entry?.cover?.large ?? entry?.cover?.medium ?? (edCoverId ? `https://covers.openlibrary.org/b/id/${edCoverId}-L.jpg` : undefined)),
-            rawPayload: { entry, edJson },
-          }];
+          if (searchRes?.ok) {
+            const sData = await safeReadJson<{ docs?: Array<Record<string, unknown>> }>(searchRes, 'Open Library').catch(() => null);
+            return (sData?.docs ?? []).map((doc) => {
+              const isbns = collectValidIdentifiers(Array.isArray(doc.isbn) ? doc.isbn.map(String) : []);
+              const exact = isbns.includes(cleanIsbnOnly);
+              const resolved = exact ? cleanIsbnOnly : (isbns[0] || null);
+              return {
+                externalId: String(doc.key ?? `ol-${cleanIsbnOnly}`),
+                provider: 'open_library',
+                tier: 'tier1_international',
+                verified: false,
+                matchConfidence: exact ? 'exact_isbn' : 'unverified_isbn',
+                matchedIsbns: isbns,
+                matchedIdentifiers: isbns,
+                title: String(doc.title ?? 'Untitled'),
+                authors: Array.isArray(doc.author_name) ? doc.author_name.map(String) : [],
+                translators: [],
+                publishers: Array.isArray(doc.publisher) ? doc.publisher.slice(0, 2).map(String) : [],
+                publishedYear: typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null,
+                language: normLang(Array.isArray(doc.language) ? String(doc.language[0]) : undefined, resolved),
+                pageCount: typeof doc.number_of_pages_median === 'number' ? doc.number_of_pages_median : null,
+                genres: Array.isArray(doc.subject) ? doc.subject.slice(0, 6).map(String) : [],
+                isbn13: resolved,
+                isbn10: resolved?.startsWith('978') ? isbn13To10(resolved) : null,
+                ean13: resolved,
+                coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : undefined,
+                rawPayload: doc,
+              };
+            });
+          }
+          return [];
         },
       },
       {
@@ -939,9 +1405,10 @@ serve(async (req) => {
         tier: 'tier1_international',
         region: 'global',
         run: async () => {
+          if (cleanId && !cleanIsbnOnly) return [];
           const googleKey = Deno.env.get('GOOGLE_BOOKS_API_KEY');
           const gbUrl = new URL('https://www.googleapis.com/books/v1/volumes');
-          gbUrl.searchParams.set('q', cleanIsbn ? `isbn:${cleanIsbn}` : q);
+          gbUrl.searchParams.set('q', cleanIsbnOnly ? `isbn:${cleanIsbnOnly}` : q);
           gbUrl.searchParams.set('maxResults', '8');
           if (googleKey) gbUrl.searchParams.set('key', googleKey);
           const res = await fTimeout(gbUrl.toString());
@@ -949,35 +1416,39 @@ serve(async (req) => {
             throw new EdgeProviderError('api_key_required', `HTTP ${res.status}: configure GOOGLE_BOOKS_API_KEY`);
           }
           if (!res.ok) throw new EdgeProviderError('upstream_error', `Google Books HTTP ${res.status}`);
-          const data = await res.json();
+          const data = await safeReadJson<{ items?: Array<Record<string, unknown>> }>(res, 'Google Books');
           const out: Candidate[] = [];
           for (const item of data.items ?? []) {
-            const info = item.volumeInfo ?? {};
-            const ids: Array<{ type: string; identifier: string }> = info.industryIdentifiers ?? [];
-            const allIsbns = extractIsbnsFromText(ids.map((x) => x.identifier).join(' '));
-            if (cleanIsbn && !allIsbns.includes(cleanIsbn)) continue;
-            const targetIsbn = cleanIsbn || allIsbns[0] || null;
+            const info = (item.volumeInfo ?? {}) as Record<string, unknown>;
+            const ids = (info.industryIdentifiers as Array<{ type: string; identifier: string }> | undefined) ?? [];
+            const allIsbns = collectValidIdentifiers(ids.map((x) => x.identifier));
+            const exact = Boolean(cleanIsbnOnly && allIsbns.includes(cleanIsbnOnly));
+            const targetIsbn = exact ? cleanIsbnOnly : (allIsbns[0] || null);
+            const imgLinks = info.imageLinks as { thumbnail?: string } | undefined;
+            const pubDate = typeof info.publishedDate === 'string' ? info.publishedDate : undefined;
             out.push({
-              externalId: item.id,
+              externalId: String(item.id),
               provider: 'google_books',
               tier: 'tier1_international',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: allIsbns,
-              title: info.title ?? 'Untitled',
-              subtitle: info.subtitle,
-              authors: info.authors ?? [],
+              matchedIdentifiers: allIsbns,
+              title: String(info.title ?? 'Untitled'),
+              subtitle: typeof info.subtitle === 'string' ? info.subtitle : undefined,
+              authors: Array.isArray(info.authors) ? info.authors.map(String) : [],
               translators: [],
-              publishers: info.publisher ? [info.publisher] : [],
-              publishedDate: info.publishedDate,
-              publishedYear: info.publishedDate ? Number(String(info.publishedDate).slice(0, 4)) || null : null,
-              language: normLang(info.language, targetIsbn),
-              pageCount: info.pageCount ?? null,
-              genres: info.categories ?? [],
-              description: info.description,
+              publishers: typeof info.publisher === 'string' ? [info.publisher] : [],
+              publishedDate: pubDate,
+              publishedYear: pubDate ? Number(pubDate.slice(0, 4)) || null : null,
+              language: normLang(typeof info.language === 'string' ? info.language : undefined, targetIsbn),
+              pageCount: typeof info.pageCount === 'number' ? info.pageCount : null,
+              genres: Array.isArray(info.categories) ? info.categories.map(String) : [],
+              description: typeof info.description === 'string' ? info.description : undefined,
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
-              coverUrl: normalizeUrl(info.imageLinks?.thumbnail),
+              ean13: targetIsbn,
+              coverUrl: normalizeUrl(imgLinks?.thumbnail),
               rawPayload: item,
             });
           }
@@ -990,38 +1461,41 @@ serve(async (req) => {
         tier: 'tier1_international',
         region: 'global',
         run: async () => {
-          const url = cleanIsbn
-            ? `https://api.crossref.org/works?filter=isbn:${encodeURIComponent(cleanIsbn)}&rows=4`
+          if (cleanId && !cleanIsbnOnly) return [];
+          const url = cleanIsbnOnly
+            ? `https://api.crossref.org/works?filter=isbn:${encodeURIComponent(cleanIsbnOnly)}&rows=4`
             : `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(q)}&filter=type:monograph,type:book,type:edited-book&rows=6`;
           const res = await fTimeout(url);
-          if (res.status === 429) throw new EdgeProviderError('upstream_error', 'CrossRef rate limited (HTTP 429)');
+          assertCleanResponse(res, 'CrossRef Works');
           if (!res.ok) return [];
-          const data = await res.json();
+          const data = await safeReadJson<{ message?: { items?: Array<Record<string, unknown>> } }>(res, 'CrossRef Works');
           const out: Candidate[] = [];
           for (const item of data.message?.items ?? []) {
             const title = Array.isArray(item.title) ? String(item.title[0] ?? '').trim() : '';
             if (!title) continue;
-            const isbns = extractIsbnsFromText(Array.isArray(item.ISBN) ? item.ISBN.join(' ') : '');
-            if (cleanIsbn && isbns.length > 0 && !isbns.includes(cleanIsbn)) continue;
+            const isbns = collectValidIdentifiers(Array.isArray(item.ISBN) ? item.ISBN.map(String) : []);
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
             const fmtP = (p: { given?: string; family?: string; name?: string }) => p.name?.trim() || [p.given, p.family].filter(Boolean).join(' ').trim();
-            const targetIsbn = cleanIsbn || isbns[0] || null;
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             out.push({
               externalId: String(item.DOI ?? title),
               provider: 'crossref',
               tier: 'tier1_international',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title,
               authors: Array.isArray(item.author) ? item.author.map(fmtP).filter(Boolean) : [],
               translators: [],
               editors: Array.isArray(item.editor) ? item.editor.map(fmtP).filter(Boolean) : [],
               publishers: typeof item.publisher === 'string' ? [item.publisher] : [],
-              publishedYear: item.issued?.['date-parts']?.[0]?.[0] ?? null,
-              language: normLang(item.language, targetIsbn),
-              genres: Array.isArray(item.subject) ? item.subject.slice(0, 6) : [],
+              publishedYear: (item.issued as { 'date-parts'?: number[][] } | undefined)?.['date-parts']?.[0]?.[0] ?? null,
+              language: normLang(typeof item.language === 'string' ? item.language : undefined, targetIsbn),
+              genres: Array.isArray(item.subject) ? item.subject.slice(0, 6).map(String) : [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               sourceUrl: typeof item.URL === 'string' ? item.URL : undefined,
               rawPayload: item,
             });
@@ -1035,25 +1509,30 @@ serve(async (req) => {
         tier: 'tier1_international',
         region: 'global',
         run: async () => {
+          if (cleanId && !cleanIsbnOnly) return [];
           const key = Deno.env.get('ISBNDB_API_KEY');
           if (!key) throw new EdgeProviderError('api_key_required', 'Configure ISBNDB_API_KEY in Edge Function secrets');
-          const url = cleanIsbn
-            ? `https://api2.isbndb.com/book/${encodeURIComponent(cleanIsbn)}`
+          const url = cleanIsbnOnly
+            ? `https://api2.isbndb.com/book/${encodeURIComponent(cleanIsbnOnly)}`
             : `https://api2.isbndb.com/books/${encodeURIComponent(q)}?pageSize=6`;
           const res = await fTimeout(url, { headers: { Authorization: key } });
           if (res.status === 404) return [];
+          assertCleanResponse(res, 'ISBNdb API');
           if (!res.ok) throw new EdgeProviderError('upstream_error', `ISBNdb HTTP ${res.status}`);
-          const d = await res.json();
-          const list = cleanIsbn ? (d.book ? [d.book] : []) : (d.books ?? []);
-          return list.map((b: Record<string, unknown>) => {
-            const targetIsbn = cleanIsbn || normalizeIsbnTo13(String(b.isbn13 || b.isbn || '')) || null;
+          const d = await safeReadJson<{ book?: Record<string, unknown>; books?: Array<Record<string, unknown>> }>(res, 'ISBNdb API');
+          const list = cleanIsbnOnly ? (d.book ? [d.book] : []) : (d.books ?? []);
+          return list.map((b) => {
+            const isbns = collectValidIdentifiers([typeof b.isbn13 === 'string' ? b.isbn13 : '', typeof b.isbn === 'string' ? b.isbn : '']);
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             return {
               externalId: String(b.isbn13 || b.isbn || b.title),
               provider: 'isbndb',
               tier: 'tier1_international',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
-              matchedIsbns: targetIsbn ? [targetIsbn] : [],
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
+              matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title: String(b.title_long || b.title || 'Untitled'),
               editionName: typeof b.edition === 'string' ? b.edition : undefined,
               authors: Array.isArray(b.authors) ? b.authors.map(String) : [],
@@ -1065,6 +1544,7 @@ serve(async (req) => {
               genres: Array.isArray(b.subjects) ? b.subjects.slice(0, 6).map(String) : [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               coverUrl: normalizeUrl(typeof b.image === 'string' ? b.image : undefined),
               rawPayload: b,
             };
@@ -1077,6 +1557,7 @@ serve(async (req) => {
         tier: 'tier1_international',
         region: 'global',
         run: async () => {
+          if (cleanId && !cleanIsbnOnly) return [];
           const cid = Deno.env.get('WORLDCAT_CLIENT_ID');
           const csec = Deno.env.get('WORLDCAT_CLIENT_SECRET');
           if (!cid || !csec) {
@@ -1091,26 +1572,29 @@ serve(async (req) => {
             body: 'grant_type=client_credentials&scope=wcapi',
           });
           if (!tokRes.ok) throw new EdgeProviderError('api_key_required', `OCLC OAuth HTTP ${tokRes.status}`);
-          const tokData = await tokRes.json();
+          const tokData = await safeReadJson<{ access_token?: string }>(tokRes, 'OCLC OAuth');
           const token = tokData.access_token;
-          const qStr = cleanIsbn ? `bn:${cleanIsbn}` : q;
+          const qStr = cleanIsbnOnly ? `bn:${cleanIsbnOnly}` : q;
           const res = await fTimeout(`https://americas.discovery.api.oclc.org/worldcat/search/v2/bibs?q=${encodeURIComponent(qStr)}&limit=5`, {
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
           });
+          assertCleanResponse(res, 'OCLC WorldCat');
           if (!res.ok) return [];
-          const data = await res.json();
-          return (data.bibRecords ?? []).map((rec: Record<string, unknown>) => {
+          const data = await safeReadJson<{ bibRecords?: Array<Record<string, unknown>> }>(res, 'OCLC WorldCat');
+          return (data.bibRecords ?? []).map((rec) => {
             const id = rec.identifier as { isbns?: string[]; oclcNumber?: string } | undefined;
-            const isbns = extractIsbnsFromText((id?.isbns ?? []).join(' '));
+            const isbns = collectValidIdentifiers(id?.isbns ?? []);
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
             const titleObj = rec.title as { mainTitles?: Array<{ text?: string }> } | undefined;
-            const targetIsbn = cleanIsbn || isbns[0] || null;
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             return {
               externalId: String(id?.oclcNumber ?? titleObj?.mainTitles?.[0]?.text ?? 'wc'),
               provider: 'worldcat',
               tier: 'tier1_international',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title: titleObj?.mainTitles?.[0]?.text ?? 'Untitled',
               authors: [],
               translators: [],
@@ -1119,6 +1603,7 @@ serve(async (req) => {
               genres: [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               sourceUrl: id?.oclcNumber ? `https://www.worldcat.org/oclc/${id.oclcNumber}` : undefined,
               rawPayload: rec,
             };
@@ -1133,19 +1618,21 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'jp',
         run: async () => {
-          const url = cleanIsbn
-            ? `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${encodeURIComponent(cleanIsbn)}&cnt=5`
+          if (cleanId && !cleanIsbnOnly) return [];
+          const url = cleanIsbnOnly
+            ? `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${encodeURIComponent(cleanIsbnOnly)}&cnt=5`
             : `https://ndlsearch.ndl.go.jp/api/opensearch?any=${encodeURIComponent(q)}&cnt=8`;
           const res = await fTimeout(url);
+          assertCleanResponse(res, 'National Diet Library');
           if (!res.ok) return [];
-          const xml = await res.text();
+          const xml = await safeReadXml(res, 'National Diet Library');
           const items = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map((m) => m[1]);
           const out: Candidate[] = [];
           for (const itemXml of items) {
             const title = extractXmlTags(itemXml, 'dc:title')[0] || extractXmlTags(itemXml, 'title')[0];
             if (!title) continue;
-            const isbns = extractIsbnsFromText(extractXmlTags(itemXml, 'dc:identifier').join(' '));
-            if (cleanIsbn && isbns.length > 0 && !isbns.includes(cleanIsbn)) continue;
+            const isbns = collectValidIdentifiers(extractXmlTags(itemXml, 'dc:identifier'));
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
             const vol = extractXmlTags(itemXml, 'dcndl:volume')[0];
             const seriesName = extractXmlTags(itemXml, 'dcndl:seriesTitle')[0];
             const publishers = extractXmlTags(itemXml, 'dc:publisher');
@@ -1155,14 +1642,15 @@ serve(async (req) => {
             const link = extractXmlTags(itemXml, 'link')[0];
             const creators = extractXmlTags(itemXml, 'dc:creator').map((n) => n.replace(/,\s*/g, ' ').trim());
             const pagesMatch = extent?.match(/(\d{1,5})\s*p/i);
-            const targetIsbn = cleanIsbn || isbns[0] || null;
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             out.push({
               externalId: link || `ndl-${targetIsbn || title}`,
               provider: 'ndl_japan',
               tier: 'tier2_national',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title: vol && !title.includes(vol) ? `${title} ${vol}` : title,
               authors: creators,
               translators: [],
@@ -1174,6 +1662,7 @@ serve(async (req) => {
               genres,
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               seriesName,
               volumeNumber: vol,
               sourceUrl: normalizeUrl(link),
@@ -1189,32 +1678,38 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'jp',
         run: async () => {
-          if (!cleanIsbn || !cleanIsbn.startsWith('9784')) return [];
-          const res = await fTimeout(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+          if (!cleanIsbnOnly || !cleanIsbnOnly.startsWith('9784')) return [];
+          const res = await fTimeout(`https://api.openbd.jp/v1/get?isbn=${cleanIsbnOnly}`);
+          assertCleanResponse(res, 'openBD');
           if (!res.ok) return [];
-          const arr = await res.json();
+          const arr = await safeReadJson<Array<{ summary?: Record<string, unknown> } | null>>(res, 'openBD');
           const summary = arr?.[0]?.summary;
           if (!summary) return [];
+          const summaryIsbn = normalizeIsbnTo13(String(summary.isbn || ''));
+          const exact = !summaryIsbn || summaryIsbn === cleanIsbnOnly;
+          const resolved = exact ? cleanIsbnOnly : summaryIsbn;
           return [{
-            externalId: `openbd-${cleanIsbn}`,
+            externalId: `openbd-${resolved}`,
             provider: 'openbd',
             tier: 'tier2_national',
             verified: false,
-            matchConfidence: 'exact_isbn',
-            matchedIsbns: [cleanIsbn],
-            title: summary.title || 'Untitled',
-            authors: summary.author ? [summary.author] : [],
+            matchConfidence: exact ? 'exact_isbn' : 'unverified_isbn',
+            matchedIsbns: [resolved],
+            matchedIdentifiers: [resolved],
+            title: String(summary.title || 'Untitled'),
+            authors: summary.author ? [String(summary.author)] : [],
             translators: [],
-            publishers: summary.publisher ? [summary.publisher] : [],
+            publishers: summary.publisher ? [String(summary.publisher)] : [],
             publishedYear: summary.pubdate ? Number(String(summary.pubdate).slice(0, 4)) || null : null,
             language: 'ja',
             genres: [],
-            isbn13: cleanIsbn,
-            isbn10: isbn13To10(cleanIsbn),
-            coverUrl: normalizeUrl(summary.cover),
-            seriesName: summary.series || undefined,
-            volumeNumber: summary.volume || undefined,
-            rawPayload: arr[0],
+            isbn13: resolved,
+            isbn10: isbn13To10(resolved),
+            ean13: resolved,
+            coverUrl: normalizeUrl(typeof summary.cover === 'string' ? summary.cover : undefined),
+            seriesName: typeof summary.series === 'string' ? summary.series : undefined,
+            volumeNumber: typeof summary.volume === 'string' ? summary.volume : undefined,
+            rawPayload: arr[0] as Record<string, unknown>,
           }];
         },
       },
@@ -1224,10 +1719,12 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'fr',
         run: async () => {
-          const sruQ = cleanIsbn ? `bib.isbn adj "${cleanIsbn}"` : `bib.anywhere all "${q.replace(/"/g, ' ')}"`;
+          if (cleanId && !cleanIsbnOnly) return [];
+          const sruQ = cleanIsbnOnly ? `bib.isbn adj "${cleanIsbnOnly}"` : `bib.anywhere all "${q.replace(/"/g, ' ')}"`;
           const res = await fTimeout(`https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${encodeURIComponent(sruQ)}&recordSchema=dublincore&maximumRecords=5`);
+          assertCleanResponse(res, 'BnF France');
           if (!res.ok) return [];
-          const xml = await res.text();
+          const xml = await safeReadXml(res, 'BnF France');
           const records = [...xml.matchAll(/<srw:recordData>([\s\S]*?)<\/srw:recordData>/gi)].map((m) => m[1]);
           const out: Candidate[] = [];
           for (const recXml of records) {
@@ -1235,9 +1732,9 @@ serve(async (req) => {
             if (!rawTitle) continue;
             const title = rawTitle.split(/\s+\/\s+/)[0].trim();
             const ids = extractXmlTags(recXml, 'dc:identifier');
-            const isbns = extractIsbnsFromText(ids.join(' '));
-            if (cleanIsbn && isbns.length > 0 && !isbns.includes(cleanIsbn)) continue;
-            const targetIsbn = cleanIsbn || isbns[0] || null;
+            const isbns = collectValidIdentifiers(ids);
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             const dateStr = extractXmlTags(recXml, 'dc:date')[0];
             const fmtStr = extractXmlTags(recXml, 'dc:format')[0];
             const langStr = extractXmlTags(recXml, 'dc:language')[0];
@@ -1248,8 +1745,9 @@ serve(async (req) => {
               provider: 'bnf_france',
               tier: 'tier2_national',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title,
               authors: extractXmlTags(recXml, 'dc:creator').map((c) => c.replace(/\s*\(\d{4}-?\d{0,4}\).*$/, '').trim()),
               translators: [],
@@ -1260,6 +1758,7 @@ serve(async (req) => {
               genres: [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               sourceUrl: normalizeUrl(arkUrl),
               rawPayload: { title, ids },
             });
@@ -1273,13 +1772,15 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'vi',
         run: async () => {
-          const searchField = cleanIsbn ? 'ISBN' : 'FullText';
-          const term = cleanIsbn || q;
+          const searchField = cleanIsbnOnly ? 'ISBN' : 'FullText';
+          const term = cleanId || q;
           const r = await fTimeout(
             `https://phucvu.thuvientphcm.gov.vn/Item/SearchAdvanced?SearchText=${searchField}%3A%25${encodeURIComponent(term)}%25%3A%7CItemTypeIds%3A-1%3AINTERSECT&DocType=-1`
           );
+          assertCleanResponse(r, 'HCM Library');
           if (!r.ok) return [];
           const html = await r.text();
+          assertCleanTextBody(html, 'HCM Library');
           const ids = Array.from(new Set([...html.matchAll(/ItemDetail\/(\d+)/gi)].map((m) => m[1]))).slice(0, 4);
           const out: Candidate[] = [];
           for (const id of ids) {
@@ -1289,8 +1790,9 @@ serve(async (req) => {
             const marcSection = dHtml.match(/<div[^>]+id=["']divMARC21["'][\s\S]*?<\/div>\s*(?:<\/div>|<script)/i)?.[0] ?? dHtml;
             const marc = parseMarc21(marcSection);
             if (!marc) continue;
-            if (cleanIsbn && !marc.isbns.includes(cleanIsbn)) continue;
-            const targetIsbn = cleanIsbn || marc.isbns[0] || null;
+            const exact = Boolean(cleanId && marc.identifiers.includes(cleanId));
+            const targetId = exact ? cleanId : (marc.identifiers[0] || null);
+            const parsedTarget = targetId ? parseBookIdentifier(targetId) : null;
             const coverUrl = marc.coverPath
               ? `https://phucvu.thuvientphcm.gov.vn${marc.coverPath.startsWith('/Upload') ? marc.coverPath : `/Upload${marc.coverPath}`}`
               : undefined;
@@ -1299,8 +1801,9 @@ serve(async (req) => {
               provider: 'hcm_library',
               tier: 'tier2_national',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanId ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: marc.isbns,
+              matchedIdentifiers: marc.identifiers,
               title: marc.title,
               subtitle: marc.subtitle,
               authors: marc.authors,
@@ -1312,8 +1815,9 @@ serve(async (req) => {
               pageCount: marc.pageCount,
               genres: marc.subjects,
               description: marc.description,
-              isbn13: targetIsbn,
-              isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              isbn13: parsedTarget?.isIsbn ? parsedTarget.isbn13 : null,
+              isbn10: parsedTarget?.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+              ean13: parsedTarget?.ean13 ?? targetId,
               coverUrl: normalizeUrl(coverUrl),
               sourceUrl: `https://phucvu.thuvientphcm.gov.vn/Item/ItemDetail/${id}`,
               rawPayload: { itemId: id, marc },
@@ -1328,21 +1832,26 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'kr',
         run: async () => {
+          if (cleanId && !cleanIsbnOnly) return [];
           const key = Deno.env.get('NLK_API_KEY');
           if (!key) throw new EdgeProviderError('api_key_required', 'Configure NLK_API_KEY in Edge Function secrets');
-          const param = cleanIsbn ? `isbn=${encodeURIComponent(cleanIsbn)}` : `title=${encodeURIComponent(q)}`;
+          const param = cleanIsbnOnly ? `isbn=${encodeURIComponent(cleanIsbnOnly)}` : `title=${encodeURIComponent(q)}`;
           const res = await fTimeout(`https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(key)}&result_style=json&page_no=1&page_size=5&${param}`);
+          assertCleanResponse(res, 'National Library of Korea');
           if (!res.ok) return [];
-          const data = await res.json();
-          return (data.docs ?? []).map((d: Record<string, unknown>) => {
-            const targetIsbn = cleanIsbn || normalizeIsbnTo13(String(d.EA_ISBN || '')) || null;
+          const data = await safeReadJson<{ docs?: Array<Record<string, unknown>> }>(res, 'National Library of Korea');
+          return (data.docs ?? []).map((d) => {
+            const docIsbns = collectValidIdentifiers([String(d.EA_ISBN || '')]);
+            const exact = Boolean(cleanIsbnOnly && docIsbns.includes(cleanIsbnOnly));
+            const targetIsbn = exact ? cleanIsbnOnly : (docIsbns[0] || null);
             return {
               externalId: String(d.EA_ISBN || d.TITLE),
               provider: 'nl_korea',
               tier: 'tier2_national',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
-              matchedIsbns: targetIsbn ? [targetIsbn] : [],
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
+              matchedIsbns: docIsbns,
+              matchedIdentifiers: docIsbns,
               title: String(d.TITLE || 'Untitled'),
               authors: d.AUTHOR ? [String(d.AUTHOR)] : [],
               translators: [],
@@ -1353,6 +1862,7 @@ serve(async (req) => {
               genres: d.SUBJECT ? [String(d.SUBJECT)] : [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
+              ean13: targetIsbn,
               rawPayload: d,
             };
           });
@@ -1364,24 +1874,26 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'us',
         run: async () => {
-          const res = await fTimeout(`https://www.loc.gov/books/?q=${encodeURIComponent(cleanIsbn || q)}&fo=json&c=5`);
-          if (res.status === 403) throw new EdgeProviderError('access_denied', 'Library of Congress protected by Cloudflare (HTTP 403)');
+          if (cleanId && !cleanIsbnOnly) return [];
+          const res = await fTimeout(`https://www.loc.gov/books/?q=${encodeURIComponent(cleanIsbnOnly || q)}&fo=json&c=5`);
+          assertCleanResponse(res, 'Library of Congress');
           if (!res.ok) return [];
-          const json = await res.json();
+          const json = await safeReadJson<{ results?: Array<Record<string, unknown>> }>(res, 'Library of Congress');
           const out: Candidate[] = [];
           for (const r of json.results ?? []) {
-            const isbns = extractIsbnsFromText(JSON.stringify(r.isbn ?? r.item ?? {}));
-            if (cleanIsbn && !isbns.includes(cleanIsbn)) continue;
+            const isbns = collectValidIdentifiers([JSON.stringify(r.isbn ?? r.item ?? {})]);
+            const exact = Boolean(cleanIsbnOnly && isbns.includes(cleanIsbnOnly));
             const title = typeof r.title === 'string' ? r.title.trim() : '';
             if (!title) continue;
-            const targetIsbn = cleanIsbn || isbns[0] || null;
+            const targetIsbn = exact ? cleanIsbnOnly : (isbns[0] || null);
             out.push({
               externalId: String(r.id || title),
               provider: 'loc_us',
               tier: 'tier2_national',
               verified: false,
-              matchConfidence: cleanIsbn ? 'exact_isbn' : 'title_match',
+              matchConfidence: cleanIsbnOnly ? (exact ? 'exact_isbn' : 'unverified_isbn') : 'title_match',
               matchedIsbns: isbns,
+              matchedIdentifiers: isbns,
               title,
               authors: Array.isArray(r.contributor) ? r.contributor.map(String) : [],
               translators: [],
@@ -1391,7 +1903,8 @@ serve(async (req) => {
               genres: Array.isArray(r.subject) ? r.subject.slice(0, 6).map(String) : [],
               isbn13: targetIsbn,
               isbn10: targetIsbn?.startsWith('978') ? isbn13To10(targetIsbn) : null,
-              sourceUrl: normalizeUrl(r.url),
+              ean13: targetIsbn,
+              sourceUrl: normalizeUrl(typeof r.url === 'string' ? r.url : undefined),
               rawPayload: r,
             });
           }
@@ -1404,7 +1917,7 @@ serve(async (req) => {
         tier: 'tier2_national',
         region: 'vi',
         run: async () => {
-          const r = await fTimeout(`https://opac.nlv.gov.vn/Search/Search?SearchKey=${encodeURIComponent(cleanIsbn || q)}`);
+          const r = await fTimeout(`https://opac.nlv.gov.vn/Search/Search?SearchKey=${encodeURIComponent(cleanId || q)}`);
           if (r.status >= 500) throw new EdgeProviderError('upstream_error', `NLV OPAC HTTP ${r.status}`);
           throw new EdgeProviderError('unsupported_interface', 'NLV OPAC uses a dynamic client-side search widget without a public ISBN query API');
         },
@@ -1446,17 +1959,85 @@ serve(async (req) => {
       makeHaravanTask('ipm', 'IPM', 'vi', 'https://ipm.vn'),
       makeHaravanTask('phuong_nam', 'Nhà sách Phương Nam', 'vi', 'https://nhasachphuongnam.com'),
       {
+        provider: 'amak',
+        label: 'Amak Books',
+        tier: 'tier3_publisher',
+        region: 'vi',
+        run: async () => {
+          const forms = cleanId ? vnSearchForms(cleanId).slice(0, 3) : [q];
+          const settled = await Promise.allSettled(
+            forms.map(async (f) => {
+              const r = await fTimeout(`https://amak.vn/?s=${encodeURIComponent(f)}`);
+              assertCleanResponse(r, 'Amak Books');
+              if (!r.ok) return [] as string[];
+              const h = await r.text();
+              assertCleanTextBody(h, 'Amak Books');
+              return [...h.matchAll(/href=["'](https:\/\/amak\.vn\/book\/[^"'?#]+)["']/gi)].map((m) => m[1]);
+            })
+          );
+          const fulfilled = settled.filter((s): s is PromiseFulfilledResult<string[]> => s.status === 'fulfilled');
+          if (fulfilled.length === 0) {
+            const rej = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+            if (rej) throw rej.reason;
+          }
+          const urls = Array.from(new Set(fulfilled.flatMap((s) => s.value))).slice(0, 4);
+          const out: Candidate[] = [];
+          for (const u of urls) {
+            const det = await fTimeout(u).catch(() => null);
+            if (!det?.ok) continue;
+            const dHtml = await det.text();
+            assertCleanTextBody(dHtml, 'Amak Books');
+            const specs = extractVnSpecs(dHtml);
+            const allIds = specs.identifiers;
+            if (cleanId && !allIds.includes(cleanId)) continue;
+            const title = decodeHtml(dHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '') ?? '').trim();
+            if (!title) continue;
+            const targetId = cleanId || allIds[0] || '';
+            const parsedTarget = targetId ? parseBookIdentifier(targetId) : null;
+            out.push({
+              externalId: u,
+              provider: 'amak',
+              tier: 'tier3_publisher',
+              verified: false,
+              matchConfidence: cleanId ? 'exact_isbn' : 'title_match',
+              matchedIsbns: specs.isbns,
+              matchedIdentifiers: allIds,
+              title,
+              authors: specs.authors,
+              translators: specs.translators,
+              illustrators: specs.illustrators,
+              publishers: specs.publishers.length ? specs.publishers : ['Amak Books'],
+              publishingPartner: specs.publishingPartner,
+              distributor: specs.distributor,
+              publishedYear: specs.publishedYear,
+              language: specs.language || normLang(undefined, targetId) || 'vi',
+              format: specs.format,
+              pageCount: specs.pageCount,
+              genres: specs.genres,
+              isbn13: parsedTarget?.isIsbn ? parsedTarget.isbn13 : null,
+              isbn10: parsedTarget?.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+              ean13: parsedTarget?.ean13 ?? (targetId || null),
+              identifierType: parsedTarget?.identifierType,
+              coverUrl: normalizeUrl(dHtml.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]),
+              sourceUrl: u,
+              rawPayload: { url: u, specs },
+            });
+          }
+          return out;
+        },
+      },
+      {
         provider: 'tiki',
         label: 'Tiki Books',
         tier: 'tier3_publisher',
         region: 'vi',
         run: async () => {
-          if (!cleanIsbn) {
+          if (!cleanId) {
             const r = await fTimeout(`https://tiki.vn/api/v2/products?limit=6&q=${encodeURIComponent(q)}`);
-            if (r.status === 403) throw new EdgeProviderError('access_denied', 'Tiki HTTP 403');
+            assertCleanResponse(r, 'Tiki Books');
             if (!r.ok) throw new EdgeProviderError('upstream_error', `Tiki HTTP ${r.status}`);
-            const d = await r.json();
-            return (d.data ?? []).filter((x: { name?: string }) => Boolean(x.name)).map((x: { id?: number; name?: string; author_name?: string; thumbnail_url?: string; url_path?: string }) => ({
+            const d = await safeReadJson<{ data?: Array<{ id?: number; name?: string; author_name?: string; thumbnail_url?: string; url_path?: string }> }>(r, 'Tiki Books');
+            return (d.data ?? []).filter((x) => Boolean(x.name)).map((x) => ({
               externalId: String(x.id ?? ''),
               provider: 'tiki',
               tier: 'tier3_publisher' as const,
@@ -1474,35 +2055,48 @@ serve(async (req) => {
               rawPayload: x as unknown as Record<string, unknown>,
             }));
           }
-          const r = await fTimeout(`https://tiki.vn/api/v2/products?limit=5&q=${encodeURIComponent(cleanIsbn)}`);
-          if (r.status === 403) throw new EdgeProviderError('access_denied', 'Tiki HTTP 403');
+          const r = await fTimeout(`https://tiki.vn/api/v2/products?limit=5&q=${encodeURIComponent(cleanId)}`);
+          assertCleanResponse(r, 'Tiki Books');
           if (!r.ok) throw new EdgeProviderError('upstream_error', `Tiki HTTP ${r.status}`);
-          const json = await r.json();
-          const ids = (json.data ?? []).map((d: { id?: number }) => d.id).filter(Boolean).slice(0, 3);
+          const json = await safeReadJson<{ data?: Array<{ id?: number }> }>(r, 'Tiki Books');
+          const ids = (json.data ?? []).map((d) => d.id).filter(Boolean).slice(0, 3);
           const out: Candidate[] = [];
           for (const id of ids) {
             const dRes = await fTimeout(`https://tiki.vn/api/v2/products/${id}`).catch(() => null);
             if (!dRes?.ok) continue;
-            const det = await dRes.json();
-            const attrs = (det.specifications ?? []).flatMap((s: { attributes?: Array<{ value?: string }> }) => s.attributes ?? []);
-            const allIsbns = extractIsbnsFromText([det.sku ?? '', ...attrs.map((a: { value?: string }) => a.value ?? ''), det.description ?? ''].join(' '));
-            if (!allIsbns.includes(cleanIsbn)) continue;
+            const det = await safeReadJson<Record<string, unknown>>(dRes, 'Tiki Books').catch(() => null);
+            if (!det) continue;
+            const attrs = ((det.specifications as Array<{ attributes?: Array<{ code?: string; name?: string; value?: string }> }> | undefined) ?? []).flatMap((s) => s.attributes ?? []);
+            const allIds = collectValidIdentifiers(
+              [String(det.sku ?? ''), ...attrs.map((a) => a.value ?? '')],
+              `${String(det.name ?? '')}\n${attrs.map((a) => `${a.name ?? ''}: ${a.value ?? ''}`).join('\n')}\n${String(det.description ?? '')}`,
+              true
+            );
+            if (!allIds.includes(cleanId)) continue;
+            const getAttr = (codes: string[]) => attrs.find((a) => codes.includes(a.code ?? '') || codes.includes((a.name ?? '').toLowerCase()))?.value;
+            const pubVal = getAttr(['publisher_vn', 'nhà xuất bản']);
+            const distVal = getAttr(['manufacturer', 'issuing_house', 'công ty phát hành', 'nhà phát hành']);
+            const parsedTarget = parseBookIdentifier(cleanId);
             out.push({
               externalId: String(det.id),
               provider: 'tiki',
               tier: 'tier3_publisher',
               verified: false,
               matchConfidence: 'exact_isbn',
-              matchedIsbns: allIsbns,
-              title: det.name,
-              authors: (det.authors ?? []).map((a: { name?: string }) => a.name).filter(Boolean),
+              matchedIsbns: allIds.filter((x) => x.startsWith('978') || x.startsWith('979')),
+              matchedIdentifiers: allIds,
+              title: String(det.name ?? 'Untitled'),
+              authors: Array.isArray(det.authors) ? (det.authors as Array<{ name?: string }>).map((a) => a.name).filter((x): x is string => Boolean(x)) : [],
               translators: [],
-              publishers: [],
+              publishers: pubVal ? [pubVal] : distVal ? [distVal] : [],
+              distributor: distVal && pubVal ? distVal : undefined,
               language: 'vi',
               genres: [],
-              isbn13: cleanIsbn,
-              isbn10: isbn13To10(cleanIsbn),
-              coverUrl: normalizeUrl(det.thumbnail_url),
+              isbn13: parsedTarget.isIsbn ? parsedTarget.isbn13 : null,
+              isbn10: parsedTarget.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+              ean13: parsedTarget.ean13 ?? cleanId,
+              identifierType: parsedTarget.identifierType,
+              coverUrl: normalizeUrl(typeof det.thumbnail_url === 'string' ? det.thumbnail_url : undefined),
               sourceUrl: det.url_path ? `https://tiki.vn/${String(det.url_path).replace(/^\//, '')}` : undefined,
               rawPayload: det,
             });
@@ -1516,19 +2110,21 @@ serve(async (req) => {
         tier: 'tier3_publisher',
         region: 'vi',
         run: async () => {
-          const r = await fTimeout(`https://www.fahasa.com/fahasa_catalog/product/search?q=${encodeURIComponent(cleanIsbn || q)}`);
+          const r = await fTimeout(`https://www.fahasa.com/fahasa_catalog/product/search?q=${encodeURIComponent(cleanId || q)}`);
           if (r.status === 403 || r.status === 503) throw new EdgeProviderError('access_denied', 'Cloudflare anti-bot challenge (HTTP 403)');
+          const txt = await r.text().catch(() => '');
+          if (txt) assertCleanTextBody(txt, 'Fahasa');
           throw new EdgeProviderError('unsupported_interface', 'Fahasa endpoint requires interactive session');
         },
       },
     ];
 
     const stagesExecuted: string[] = [];
-    if (!cleanIsbn || forceAllProviders) {
+    if (!cleanId || forceAllProviders) {
       await Promise.all(ALL_TASKS.map(executeTask));
-      stagesExecuted.push(cleanIsbn ? 'stage1' : 'query');
+      stagesExecuted.push(cleanId ? 'stage1' : 'query');
     } else {
-      const affinity = getAffinity(cleanIsbn);
+      const affinity = getAffinity(cleanId);
       const stage1 = ALL_TASKS.filter(
         (t) =>
           t.tier === 'tier1_international' ||
@@ -1540,15 +2136,40 @@ serve(async (req) => {
       await Promise.all(stage1.map(executeTask));
       stagesExecuted.push('stage1');
 
-      const s1Merged = mergeCandidatesEdge(candidates, cleanIsbn);
+      const s1Merged = mergeCandidatesEdge(candidates, cleanId);
       if (stage2.length > 0 && !isSufficientEdge(s1Merged.exactMatches)) {
         await Promise.all(stage2.map(executeTask));
         stagesExecuted.push('stage2');
       }
     }
 
-    const { merged, exactMatches, possibleEditionMatches, workMatches, approximateMatches } =
-      mergeCandidatesEdge(candidates, cleanIsbn);
+    const { merged, exactMatches, possibleEditionMatches, workMatches, approximateMatches, identityMismatches } =
+      mergeCandidatesEdge(candidates, cleanId);
+
+    const degraded = statuses.some((s) =>
+      ['timeout', 'access_denied', 'upstream_error', 'api_key_required', 'proxy_required'].includes(s.status)
+    );
+    let verificationStatus: VerificationStatus = 'not_found';
+    let verificationMessage = 'No matching records found.';
+    if (exactMatches.length > 0) {
+      verificationStatus = 'verified_match';
+      verificationMessage =
+        parsedInput?.identifierType === 'ean13'
+          ? `Exact GS1 EAN-13 match verified across ${exactMatches[0].sources?.length ?? 1} source(s).`
+          : `Exact ISBN match verified across ${exactMatches[0].sources?.length ?? 1} source(s).`;
+    } else if (possibleEditionMatches.some((c) => (c.contradictions?.length ?? 0) > 0)) {
+      verificationStatus = 'conflicting_records';
+      verificationMessage = 'Providers returned contradictory book titles for the same identifier.';
+    } else if (identityMismatches.length > 0) {
+      verificationStatus = 'identity_mismatch';
+      verificationMessage = `Returned source record(s) carry a different identifier (${identityMismatches[0].isbn13 || identityMismatches[0].ean13 || 'mismatch'}) and were rejected.`;
+    } else if (possibleEditionMatches.length > 0 || degraded) {
+      verificationStatus = 'valid_identifier_unconfirmed';
+      verificationMessage = 'Identifier check digit is valid, but upstream sources could not verify a full match.';
+    } else if (parsedInput?.isValid) {
+      verificationStatus = 'not_found';
+      verificationMessage = `Identifier check digit is valid (${parsedInput.identifierType.toUpperCase()}), but no matching bibliographic record was found.`;
+    }
 
     return new Response(
       JSON.stringify({
@@ -1558,8 +2179,15 @@ serve(async (req) => {
         relatedEditions: [],
         workMatches,
         approximateMatches,
+        identityMismatches,
         providerStatuses: statuses,
-        queriedIsbn: cleanIsbn || null,
+        queriedIsbn: cleanId || null,
+        rawIdentifier: rawIdentifier || q || undefined,
+        normalizedIdentifier: cleanId || null,
+        identifierType: parsedInput?.identifierType,
+        verificationStatus,
+        verificationMessage,
+        retrievedAt,
         exactMatchCount: exactMatches.length,
         stagesExecuted,
       }),

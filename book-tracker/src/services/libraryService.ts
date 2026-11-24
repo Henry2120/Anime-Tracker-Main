@@ -26,7 +26,7 @@ import type {
   SyncOperation,
   Work,
 } from '../types/domain';
-import { parseIsbn } from '../utils/isbn';
+import { parseBookIdentifier } from '../utils/isbn';
 import { calculatePercentage, getLocalDateString } from '../utils/statsCalculator';
 
 function nowIso(): string {
@@ -87,6 +87,7 @@ export interface CreateBookBundleInput {
     contributors?: ContributorCredit[];
     publishers?: string[];
     publishingPartner?: string;
+    distributor?: string;
     publishedDate?: string;
     publishedYear?: number | null;
     language: string;
@@ -193,6 +194,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
         contributors: input.edition.contributors,
         publishers: (input.edition.publishers ?? []).filter(Boolean),
         publishingPartner: input.edition.publishingPartner?.trim() || undefined,
+        distributor: input.edition.distributor?.trim() || undefined,
         publishedDate: input.edition.publishedDate?.trim() || undefined,
         publishedYear: input.edition.publishedYear ?? null,
         language: input.edition.language || 'und',
@@ -223,13 +225,15 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
       );
 
       if (input.isbnInput?.trim()) {
-        const parsed = parseIsbn(input.isbnInput.trim());
-        if (parsed.isValid && parsed.isbn13) {
+        const parsed = parseBookIdentifier(input.isbnInput.trim());
+        if (parsed.isValid && parsed.normalizedId) {
           const isbnRow: EditionIsbn = {
             id: createUuid(),
             editionId: edition.id,
-            isbn13: parsed.isbn13,
+            isbn13: parsed.normalizedId,
             isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+            ean13: parsed.ean13,
+            identifierType: parsed.identifierType,
             prefixGroup: parsed.prefixGroup,
             isPrimary: true,
             createdAt: ts,
@@ -429,16 +433,18 @@ export async function upsertEditionIsbn(
   editionId: string,
   rawIsbn: string
 ): Promise<EditionIsbn> {
-  const parsed = parseIsbn(rawIsbn);
-  if (!parsed.isValid || !parsed.isbn13) {
-    throw new Error('Invalid ISBN-10 or ISBN-13 check digit');
+  const parsed = parseBookIdentifier(rawIsbn);
+  if (!parsed.isValid || !parsed.normalizedId) {
+    throw new Error(parsed.errorReason ?? 'Invalid ISBN-10, ISBN-13, or EAN-13 check digit');
   }
   const ts = nowIso();
   const row: EditionIsbn = {
     id: createUuid(),
     editionId,
-    isbn13: parsed.isbn13,
+    isbn13: parsed.normalizedId,
     isbn10: parsed.prefixGroup === '978' ? parsed.isbn10 : null,
+    ean13: parsed.ean13,
+    identifierType: parsed.identifierType,
     prefixGroup: parsed.prefixGroup,
     isPrimary: true,
     createdAt: ts,

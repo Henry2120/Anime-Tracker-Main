@@ -1,10 +1,10 @@
 import { getSupabaseClient } from '../lib/supabase';
-import type { MetadataCandidate } from '../types/domain';
+import type { BookIdentifierType, MetadataCandidate } from '../types/domain';
 import {
+  computeEan13CheckDigit,
   computeIsbn10CheckDigit,
-  computeIsbn13CheckDigit,
-  extractIsbnsFromText,
-  parseIsbn,
+  extractBookIdentifiersFromText,
+  parseBookIdentifier,
   stripIsbn,
 } from '../utils/isbn';
 
@@ -28,10 +28,14 @@ export type ZxingModuleStatus = 'uninitialized' | 'loading' | 'ready' | 'error';
 
 export interface BarcodeEvaluationResult {
   validIsbn13: string | null;
+  validIdentifier?: string | null;
+  ean13?: string | null;
   isbn10: string | null;
+  identifierType?: BookIdentifierType;
   rawValue: string | null;
   format: string | null;
   isValidIsbn: boolean;
+  isValidIdentifier?: boolean;
   checksumError: string | null;
 }
 
@@ -134,22 +138,23 @@ function nowMs(): number {
 function explainInvalidIsbn(raw: string, format: string | null): string {
   const clean = stripIsbn(raw);
   if (/^\d{13}$/.test(clean)) {
-    if (!clean.startsWith('978') && !clean.startsWith('979')) {
-      return `Decoded ${format || 'EAN-13'} "${clean}" is not a book ISBN (must start with 978 or 979)`;
+    const expected = computeEan13CheckDigit(clean.slice(0, 12));
+    if (clean[12] !== expected) {
+      const label = clean.startsWith('978') || clean.startsWith('979') ? 'ISBN-13' : 'EAN-13';
+      return `Invalid ${label} check digit in "${clean}" (got ${clean[12]}, expected ${expected})`;
     }
-    const expected = computeIsbn13CheckDigit(clean.slice(0, 12));
-    return `Invalid ISBN-13 check digit in "${clean}" (got ${clean[12]}, expected ${expected})`;
+    return `Decoded ${format || 'EAN-13'} "${clean}" check digit is valid`;
   }
   if (/^\d{9}[\dX]$/.test(clean)) {
     const expected = computeIsbn10CheckDigit(clean.slice(0, 9));
     return `Invalid ISBN-10 check digit in "${clean}" (got ${clean[9]}, expected ${expected})`;
   }
-  return `Decoded ${format || 'barcode'} "${raw}" is not a 10- or 13-digit ISBN`;
+  return `Decoded ${format || 'barcode'} "${raw}" is not a valid 10- or 13-digit ISBN/EAN-13`;
 }
 
 /**
- * Inspects decoded barcode candidates, prioritizes EAN-13, validates ISBN check digits,
- * and preserves raw digits + checksum failure explanation for diagnostics.
+ * Inspects decoded barcode candidates, prioritizes EAN-13 / ISBN-13 / ISBN-10 / GS1 EAN-13,
+ * validates check digits strictly without digit mutation, and preserves diagnostics.
  */
 export function evaluateBarcodeDetections(
   entries: Array<{ rawValue?: string; text?: string; format?: string }>
@@ -164,6 +169,11 @@ export function evaluateBarcodeDetections(
 
   let fallbackRaw: string | null = null;
   let fallbackFmt: string | null = null;
+  let firstValidEanEntry: {
+    parsed: ReturnType<typeof parseBookIdentifier>;
+    raw: string;
+    fmt: string | null;
+  } | null = null;
 
   for (const item of sorted) {
     const raw = (item.rawValue ?? item.text ?? '').trim();
@@ -173,25 +183,52 @@ export function evaluateBarcodeDetections(
       fallbackRaw = raw;
       fallbackFmt = fmt;
     }
-    const parsed = parseIsbn(raw);
-    if (parsed.isValid && parsed.isbn13) {
+    const parsed = parseBookIdentifier(raw);
+    if (parsed.isValid && parsed.isIsbn && parsed.isbn13) {
       return {
         validIsbn13: parsed.isbn13,
+        validIdentifier: parsed.normalizedId,
+        ean13: parsed.ean13,
         isbn10: parsed.isbn10,
+        identifierType: parsed.identifierType,
         rawValue: raw,
         format: fmt || 'EAN-13',
         isValidIsbn: true,
+        isValidIdentifier: true,
         checksumError: null,
       };
     }
+    if (parsed.isValid && !firstValidEanEntry) {
+      firstValidEanEntry = { parsed, raw, fmt };
+    }
+  }
+
+  if (firstValidEanEntry) {
+    const { parsed, raw, fmt } = firstValidEanEntry;
+    return {
+      validIsbn13: null,
+      validIdentifier: parsed.normalizedId,
+      ean13: parsed.ean13,
+      isbn10: null,
+      identifierType: parsed.identifierType,
+      rawValue: raw,
+      format: fmt || 'EAN-13',
+      isValidIsbn: false,
+      isValidIdentifier: true,
+      checksumError: null,
+    };
   }
 
   return {
     validIsbn13: null,
+    validIdentifier: null,
+    ean13: null,
     isbn10: null,
+    identifierType: 'invalid',
     rawValue: fallbackRaw,
     format: fallbackFmt,
     isValidIsbn: false,
+    isValidIdentifier: false,
     checksumError: fallbackRaw ? explainInvalidIsbn(fallbackRaw, fallbackFmt) : null,
   };
 }
@@ -200,6 +237,13 @@ export function extractValidIsbnFromBarcodeValues(
   entries: Array<{ rawValue?: string; text?: string; format?: string }>
 ): string | null {
   return evaluateBarcodeDetections(entries).validIsbn13;
+}
+
+export function extractValidIdentifierFromBarcodeValues(
+  entries: Array<{ rawValue?: string; text?: string; format?: string }>
+): string | null {
+  const res = evaluateBarcodeDetections(entries);
+  return res.validIdentifier ?? res.validIsbn13;
 }
 
 async function detectWithNativeDetector(source: ImageBitmapSource): Promise<{
@@ -434,7 +478,7 @@ export async function decodeBarcodeFromRawImageDataDetailed(
     if (evalResult.rawValue && !lastRawHit) {
       lastRawHit = evalResult;
     }
-    if (evalResult.validIsbn13) {
+    if (evalResult.validIdentifier ?? evalResult.validIsbn13) {
       return {
         ...evalResult,
         decoderUsed: 'zxing',
@@ -537,7 +581,7 @@ export async function decodeBarcodeFromRawImageDataDetailed(
 
 export async function decodeBarcodeFromRawImageData(imageData: ImageData): Promise<string | null> {
   const res = await decodeBarcodeFromRawImageDataDetailed(imageData);
-  return res.validIsbn13;
+  return res.validIdentifier ?? res.validIsbn13;
 }
 
 // ============================================================================
@@ -658,7 +702,7 @@ export async function detectBarcodeFromImageFileDetailed(
     const nativeDirect = await detectWithNativeDetector(file);
     if (nativeDirect.error) lastError = nativeDirect.error;
     if (nativeDirect.evalResult.rawValue) lastRawHit = nativeDirect.evalResult;
-    if (nativeDirect.evalResult.validIsbn13) {
+    if (nativeDirect.evalResult.validIdentifier ?? nativeDirect.evalResult.validIsbn13) {
       return {
         ...nativeDirect.evalResult,
         decoderUsed: 'native',
@@ -681,7 +725,7 @@ export async function detectBarcodeFromImageFileDetailed(
     return {
       ...zDirect.evalResult,
       decoderUsed: zDirect.evalResult.rawValue ? 'zxing' : null,
-      matchedRegion: zDirect.evalResult.validIsbn13 ? 'blob_direct' : null,
+      matchedRegion: (zDirect.evalResult.validIdentifier ?? zDirect.evalResult.validIsbn13) ? 'blob_direct' : null,
       regionsExamined: [...regionsExamined, 'blob_direct'],
       nativeSupported: isNativeBarcodeDetectorSupported(),
       zxingStatus,
@@ -707,7 +751,7 @@ export async function detectBarcodeFromImageFileDetailed(
 
     if (fullImgData) {
       const nativeFull = await detectWithNativeDetector(workCanvas);
-      if (nativeFull.evalResult.validIsbn13) {
+      if (nativeFull.evalResult.validIdentifier ?? nativeFull.evalResult.validIsbn13) {
         return {
           ...nativeFull.evalResult,
           decoderUsed: 'native',
@@ -727,7 +771,7 @@ export async function detectBarcodeFromImageFileDetailed(
       }
       if (zRes.rawValue && !lastRawHit) lastRawHit = zRes;
       if (zRes.error && !lastError) lastError = zRes.error;
-      if (zRes.validIsbn13) {
+      if (zRes.validIdentifier ?? zRes.validIsbn13) {
         return {
           ...zRes,
           regionsExamined,
@@ -754,7 +798,7 @@ export async function detectBarcodeFromImageFileDetailed(
         regionsExamined.push(rotLabel);
 
         const nativeRot = await detectWithNativeDetector(rotCanvas);
-        if (nativeRot.evalResult.validIsbn13) {
+        if (nativeRot.evalResult.validIdentifier ?? nativeRot.evalResult.validIsbn13) {
           return {
             ...nativeRot.evalResult,
             decoderUsed: 'native',
@@ -773,7 +817,7 @@ export async function detectBarcodeFromImageFileDetailed(
           skipHeavyPasses: true,
         });
         if (zRot.rawValue && !lastRawHit) lastRawHit = zRot;
-        if (zRot.validIsbn13) {
+        if (zRot.validIdentifier ?? zRot.validIsbn13) {
           return {
             ...zRot,
             matchedRegion: `${rotLabel}:${zRot.matchedRegion}`,
@@ -809,7 +853,7 @@ export async function detectBarcodeFromImageFileDetailed(
 
 export async function detectBarcodeFromImageFile(file: Blob): Promise<string | null> {
   const res = await detectBarcodeFromImageFileDetailed(file);
-  return res.validIsbn13;
+  return res.validIdentifier ?? res.validIsbn13;
 }
 
 /**
@@ -881,7 +925,7 @@ export async function scanVideoFrameForBarcodeDetailed(
     const nativeHit = await detectWithNativeDetector(scratchCanvas);
     if (nativeHit.error) lastError = nativeHit.error;
     if (nativeHit.evalResult.rawValue) lastRawHit = nativeHit.evalResult;
-    if (nativeHit.evalResult.validIsbn13) {
+    if (nativeHit.evalResult.validIdentifier ?? nativeHit.evalResult.validIsbn13) {
       return {
         ...nativeHit.evalResult,
         decoderUsed: 'native',
@@ -919,7 +963,7 @@ export async function scanVideoFrameForBarcodeDetailed(
   if (zRes.rawValue && !lastRawHit) lastRawHit = zRes;
   if (zRes.error && !lastError) lastError = zRes.error;
 
-  if (zRes.validIsbn13) {
+  if (zRes.validIdentifier ?? zRes.validIsbn13) {
     return {
       ...zRes,
       regionsExamined,
@@ -933,7 +977,7 @@ export async function scanVideoFrameForBarcodeDetailed(
     if (drawRotatedCanvas(scratchCanvas, 90, rotCanvas)) {
       regionsExamined.push('native_rotated_90');
       const nativeRot = await detectWithNativeDetector(rotCanvas);
-      if (nativeRot.evalResult.validIsbn13) {
+      if (nativeRot.evalResult.validIdentifier ?? nativeRot.evalResult.validIsbn13) {
         return {
           ...nativeRot.evalResult,
           decoderUsed: 'native',
@@ -978,7 +1022,7 @@ export async function scanVideoFrameForBarcode(
     frameIndex: options?.frameIndex,
     fullPass: options?.fullPass ?? options?.fullFrame,
   });
-  return res.validIsbn13;
+  return res.validIdentifier ?? res.validIsbn13;
 }
 
 /**
@@ -998,7 +1042,7 @@ export async function detectBarcodeFromImageSourceDetailed(
   if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
     const start = nowMs();
     const nativeHit = await detectWithNativeDetector(source);
-    if (nativeHit.evalResult.validIsbn13) {
+    if (nativeHit.evalResult.validIdentifier ?? nativeHit.evalResult.validIsbn13) {
       return {
         ...nativeHit.evalResult,
         decoderUsed: 'native',
@@ -1039,7 +1083,7 @@ export async function detectBarcodeFromImageSource(
   source: Blob | File | HTMLVideoElement | HTMLCanvasElement
 ): Promise<string | null> {
   const res = await detectBarcodeFromImageSourceDetailed(source);
-  return res.validIsbn13;
+  return res.validIdentifier ?? res.validIsbn13;
 }
 
 export async function openCameraStreamWithFallback(): Promise<{
@@ -1172,8 +1216,8 @@ export async function runLocalCoverOcr(imageFile: File | Blob): Promise<OcrExtra
       .map((l) => l.trim())
       .filter((l) => l.length >= 2);
 
-    const isbns = extractIsbnsFromText(text)
-      .map((x) => x.isbn13)
+    const isbns = extractBookIdentifiersFromText(text)
+      .map((x) => x.normalizedId)
       .filter((x): x is string => Boolean(x));
 
     return {

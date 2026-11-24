@@ -1,4 +1,5 @@
 import type {
+  BookIdentifierType,
   ContributorCredit,
   FieldProvenanceEntry,
   MatchConfidence,
@@ -10,8 +11,14 @@ import type {
   ProviderLookupStatusCode,
   ProviderStatusReport,
   ProviderTier,
+  VerificationStatus,
 } from '../../types/domain';
-import { extractIsbnsFromText, isbn13ToIsbn10, normalizeIsbnTo13 } from '../../utils/isbn';
+import {
+  extractBookIdentifiersFromText,
+  isbn13ToIsbn10,
+  normalizeBookIdentifier,
+  parseBookIdentifier,
+} from '../../utils/isbn';
 
 export interface ProviderExecutionContext {
   fetchFn: typeof fetch;
@@ -144,7 +151,7 @@ export function normalizeLanguageCode(
     if (/^[a-z]{2}(-[a-z0-9]{2,8})?$/i.test(cleaned)) return cleaned;
   }
   const isbn = fallbackHints?.isbn13 ?? '';
-  if (isbn.startsWith('978604')) return 'vi';
+  if (isbn.startsWith('978604') || isbn.startsWith('978632') || isbn.startsWith('893')) return 'vi';
   if (isbn.startsWith('9784')) return 'ja';
   if (isbn.startsWith('97889')) return 'ko';
   if (isbn.startsWith('9787')) return 'zh';
@@ -155,7 +162,7 @@ export function normalizeLanguageCode(
 }
 
 export function getIsbnRegionalAffinity(isbn13: string): string {
-  if (isbn13.startsWith('978604')) return 'vi';
+  if (isbn13.startsWith('978604') || isbn13.startsWith('978632') || isbn13.startsWith('893')) return 'vi';
   if (isbn13.startsWith('9784')) return 'jp';
   if (isbn13.startsWith('97889')) return 'kr';
   if (isbn13.startsWith('9787')) return 'cn';
@@ -251,6 +258,7 @@ export function buildInitialProvenance(
   stamp('editors', Boolean(cand.editors?.length));
   stamp('publishers', cand.publishers.length > 0);
   stamp('publishingPartner', Boolean(cand.publishingPartner));
+  stamp('distributor', Boolean(cand.distributor));
   stamp('publishedYear', Boolean(cand.publishedYear));
   stamp('language', Boolean(cand.language && cand.language !== 'und'));
   stamp('format', Boolean(cand.format));
@@ -259,28 +267,34 @@ export function buildInitialProvenance(
   stamp('coverUrl', Boolean(cand.coverUrl));
   stamp('description', Boolean(cand.description));
   stamp('isbn13', Boolean(cand.isbn13));
+  stamp('ean13', Boolean(cand.ean13));
   return existing;
 }
 
 /**
- * Collects every valid normalized ISBN-13 present on a MetadataCandidate.
+ * Collects every valid normalized ISBN-13 and GS1 EAN-13 (e.g. Vietnamese 893* codes)
+ * present on a MetadataCandidate.
  */
 export function collectCandidateIsbns(candidate: MetadataCandidate): string[] {
   const out: string[] = [];
   const add = (val: string | null | undefined) => {
-    const norm = normalizeIsbnTo13(val);
+    const norm = normalizeBookIdentifier(val);
     if (norm && !out.includes(norm)) out.push(norm);
   };
 
   add(candidate.isbn13);
   add(candidate.isbn10);
+  add(candidate.ean13);
+  for (const m of candidate.matchedIdentifiers ?? []) add(m);
   for (const m of candidate.matchedIsbns ?? []) add(m);
 
   if (out.length === 0 && candidate.rawPayload) {
     try {
       const serialized = JSON.stringify(candidate.rawPayload);
-      for (const found of extractIsbnsFromText(serialized)) {
-        if (found.isbn13 && !out.includes(found.isbn13)) out.push(found.isbn13);
+      for (const found of extractBookIdentifiersFromText(serialized)) {
+        if (found.normalizedId && !out.includes(found.normalizedId)) {
+          out.push(found.normalizedId);
+        }
       }
     } catch {
       // Ignore non-serializable rawPayload
@@ -289,8 +303,10 @@ export function collectCandidateIsbns(candidate: MetadataCandidate): string[] {
   return out;
 }
 
+export const collectCandidateIdentifiers = collectCandidateIsbns;
+
 /**
- * Classifies a candidate strictly against a requested ISBN (when performing ISBN lookup)
+ * Classifies a candidate strictly against a requested ISBN/EAN-13 (when performing identifier lookup)
  * or marks as 'title_match' / 'approximate_match' for keyword search.
  */
 export function classifyCandidateMatch(
@@ -302,16 +318,23 @@ export function classifyCandidateMatch(
   candidateIsbns: string[];
   hasConflictingIsbn: boolean;
 } {
-  const candidateIsbns = collectCandidateIsbns(candidate);
-  const normReq = normalizeIsbnTo13(requestedIsbn);
+  const candidateIds = collectCandidateIsbns(candidate);
+  const candidateIsbnsOnly = candidateIds.filter((c) => c.startsWith('978') || c.startsWith('979'));
+  const parsedReq = requestedIsbn ? parseBookIdentifier(requestedIsbn) : null;
+  const normReq = parsedReq?.isValid ? parsedReq.normalizedId : null;
   const contributors = buildStructuredContributors(candidate);
 
-  if (!normReq) {
+  if (!normReq || !parsedReq) {
     const conf = candidate.matchConfidence ?? 'title_match';
     const enriched: MetadataCandidate = {
       ...candidate,
       contributors,
-      matchedIsbns: candidateIsbns,
+      matchedIsbns: candidateIsbnsOnly,
+      matchedIdentifiers: candidateIds,
+      ean13: candidate.ean13 || candidate.isbn13 || null,
+      identifierType:
+        candidate.identifierType ??
+        (candidate.isbn13 ? 'isbn13' : candidate.ean13 ? 'ean13' : undefined),
       matchConfidence: conf,
       editionMatchLevel:
         candidate.editionMatchLevel ?? (conf === 'exact_isbn' ? 'exact_edition' : 'work_match'),
@@ -320,32 +343,37 @@ export function classifyCandidateMatch(
     return {
       candidate: enriched,
       confidence: conf,
-      candidateIsbns,
+      candidateIsbns: candidateIds,
       hasConflictingIsbn: false,
     };
   }
 
-  const exactMatch = candidateIsbns.includes(normReq);
+  const exactMatch = candidateIds.includes(normReq);
   if (exactMatch) {
+    const isIsbnTarget = parsedReq.isIsbn;
     const enriched: MetadataCandidate = {
       ...candidate,
       contributors,
-      isbn13: normReq,
-      isbn10: normReq.startsWith('978') ? isbn13ToIsbn10(normReq) : null,
-      matchedIsbns: candidateIsbns,
+      isbn13: isIsbnTarget ? normReq : null,
+      isbn10: isIsbnTarget && normReq.startsWith('978') ? isbn13ToIsbn10(normReq) : null,
+      ean13: normReq,
+      identifierType: parsedReq.identifierType === 'ean13' ? 'ean13' : 'isbn13',
+      matchedIsbns: candidateIsbnsOnly,
+      matchedIdentifiers: candidateIds,
       matchConfidence: 'exact_isbn',
       editionMatchLevel: 'exact_edition',
+      mismatchReason: undefined,
     };
     enriched.fieldProvenance = buildInitialProvenance(enriched, 'verified');
     return {
       candidate: enriched,
       confidence: 'exact_isbn',
-      candidateIsbns,
+      candidateIsbns: candidateIds,
       hasConflictingIsbn: false,
     };
   }
 
-  const hasConflictingIsbn = candidateIsbns.length > 0;
+  const hasConflictingIsbn = candidateIds.length > 0;
   const conf: MatchConfidence =
     candidate.matchConfidence === 'approximate_match' || candidate.matchConfidence === 'title_match'
       ? candidate.matchConfidence
@@ -353,15 +381,19 @@ export function classifyCandidateMatch(
   const enriched: MetadataCandidate = {
     ...candidate,
     contributors,
-    matchedIsbns: candidateIsbns,
+    matchedIsbns: candidateIsbnsOnly,
+    matchedIdentifiers: candidateIds,
     matchConfidence: conf,
     editionMatchLevel: hasConflictingIsbn ? 'related_edition' : 'possible_edition',
+    mismatchReason: hasConflictingIsbn
+      ? `Source identifier (${candidateIds[0]}) does not match requested ${normReq}`
+      : `Source record did not contain verifiable identifier ${normReq}`,
   };
   enriched.fieldProvenance = buildInitialProvenance(enriched, 'approximate');
   return {
     candidate: enriched,
     confidence: conf,
-    candidateIsbns,
+    candidateIsbns: candidateIds,
     hasConflictingIsbn,
   };
 }
@@ -457,6 +489,13 @@ function mergeTwoCandidates(
       secondary.provider
     );
   }
+  recordConflict('distributor', primary.distributor, secondary.distributor, secondary.provider);
+  recordConflict(
+    'publishingPartner',
+    primary.publishingPartner,
+    secondary.publishingPartner,
+    secondary.provider
+  );
 
   const authors = [...primary.authors];
   addUniqueStrings(authors, secondary.authors);
@@ -479,6 +518,11 @@ function mergeTwoCandidates(
   const matchedIsbns = [...(primary.matchedIsbns ?? [])];
   for (const code of secondary.matchedIsbns ?? []) {
     if (!matchedIsbns.includes(code)) matchedIsbns.push(code);
+  }
+
+  const matchedIdentifiers = [...(primary.matchedIdentifiers ?? [])];
+  for (const code of secondary.matchedIdentifiers ?? []) {
+    if (!matchedIdentifiers.includes(code)) matchedIdentifiers.push(code);
   }
 
   const sources = new Set<MetadataProviderName>([
@@ -509,6 +553,7 @@ function mergeTwoCandidates(
   takeProvIfFilled('editors', Boolean(primary.editors?.length), editors.length > 0);
   takeProvIfFilled('publishers', primary.publishers.length > 0, publishers.length > 0);
   takeProvIfFilled('publishingPartner', Boolean(primary.publishingPartner), Boolean(primary.publishingPartner || secondary.publishingPartner));
+  takeProvIfFilled('distributor', Boolean(primary.distributor), Boolean(primary.distributor || secondary.distributor));
   takeProvIfFilled('publishedYear', Boolean(primary.publishedYear), Boolean(primary.publishedYear ?? secondary.publishedYear));
   takeProvIfFilled('language', Boolean(primary.language && primary.language !== 'und'), Boolean((primary.language && primary.language !== 'und') || secondary.language));
   takeProvIfFilled('format', Boolean(primary.format), Boolean(primary.format || secondary.format));
@@ -516,6 +561,7 @@ function mergeTwoCandidates(
   takeProvIfFilled('coverUrl', Boolean(primary.coverUrl), Boolean(primary.coverUrl || secondary.coverUrl));
   takeProvIfFilled('description', Boolean(primary.description), Boolean(primary.description || secondary.description));
   takeProvIfFilled('isbn13', Boolean(primary.isbn13), Boolean(primary.isbn13 || secondary.isbn13));
+  takeProvIfFilled('ean13', Boolean(primary.ean13), Boolean(primary.ean13 || secondary.ean13));
 
   const description =
     primary.description && primary.description.length >= (secondary.description?.length ?? 0)
@@ -549,6 +595,7 @@ function mergeTwoCandidates(
     contributors,
     publishers,
     publishingPartner: primary.publishingPartner || secondary.publishingPartner,
+    distributor: primary.distributor || secondary.distributor,
     publishedDate: primary.publishedDate || secondary.publishedDate,
     publishedYear: primary.publishedYear ?? secondary.publishedYear ?? null,
     language,
@@ -558,11 +605,15 @@ function mergeTwoCandidates(
     description,
     isbn13: primary.isbn13 || secondary.isbn13 || null,
     isbn10: primary.isbn10 || secondary.isbn10 || null,
+    ean13: primary.ean13 || secondary.ean13 || primary.isbn13 || secondary.isbn13 || null,
+    identifierType: primary.identifierType || secondary.identifierType,
     matchedIsbns,
+    matchedIdentifiers,
     coverUrl: primary.coverUrl || secondary.coverUrl,
     seriesName: primary.seriesName || secondary.seriesName,
     volumeNumber: primary.volumeNumber || secondary.volumeNumber,
     sourceUrl: primary.sourceUrl || secondary.sourceUrl,
+    retrievedAt: primary.retrievedAt || secondary.retrievedAt,
     sources: Array.from(sources),
     conflicts: conflicts.length > 0 ? conflicts : undefined,
     contradictions: contradictions.length > 0 ? contradictions : undefined,
@@ -579,7 +630,8 @@ function mergeTwoCandidates(
 }
 
 function buildEditionIdentityKey(c: MetadataCandidate): string {
-  if (c.isbn13) return `isbn:${c.isbn13}`;
+  const idKey = c.isbn13 || c.ean13;
+  if (idKey) return `id:${idKey}`;
   // Never merge distinct editions just because title/authors match — differentiate by language, format, publisher, year, volume
   return [
     normalizeTextKey(c.title),
@@ -660,10 +712,11 @@ export function partitionAndMergeCandidates(
       continue;
     }
 
-    if (cand.matchConfidence === 'exact_isbn' && cand.isbn13) {
-      const group = exactByIsbn.get(cand.isbn13) ?? [];
+    if (cand.matchConfidence === 'exact_isbn' && (cand.isbn13 || cand.ean13)) {
+      const exactKey = cand.isbn13 || cand.ean13!;
+      const group = exactByIsbn.get(exactKey) ?? [];
       group.push(cand);
-      exactByIsbn.set(cand.isbn13, group);
+      exactByIsbn.set(exactKey, group);
     } else {
       const key = buildEditionIdentityKey(cand);
       const group = possibleOrWorkByKey.get(key) ?? [];
@@ -761,7 +814,7 @@ export function mergeAndEnrichCandidates(
 
 export function classifyProviderError(
   err: unknown,
-  adapter: Pick<MetadataProviderAdapter, 'supportsDirectBrowserCors'>
+  adapter: Pick<MetadataProviderAdapter, 'supportsDirectBrowserCors'> & { name?: MetadataProviderName }
 ): {
   status: ProviderLookupStatusCode;
   message: string;
@@ -783,13 +836,100 @@ export function classifyProviderError(
       };
     }
   }
-  if (lower.includes('429') || lower.includes('quota') || lower.includes('api key')) {
+  if (
+    lower.includes('api key') ||
+    lower.includes('quota') ||
+    (lower.includes('429') && adapter.name === 'google_books')
+  ) {
     return { status: 'api_key_required', message: msg };
   }
-  if (lower.includes('403') || lower.includes('cloudflare') || lower.includes('access denied')) {
+  if (lower.includes('429') || lower.includes('rate limit')) {
+    return { status: 'upstream_error', message: msg };
+  }
+  if (
+    lower.includes('401') ||
+    lower.includes('403') ||
+    lower.includes('cloudflare') ||
+    lower.includes('access denied') ||
+    lower.includes('captcha')
+  ) {
     return { status: 'access_denied', message: msg };
   }
   return { status: 'upstream_error', message: msg || 'Provider request failed' };
+}
+
+export function deriveVerificationOutcome(params: {
+  mode: 'isbn' | 'query';
+  parsedIdentifier: ReturnType<typeof parseBookIdentifier> | null;
+  exactMatches: MetadataCandidate[];
+  possibleEditionMatches: MetadataCandidate[];
+  identityMismatches: MetadataCandidate[];
+  providerStatuses: ProviderStatusReport[];
+}): {
+  verificationStatus: VerificationStatus;
+  verificationMessage: string;
+} {
+  const {
+    mode,
+    parsedIdentifier,
+    exactMatches,
+    possibleEditionMatches,
+    identityMismatches,
+    providerStatuses,
+  } = params;
+
+  if (mode === 'isbn' && parsedIdentifier && !parsedIdentifier.isValid) {
+    return {
+      verificationStatus: 'invalid_identifier',
+      verificationMessage: parsedIdentifier.errorReason ?? 'Invalid ISBN-10, ISBN-13, or EAN-13 check digit.',
+    };
+  }
+
+  if (exactMatches.length > 0) {
+    return {
+      verificationStatus: 'verified_match',
+      verificationMessage:
+        parsedIdentifier?.identifierType === 'ean13'
+          ? `Exact GS1 EAN-13 match verified across ${exactMatches[0].sources?.length ?? 1} source(s).`
+          : `Exact ISBN match verified across ${exactMatches[0].sources?.length ?? 1} source(s).`,
+    };
+  }
+
+  if (possibleEditionMatches.some((c) => (c.contradictions?.length ?? 0) > 0)) {
+    return {
+      verificationStatus: 'conflicting_records',
+      verificationMessage: 'Providers returned contradictory book titles for the same identifier.',
+    };
+  }
+
+  if (identityMismatches.length > 0) {
+    return {
+      verificationStatus: 'identity_mismatch',
+      verificationMessage: `Returned source record(s) carry a different identifier (${identityMismatches[0].isbn13 || identityMismatches[0].ean13 || 'mismatch'}) and were rejected from exact matches.`,
+    };
+  }
+
+  const degraded = providerStatuses.some((s) =>
+    ['timeout', 'access_denied', 'upstream_error', 'api_key_required', 'proxy_required'].includes(s.status)
+  );
+  if (possibleEditionMatches.length > 0 || degraded) {
+    const idLabel =
+      parsedIdentifier?.identifierType === 'ean13' ? 'valid EAN-13 barcode' : 'valid identifier';
+    return {
+      verificationStatus: 'valid_identifier_unconfirmed',
+      verificationMessage: degraded
+        ? `Check digit is valid (${idLabel}), but one or more upstream sources could not be verified.`
+        : `Check digit is valid (${idLabel}), with only unverified candidate records found.`,
+    };
+  }
+
+  return {
+    verificationStatus: 'not_found',
+    verificationMessage:
+      parsedIdentifier?.isValid
+        ? `Identifier check digit is valid (${parsedIdentifier.identifierType.toUpperCase()}), but no matching bibliographic record was found across queried catalogues.`
+        : 'No matching records found.',
+  };
 }
 
 export async function runProvidersWithIsolation(params: {
@@ -798,22 +938,54 @@ export async function runProvidersWithIsolation(params: {
   adapters: MetadataProviderAdapter[];
   ctx: ProviderExecutionContext;
 }): Promise<MetadataLookupResult> {
-  const normIsbn = params.mode === 'isbn' ? normalizeIsbnTo13(params.input) : null;
+  const retrievedAt = new Date().toISOString();
+  const parsedInput = params.mode === 'isbn' ? parseBookIdentifier(params.input) : null;
+  const normId = parsedInput?.isValid ? parsedInput.normalizedId : null;
+  const identifierType: BookIdentifierType | undefined =
+    params.mode === 'isbn' ? parsedInput?.identifierType ?? 'invalid' : undefined;
+
+  if (params.mode === 'isbn' && (!parsedInput || !parsedInput.isValid || !normId)) {
+    return {
+      candidates: [],
+      exactMatches: [],
+      possibleEditionMatches: [],
+      relatedEditions: [],
+      workMatches: [],
+      approximateMatches: [],
+      identityMismatches: [],
+      providerStatuses: [],
+      queriedIsbn: null,
+      rawIdentifier: params.input,
+      normalizedIdentifier: null,
+      identifierType: 'invalid',
+      verificationStatus: 'invalid_identifier',
+      verificationMessage: parsedInput?.errorReason ?? 'Invalid ISBN or EAN-13 identifier.',
+      retrievedAt,
+      exactMatchCount: 0,
+    };
+  }
+
   const rawResults: MetadataCandidate[] = [];
+  const rawMismatchResults: MetadataCandidate[] = [];
 
   const settled = await Promise.all(
     params.adapters.map(async (adapter): Promise<ProviderStatusReport> => {
       try {
         const list =
           params.mode === 'isbn'
-            ? await adapter.lookupByIsbn(normIsbn ?? params.input, params.ctx)
+            ? await adapter.lookupByIsbn(normId ?? params.input, params.ctx)
             : await adapter.search(params.input, params.ctx);
 
         let exactCount = 0;
         const accepted: MetadataCandidate[] = [];
         for (const item of list) {
-          const classified = classifyCandidateMatch(item, normIsbn);
-          if (normIsbn && classified.hasConflictingIsbn) {
+          const itemWithTimestamp: MetadataCandidate = {
+            ...item,
+            retrievedAt: item.retrievedAt ?? retrievedAt,
+          };
+          const classified = classifyCandidateMatch(itemWithTimestamp, normId);
+          if (normId && classified.hasConflictingIsbn) {
+            rawMismatchResults.push(classified.candidate);
             continue;
           }
           if (classified.confidence === 'exact_isbn') exactCount++;
@@ -837,6 +1009,10 @@ export async function runProvidersWithIsolation(params: {
           status,
           candidateCount: accepted.length,
           exactMatchCount: exactCount,
+          message:
+            accepted.length === 0 && rawMismatchResults.some((m) => m.provider === adapter.name)
+              ? 'Returned record(s) with non-matching identifier rejected'
+              : undefined,
         };
       } catch (err) {
         const info = classifyProviderError(err, adapter);
@@ -854,7 +1030,21 @@ export async function runProvidersWithIsolation(params: {
     })
   );
 
-  const partitioned = partitionAndMergeCandidates(rawResults, normIsbn);
+  const partitioned = partitionAndMergeCandidates(rawResults, normId);
+  const mismatchPartitioned =
+    rawMismatchResults.length > 0
+      ? partitionAndMergeCandidates(rawMismatchResults, normId)
+      : null;
+  const identityMismatches = mismatchPartitioned?.relatedEditions ?? [];
+
+  const outcome = deriveVerificationOutcome({
+    mode: params.mode,
+    parsedIdentifier: parsedInput,
+    exactMatches: partitioned.exactMatches,
+    possibleEditionMatches: partitioned.possibleEditionMatches,
+    identityMismatches,
+    providerStatuses: settled,
+  });
 
   return {
     candidates: partitioned.primaryCandidates,
@@ -863,8 +1053,15 @@ export async function runProvidersWithIsolation(params: {
     relatedEditions: partitioned.relatedEditions,
     workMatches: partitioned.workMatches,
     approximateMatches: partitioned.approximateMatches,
+    identityMismatches,
     providerStatuses: settled,
-    queriedIsbn: normIsbn,
+    queriedIsbn: normId,
+    rawIdentifier: params.input,
+    normalizedIdentifier: normId,
+    identifierType,
+    verificationStatus: outcome.verificationStatus,
+    verificationMessage: outcome.verificationMessage,
+    retrievedAt,
     exactMatchCount: partitioned.exactMatches.length,
   };
 }
@@ -877,6 +1074,7 @@ export interface ManualDraftFields {
   illustratorsText: string;
   publishersText: string;
   publishingPartner: string;
+  distributorText?: string;
   genresText: string;
   language: string;
   pageCount: string;
@@ -910,10 +1108,10 @@ export function mergeCandidateIntoDraft(
     provKey: string,
     incoming: string | undefined | null
   ): string => {
-    const existingVal = current[field].trim();
+    const existingVal = (current[field] ?? '').trim();
     if (edited.has(field) && existingVal) {
       nextProvenance[provKey] = { provider: 'manual', trust: 'manual' };
-      return current[field];
+      return current[field] ?? '';
     }
     const cleanIncoming = incoming?.trim();
     if (cleanIncoming) {
@@ -923,7 +1121,7 @@ export function mergeCandidateIntoDraft(
       };
       return cleanIncoming;
     }
-    return current[field];
+    return current[field] ?? '';
   };
 
   return {
@@ -934,6 +1132,7 @@ export function mergeCandidateIntoDraft(
     illustratorsText: pickString('illustratorsText', 'illustrators', (cand.illustrators ?? []).join(', ')),
     publishersText: pickString('publishersText', 'publishers', cand.publishers.join(', ')),
     publishingPartner: pickString('publishingPartner', 'publishingPartner', cand.publishingPartner),
+    distributorText: pickString('distributorText', 'distributor', cand.distributor),
     genresText: pickString('genresText', 'genres', cand.genres.join(', ')),
     language: pickString('language', 'language', cand.language && cand.language !== 'und' ? cand.language : ''),
     pageCount: pickString('pageCount', 'pageCount', cand.pageCount ? String(cand.pageCount) : ''),
@@ -942,7 +1141,7 @@ export function mergeCandidateIntoDraft(
     volumeNumber: pickString('volumeNumber', 'volumeNumber', cand.volumeNumber),
     coverUrl: pickString('coverUrl', 'coverUrl', cand.coverUrl),
     description: pickString('description', 'description', cand.description),
-    isbnInput: pickString('isbnInput', 'isbn13', cand.isbn13 || cand.isbn10 || ''),
+    isbnInput: pickString('isbnInput', 'isbn13', cand.isbn13 || cand.ean13 || cand.isbn10 || ''),
     fieldProvenance: nextProvenance,
   };
 }

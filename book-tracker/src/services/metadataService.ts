@@ -1,15 +1,18 @@
 import { createUuid, db } from '../db/dexie';
 import { getSupabaseClient } from '../lib/supabase';
 import type {
+  BookIdentifierType,
   MetadataCandidate,
   MetadataLookupResult,
   MetadataProviderName,
   MetadataRecord,
   ProviderStatusReport,
+  VerificationStatus,
 } from '../types/domain';
-import { parseIsbn } from '../utils/isbn';
+import { parseBookIdentifier } from '../utils/isbn';
 import {
   classifyCandidateMatch,
+  deriveVerificationOutcome,
   getIsbnRegionalAffinity,
   isSufficientlyVerifiedEdition,
   partitionAndMergeCandidates,
@@ -283,7 +286,13 @@ function normalizeEdgePayload(
     relatedEditions?: MetadataCandidate[];
     workMatches?: MetadataCandidate[];
     approximateMatches?: MetadataCandidate[];
+    identityMismatches?: MetadataCandidate[];
     stagesExecuted?: string[];
+    rawIdentifier?: string;
+    identifierType?: BookIdentifierType;
+    verificationStatus?: VerificationStatus;
+    verificationMessage?: string;
+    retrievedAt?: string;
   }
 ): MetadataLookupResult {
   const allRaw = [
@@ -299,6 +308,22 @@ function normalizeEdgePayload(
     matchConfidence: 'approximate_match' as const,
   }));
 
+  const mismatchPartitioned =
+    extra?.identityMismatches && extra.identityMismatches.length > 0
+      ? partitionAndMergeCandidates(extra.identityMismatches, targetIsbn)
+      : null;
+  const identityMismatches = mismatchPartitioned?.relatedEditions ?? [];
+
+  const parsedIdentifier = targetIsbn ? parseBookIdentifier(targetIsbn) : null;
+  const derived = deriveVerificationOutcome({
+    mode: targetIsbn ? 'isbn' : 'query',
+    parsedIdentifier,
+    exactMatches: partitioned.exactMatches,
+    possibleEditionMatches: partitioned.possibleEditionMatches,
+    identityMismatches,
+    providerStatuses,
+  });
+
   return {
     candidates: partitioned.primaryCandidates,
     exactMatches: partitioned.exactMatches,
@@ -307,8 +332,15 @@ function normalizeEdgePayload(
     workMatches: partitioned.workMatches,
     approximateMatches:
       partitioned.approximateMatches.length > 0 ? partitioned.approximateMatches : fallbackApprox,
+    identityMismatches,
     providerStatuses,
     queriedIsbn: targetIsbn,
+    rawIdentifier: extra?.rawIdentifier ?? targetIsbn ?? undefined,
+    normalizedIdentifier: targetIsbn,
+    identifierType: extra?.identifierType ?? parsedIdentifier?.identifierType,
+    verificationStatus: extra?.verificationStatus ?? derived.verificationStatus,
+    verificationMessage: extra?.verificationMessage ?? derived.verificationMessage,
+    retrievedAt: extra?.retrievedAt ?? new Date().toISOString(),
     exactMatchCount: partitioned.exactMatches.length,
     stagesExecuted: extra?.stagesExecuted,
     fromCache: false,
@@ -318,7 +350,9 @@ function normalizeEdgePayload(
 function mergeTwoStageResults(
   stage1: MetadataLookupResult,
   stage2: MetadataLookupResult,
-  normIsbn: string | null
+  normIsbn: string | null,
+  rawIdentifier?: string,
+  parsedIdentifier?: ReturnType<typeof parseBookIdentifier> | null
 ): MetadataLookupResult {
   const combinedRaw = [
     ...(stage1.exactMatches ?? []),
@@ -330,10 +364,30 @@ function mergeTwoStageResults(
     ...(stage2.relatedEditions ?? []),
     ...(stage2.workMatches ?? []),
   ];
+  const combinedMismatchesRaw = [
+    ...(stage1.identityMismatches ?? []),
+    ...(stage2.identityMismatches ?? []),
+  ];
   const partitioned = partitionAndMergeCandidates(combinedRaw, normIsbn);
+  const mismatchPartitioned =
+    combinedMismatchesRaw.length > 0
+      ? partitionAndMergeCandidates(combinedMismatchesRaw, normIsbn)
+      : null;
+  const identityMismatches = mismatchPartitioned?.relatedEditions ?? [];
   const statusMap = new Map<MetadataProviderName, ProviderStatusReport>();
   for (const s of stage1.providerStatuses) statusMap.set(s.provider, s);
   for (const s of stage2.providerStatuses) statusMap.set(s.provider, s);
+  const mergedStatuses = Array.from(statusMap.values());
+
+  const resolvedParsed = parsedIdentifier ?? (normIsbn ? parseBookIdentifier(normIsbn) : null);
+  const outcome = deriveVerificationOutcome({
+    mode: normIsbn ? 'isbn' : 'query',
+    parsedIdentifier: resolvedParsed,
+    exactMatches: partitioned.exactMatches,
+    possibleEditionMatches: partitioned.possibleEditionMatches,
+    identityMismatches,
+    providerStatuses: mergedStatuses,
+  });
 
   return {
     candidates: partitioned.primaryCandidates,
@@ -342,8 +396,15 @@ function mergeTwoStageResults(
     relatedEditions: partitioned.relatedEditions,
     workMatches: partitioned.workMatches,
     approximateMatches: partitioned.approximateMatches,
-    providerStatuses: Array.from(statusMap.values()),
+    identityMismatches,
+    providerStatuses: mergedStatuses,
     queriedIsbn: normIsbn,
+    rawIdentifier: rawIdentifier ?? stage1.rawIdentifier ?? normIsbn ?? undefined,
+    normalizedIdentifier: normIsbn,
+    identifierType: resolvedParsed?.identifierType ?? stage1.identifierType,
+    verificationStatus: outcome.verificationStatus,
+    verificationMessage: outcome.verificationMessage,
+    retrievedAt: stage2.retrievedAt || stage1.retrievedAt || new Date().toISOString(),
     exactMatchCount: partitioned.exactMatches.length,
     stagesExecuted: Array.from(
       new Set([...(stage1.stagesExecuted ?? ['stage1']), ...(stage2.stagesExecuted ?? ['stage2'])])
@@ -356,9 +417,9 @@ export async function lookupMetadataWithReportByIsbn(
   rawIsbn: string,
   options: LookupOptions = {}
 ): Promise<MetadataLookupResult> {
-  const parsed = parseIsbn(rawIsbn);
-  const queryIsbn = parsed.isbn13 || rawIsbn.replace(/[^0-9Xx]/g, '').toUpperCase();
-  if (!queryIsbn) {
+  const retrievedAt = new Date().toISOString();
+  const parsed = parseBookIdentifier(rawIsbn);
+  if (!parsed.isValid || !parsed.normalizedId) {
     return {
       candidates: [],
       exactMatches: [],
@@ -366,14 +427,21 @@ export async function lookupMetadataWithReportByIsbn(
       relatedEditions: [],
       workMatches: [],
       approximateMatches: [],
+      identityMismatches: [],
       providerStatuses: [],
       queriedIsbn: null,
+      rawIdentifier: rawIsbn,
+      normalizedIdentifier: null,
+      identifierType: 'invalid',
+      verificationStatus: 'invalid_identifier',
+      verificationMessage: parsed.errorReason ?? 'Invalid ISBN-10, ISBN-13, or EAN-13 identifier.',
+      retrievedAt,
       exactMatchCount: 0,
       fromCache: false,
     };
   }
 
-  const normalizedKey = parsed.isbn13 || queryIsbn;
+  const normalizedKey = parsed.normalizedId;
   const isCustomHarness = Boolean(options.fetchFn || options.adapters);
   const shouldUseCache =
     options.bypassCache !== true &&
@@ -427,7 +495,7 @@ export async function lookupMetadataWithReportByIsbn(
       stagesExecuted: ['retry_failed'],
     };
 
-    const merged = mergeTwoStageResults(cachedEntry, combinedRetry, parsed.isbn13);
+    const merged = mergeTwoStageResults(cachedEntry, combinedRetry, normalizedKey, rawIsbn, parsed);
     if (options.useCache !== false) {
       setCachedResult(cacheKey, merged, resolveCacheTtl(merged, options));
     }
@@ -446,7 +514,7 @@ export async function lookupMetadataWithReportByIsbn(
         Array.isArray(proxyData.providerStatuses)
           ? (proxyData.providerStatuses as ProviderStatusReport[])
           : [],
-        parsed.isbn13 ?? normalizedKey,
+        normalizedKey,
         {
           possibleEditionMatches: Array.isArray(proxyData.possibleEditionMatches)
             ? (proxyData.possibleEditionMatches as MetadataCandidate[])
@@ -460,12 +528,29 @@ export async function lookupMetadataWithReportByIsbn(
           approximateMatches: Array.isArray(proxyData.approximateMatches)
             ? (proxyData.approximateMatches as MetadataCandidate[])
             : undefined,
+          identityMismatches: Array.isArray(proxyData.identityMismatches)
+            ? (proxyData.identityMismatches as MetadataCandidate[])
+            : undefined,
           stagesExecuted: Array.isArray(proxyData.stagesExecuted)
             ? (proxyData.stagesExecuted as string[])
             : ['server_proxy'],
+          rawIdentifier: rawIsbn,
+          identifierType:
+            (proxyData.identifierType as BookIdentifierType | undefined) ?? parsed.identifierType,
+          verificationStatus: proxyData.verificationStatus as VerificationStatus | undefined,
+          verificationMessage:
+            typeof proxyData.verificationMessage === 'string'
+              ? proxyData.verificationMessage
+              : undefined,
+          retrievedAt:
+            typeof proxyData.retrievedAt === 'string' ? proxyData.retrievedAt : retrievedAt,
         }
       );
-      if (proxyRes.candidates.length > 0 || proxyRes.providerStatuses.length > 0) {
+      if (
+        proxyRes.candidates.length > 0 ||
+        proxyRes.providerStatuses.length > 0 ||
+        (proxyRes.identityMismatches?.length ?? 0) > 0
+      ) {
         if (shouldUseCache || options.useCache === true) {
           setCachedResult(cacheKey, proxyRes, resolveCacheTtl(proxyRes, options));
         }
@@ -488,7 +573,7 @@ export async function lookupMetadataWithReportByIsbn(
             Array.isArray(data.providerStatuses)
               ? (data.providerStatuses as ProviderStatusReport[])
               : [],
-            parsed.isbn13 ?? normalizedKey,
+            normalizedKey,
             {
               possibleEditionMatches: Array.isArray(data.possibleEditionMatches)
                 ? (data.possibleEditionMatches as MetadataCandidate[])
@@ -502,12 +587,29 @@ export async function lookupMetadataWithReportByIsbn(
               approximateMatches: Array.isArray(data.approximateMatches)
                 ? (data.approximateMatches as MetadataCandidate[])
                 : undefined,
+              identityMismatches: Array.isArray(data.identityMismatches)
+                ? (data.identityMismatches as MetadataCandidate[])
+                : undefined,
               stagesExecuted: Array.isArray(data.stagesExecuted)
                 ? (data.stagesExecuted as string[])
                 : ['edge'],
+              rawIdentifier: rawIsbn,
+              identifierType:
+                (data.identifierType as BookIdentifierType | undefined) ?? parsed.identifierType,
+              verificationStatus: data.verificationStatus as VerificationStatus | undefined,
+              verificationMessage:
+                typeof data.verificationMessage === 'string'
+                  ? data.verificationMessage
+                  : undefined,
+              retrievedAt:
+                typeof data.retrievedAt === 'string' ? data.retrievedAt : retrievedAt,
             }
           );
-          if (edgeRes.candidates.length > 0 || edgeRes.providerStatuses.length > 0) {
+          if (
+            edgeRes.candidates.length > 0 ||
+            edgeRes.providerStatuses.length > 0 ||
+            (edgeRes.identityMismatches?.length ?? 0) > 0
+          ) {
             if (shouldUseCache || options.useCache === true) {
               setCachedResult(cacheKey, edgeRes, resolveCacheTtl(edgeRes, options));
             }
@@ -551,7 +653,7 @@ export async function lookupMetadataWithReportByIsbn(
       ctx,
     });
     stage2Result.stagesExecuted = ['stage2'];
-    combinedResult = mergeTwoStageResults(stage1Result, stage2Result, parsed.isbn13 ?? normalizedKey);
+    combinedResult = mergeTwoStageResults(stage1Result, stage2Result, normalizedKey, rawIsbn, parsed);
   }
 
   let approximateMatches = combinedResult.approximateMatches ?? [];
@@ -586,6 +688,16 @@ export async function lookupMetadataWithReportByIsbn(
     ...blockedReports.filter((b) => !executedSet.has(b.provider)),
   ];
 
+  const identityMismatches = combinedResult.identityMismatches ?? [];
+  const finalOutcome = deriveVerificationOutcome({
+    mode: 'isbn',
+    parsedIdentifier: parsed,
+    exactMatches: combinedResult.exactMatches ?? [],
+    possibleEditionMatches,
+    identityMismatches,
+    providerStatuses: mergedStatuses,
+  });
+
   const finalResult: MetadataLookupResult = {
     candidates:
       combinedResult.exactMatchCount > 0
@@ -596,8 +708,15 @@ export async function lookupMetadataWithReportByIsbn(
     relatedEditions: combinedResult.relatedEditions ?? [],
     workMatches,
     approximateMatches,
+    identityMismatches,
     providerStatuses: mergedStatuses,
-    queriedIsbn: parsed.isbn13 ?? normalizedKey,
+    queriedIsbn: normalizedKey,
+    rawIdentifier: rawIsbn,
+    normalizedIdentifier: normalizedKey,
+    identifierType: parsed.identifierType,
+    verificationStatus: finalOutcome.verificationStatus,
+    verificationMessage: finalOutcome.verificationMessage,
+    retrievedAt: combinedResult.retrievedAt ?? retrievedAt,
     exactMatchCount: combinedResult.exactMatchCount,
     stagesExecuted: combinedResult.stagesExecuted ?? ['stage1'],
     fromCache: false,
@@ -764,6 +883,7 @@ export async function recordProviderMetadata(params: {
     provider: params.candidate.provider,
     externalId: params.candidate.externalId,
     isbn13: params.candidate.isbn13 ?? null,
+    ean13: params.candidate.ean13 ?? params.candidate.isbn13 ?? null,
     rawPayload: params.candidate.rawPayload,
     fetchedAt: new Date().toISOString(),
   };

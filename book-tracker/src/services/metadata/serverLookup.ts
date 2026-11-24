@@ -1,10 +1,13 @@
 import type {
+  BookIdentifierType,
+  MetadataCandidate,
   MetadataLookupResult,
   MetadataProviderName,
   ProviderStatusReport,
 } from '../../types/domain';
-import { parseIsbn } from '../../utils/isbn';
+import { parseBookIdentifier } from '../../utils/isbn';
 import {
+  deriveVerificationOutcome,
   getIsbnRegionalAffinity,
   isSufficientlyVerifiedEdition,
   partitionAndMergeCandidates,
@@ -55,7 +58,9 @@ function partitionStageAdapters(
 function mergeStageResults(
   stage1: MetadataLookupResult,
   stage2: MetadataLookupResult,
-  normIsbn: string | null
+  normIsbn: string | null,
+  rawIdentifier: string,
+  parsedIdentifier: ReturnType<typeof parseBookIdentifier>
 ): MetadataLookupResult {
   const combinedRaw = [
     ...(stage1.exactMatches ?? []),
@@ -67,10 +72,29 @@ function mergeStageResults(
     ...(stage2.relatedEditions ?? []),
     ...(stage2.workMatches ?? []),
   ];
+  const combinedMismatchesRaw: MetadataCandidate[] = [
+    ...(stage1.identityMismatches ?? []),
+    ...(stage2.identityMismatches ?? []),
+  ];
   const partitioned = partitionAndMergeCandidates(combinedRaw, normIsbn);
+  const mismatchPartitioned =
+    combinedMismatchesRaw.length > 0
+      ? partitionAndMergeCandidates(combinedMismatchesRaw, normIsbn)
+      : null;
+  const identityMismatches = mismatchPartitioned?.relatedEditions ?? [];
   const statusMap = new Map<MetadataProviderName, ProviderStatusReport>();
   for (const s of stage1.providerStatuses) statusMap.set(s.provider, s);
   for (const s of stage2.providerStatuses) statusMap.set(s.provider, s);
+  const mergedStatuses = Array.from(statusMap.values());
+
+  const outcome = deriveVerificationOutcome({
+    mode: 'isbn',
+    parsedIdentifier,
+    exactMatches: partitioned.exactMatches,
+    possibleEditionMatches: partitioned.possibleEditionMatches,
+    identityMismatches,
+    providerStatuses: mergedStatuses,
+  });
 
   return {
     candidates: partitioned.primaryCandidates,
@@ -79,8 +103,15 @@ function mergeStageResults(
     relatedEditions: partitioned.relatedEditions,
     workMatches: partitioned.workMatches,
     approximateMatches: partitioned.approximateMatches,
-    providerStatuses: Array.from(statusMap.values()),
+    identityMismatches,
+    providerStatuses: mergedStatuses,
     queriedIsbn: normIsbn,
+    rawIdentifier,
+    normalizedIdentifier: normIsbn,
+    identifierType: parsedIdentifier.identifierType,
+    verificationStatus: outcome.verificationStatus,
+    verificationMessage: outcome.verificationMessage,
+    retrievedAt: stage2.retrievedAt || stage1.retrievedAt || new Date().toISOString(),
     exactMatchCount: partitioned.exactMatches.length,
     stagesExecuted: Array.from(
       new Set([...(stage1.stagesExecuted ?? ['stage1']), ...(stage2.stagesExecuted ?? ['stage2'])])
@@ -97,6 +128,7 @@ function mergeStageResults(
 export async function executeServerBookLookup(
   request: ServerBookLookupRequest
 ): Promise<MetadataLookupResult> {
+  const retrievedAt = new Date().toISOString();
   const env = typeof process !== 'undefined' ? process.env : {};
   const ctx: ProviderExecutionContext = {
     fetchFn: request.fetchFn ?? fetch,
@@ -111,9 +143,8 @@ export async function executeServerBookLookup(
 
   const rawIsbn = request.isbn?.trim();
   if (rawIsbn) {
-    const parsed = parseIsbn(rawIsbn);
-    const queryIsbn = parsed.isbn13 || rawIsbn.replace(/[^0-9Xx]/g, '').toUpperCase();
-    if (!queryIsbn) {
+    const parsed = parseBookIdentifier(rawIsbn);
+    if (!parsed.isValid || !parsed.normalizedId) {
       return {
         candidates: [],
         exactMatches: [],
@@ -121,22 +152,30 @@ export async function executeServerBookLookup(
         relatedEditions: [],
         workMatches: [],
         approximateMatches: [],
+        identityMismatches: [],
         providerStatuses: [],
         queriedIsbn: null,
+        rawIdentifier: rawIsbn,
+        normalizedIdentifier: null,
+        identifierType: 'invalid',
+        verificationStatus: 'invalid_identifier',
+        verificationMessage: parsed.errorReason ?? 'Invalid ISBN-10, ISBN-13, or EAN-13 identifier.',
+        retrievedAt,
         exactMatchCount: 0,
         stagesExecuted: ['server_proxy'],
         fromCache: false,
       };
     }
 
-    const affinity = getIsbnRegionalAffinity(queryIsbn);
+    const queryId = parsed.normalizedId;
+    const affinity = getIsbnRegionalAffinity(queryId);
     const { stage1, stage2 } = request.forceAllProviders
       ? { stage1: adapters, stage2: [] as MetadataProviderAdapter[] }
       : partitionStageAdapters(adapters, affinity);
 
     const stage1Result = await runProvidersWithIsolation({
       mode: 'isbn',
-      input: queryIsbn,
+      input: queryId,
       adapters: stage1,
       ctx,
     });
@@ -151,14 +190,15 @@ export async function executeServerBookLookup(
     if (shouldRunStage2) {
       const stage2Result = await runProvidersWithIsolation({
         mode: 'isbn',
-        input: queryIsbn,
+        input: queryId,
         adapters: stage2,
         ctx,
       });
       stage2Result.stagesExecuted = ['server_stage2'];
-      combined = mergeStageResults(stage1Result, stage2Result, parsed.isbn13 ?? queryIsbn);
+      combined = mergeStageResults(stage1Result, stage2Result, queryId, rawIsbn, parsed);
     }
 
+    const identifierType: BookIdentifierType = parsed.identifierType;
     return {
       candidates:
         combined.exactMatchCount > 0
@@ -169,8 +209,15 @@ export async function executeServerBookLookup(
       relatedEditions: combined.relatedEditions ?? [],
       workMatches: combined.workMatches ?? [],
       approximateMatches: combined.approximateMatches ?? [],
+      identityMismatches: combined.identityMismatches ?? [],
       providerStatuses: combined.providerStatuses,
-      queriedIsbn: parsed.isbn13 ?? queryIsbn,
+      queriedIsbn: queryId,
+      rawIdentifier: rawIsbn,
+      normalizedIdentifier: queryId,
+      identifierType,
+      verificationStatus: combined.verificationStatus,
+      verificationMessage: combined.verificationMessage,
+      retrievedAt: combined.retrievedAt ?? retrievedAt,
       exactMatchCount: combined.exactMatchCount,
       stagesExecuted: combined.stagesExecuted ?? ['server_stage1'],
       fromCache: false,
@@ -187,6 +234,7 @@ export async function executeServerBookLookup(
     });
     return {
       ...result,
+      rawIdentifier: rawQuery,
       stagesExecuted: ['server_query'],
       fromCache: false,
     };
@@ -199,10 +247,14 @@ export async function executeServerBookLookup(
     relatedEditions: [],
     workMatches: [],
     approximateMatches: [],
+    identityMismatches: [],
     providerStatuses: [],
     queriedIsbn: null,
+    rawIdentifier: '',
+    normalizedIdentifier: null,
     exactMatchCount: 0,
     stagesExecuted: [],
+    retrievedAt,
     fromCache: false,
   };
 }

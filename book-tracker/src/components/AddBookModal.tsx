@@ -44,6 +44,7 @@ import {
 import type {
   AcquisitionMethod,
   BookFormat,
+  BookIdentifierType,
   CopyCondition,
   CurrencyCode,
   FieldProvenanceEntry,
@@ -52,10 +53,11 @@ import type {
   ProviderStatusReport,
   ReadingStatus,
   Shelf,
+  VerificationStatus,
   Work,
 } from '../types/domain';
 import { CURRENCY_OPTIONS } from '../utils/currency';
-import { formatIsbn13, parseIsbn } from '../utils/isbn';
+import { formatBookIdentifier, parseBookIdentifier } from '../utils/isbn';
 import {
   createInitialScanLookupState,
   createSequentialDecodeRunner,
@@ -115,6 +117,7 @@ export function AddBookModal({
     cameraActive,
     cameraError,
     scannedIsbn,
+    scannedIdentifierType,
     decodedRawValue,
     decodedFormat,
     decodedChecksumError,
@@ -127,8 +130,12 @@ export function AddBookModal({
     relatedEditions,
     workMatches,
     approximateMatches,
+    identityMismatches,
     providerStatuses,
     stagesExecuted,
+    verificationStatus,
+    verificationMessage,
+    retrievedAt,
     selectedCandidate,
     lookupFromCache,
     lastAttemptDiagnostics,
@@ -154,6 +161,7 @@ export function AddBookModal({
   const [illustratorsText, setIllustratorsText] = useState('');
   const [publishersText, setPublishersText] = useState('');
   const [publishingPartner, setPublishingPartner] = useState('');
+  const [distributorText, setDistributorText] = useState('');
   const [genresText, setGenresText] = useState('');
   const [language, setLanguage] = useState('vi');
   const [format, setFormat] = useState<BookFormat>('paperback');
@@ -289,20 +297,21 @@ export function AddBookModal({
             if (!attempt || cancelled || scanDetectedRef.current) return;
             setLastAttemptAt(new Date().toLocaleTimeString());
 
-            if (attempt.validIsbn13) {
+            const decodedId = attempt.validIdentifier ?? attempt.validIsbn13;
+            if (decodedId) {
               scanDetectedRef.current = true;
-              const decodedIsbn = attempt.validIsbn13;
               stopCamera();
               setScanUi((prev) =>
-                transitionOnBarcodeDecoded(prev, decodedIsbn, {
+                transitionOnBarcodeDecoded(prev, decodedId, {
                   rawValue: attempt.rawValue,
                   format: attempt.format,
+                  identifierType: attempt.identifierType,
                   diagnostics: attempt,
                 })
               );
-              if (lastSubmittedIsbnRef.current !== decodedIsbn) {
-                lastSubmittedIsbnRef.current = decodedIsbn;
-                void handleIsbnLookup(decodedIsbn);
+              if (lastSubmittedIsbnRef.current !== decodedId) {
+                lastSubmittedIsbnRef.current = decodedId;
+                void handleIsbnLookup(decodedId);
               }
             } else if (attempt.rawValue && attempt.checksumError) {
               setScanUi((prev) => transitionOnInvalidChecksumFrame(prev, attempt));
@@ -395,6 +404,7 @@ export function AddBookModal({
         illustratorsText,
         publishersText,
         publishingPartner,
+        distributorText,
         genresText,
         language,
         pageCount,
@@ -417,6 +427,7 @@ export function AddBookModal({
     if (cand.editors?.length && !editorsText.trim()) setEditorsText(cand.editors.join(', '));
     setPublishersText(merged.publishersText);
     setPublishingPartner(merged.publishingPartner);
+    setDistributorText(merged.distributorText ?? '');
     setGenresText(merged.genresText);
     setLanguage(merged.language);
     if (cand.editionName && !editionName.trim()) setEditionName(cand.editionName);
@@ -456,21 +467,22 @@ export function AddBookModal({
     try {
       const attempt = await detectBarcodeFromImageSourceDetailed(file);
       setLastAttemptAt(new Date().toLocaleTimeString());
-      if (attempt.validIsbn13) {
-        const isbn = attempt.validIsbn13;
-        lastSubmittedIsbnRef.current = isbn;
+      const decodedId = attempt.validIdentifier ?? attempt.validIsbn13;
+      if (decodedId) {
+        lastSubmittedIsbnRef.current = decodedId;
         setScanUi((prev) =>
-          transitionOnBarcodeDecoded(prev, isbn, {
+          transitionOnBarcodeDecoded(prev, decodedId, {
             rawValue: attempt.rawValue,
             format: attempt.format,
+            identifierType: attempt.identifierType,
             diagnostics: attempt,
           })
         );
-        await handleIsbnLookup(isbn);
+        await handleIsbnLookup(decodedId);
       } else {
         const message = attempt.checksumError
           ? `${attempt.checksumError}. Try another photo or enter manually.`
-          : 'No valid ISBN-13/10 barcode detected in image. Try a sharper photo, OCR, or manual ISBN.';
+          : 'No valid ISBN-13/10 or EAN-13 (e.g. 893*) barcode detected in image. Try a sharper photo, OCR, or manual entry.';
         setScanUi((prev) => transitionOnBarcodeNotDetected(prev, message, attempt));
         setScanUi((prev) => ({ ...prev, loadingLookup: false }));
       }
@@ -499,7 +511,7 @@ export function AddBookModal({
       const res = await runLocalCoverOcr(coverFile);
       if (res.detectedIsbns.length > 0) {
         setIsbnInput(res.detectedIsbns[0]);
-        setOcrStatus(`Detected ISBN ${formatIsbn13(res.detectedIsbns[0])}`);
+        setOcrStatus(`Detected identifier ${formatBookIdentifier(res.detectedIsbns[0])}`);
       } else {
         setOcrStatus('Extracted cover text candidates — please verify fields below.');
       }
@@ -527,7 +539,7 @@ export function AddBookModal({
     }
   };
 
-  const parsedIsbn = isbnInput.trim() ? parseIsbn(isbnInput.trim()) : null;
+  const parsedIdentifier = isbnInput.trim() ? parseBookIdentifier(isbnInput.trim()) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -535,8 +547,11 @@ export function AddBookModal({
       setErrorMsg('Book title is required.');
       return;
     }
-    if (isbnInput.trim() && parsedIsbn && !parsedIsbn.isValid) {
-      setErrorMsg('Entered ISBN check digit is invalid. Correct it or clear the ISBN field.');
+    if (isbnInput.trim() && parsedIdentifier && !parsedIdentifier.isValid) {
+      setErrorMsg(
+        parsedIdentifier.errorReason ??
+          'Entered ISBN/EAN-13 check digit is invalid. Correct it or clear the identifier field.'
+      );
       return;
     }
     setSaving(true);
@@ -600,6 +615,7 @@ export function AddBookModal({
           contributors,
           publishers,
           publishingPartner: publishingPartner.trim() || undefined,
+          distributor: distributorText.trim() || undefined,
           publishedYear: publishedYear ? Number(publishedYear) || null : null,
           language,
           format,
@@ -798,10 +814,11 @@ export function AddBookModal({
                   decodedFormat={decodedFormat}
                   decodedChecksumError={decodedChecksumError}
                   scannedIsbn={scannedIsbn}
+                  scannedIdentifierType={scannedIdentifierType}
                 />
               )}
 
-              {/* Same-screen Decoded ISBN + Lookup Results Area */}
+              {/* Same-screen Decoded Barcode + Lookup Results Area */}
               {(scannedIsbn || loadingLookup || scanAttempted) && (
                 <div className="space-y-3 rounded-2xl border border-stone-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-4">
                   {scannedIsbn && (
@@ -810,10 +827,14 @@ export function AddBookModal({
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
                             <CheckCircle2 className="h-3 w-3" />
-                            Decoded ISBN
+                            {scannedIdentifierType === 'ean13'
+                              ? 'Decoded EAN-13'
+                              : scannedIdentifierType === 'isbn10'
+                                ? 'Decoded ISBN-10'
+                                : 'Decoded ISBN'}
                           </span>
                           <span className="font-mono text-sm font-bold text-stone-900 dark:text-slate-100 tabular-nums">
-                            {formatIsbn13(scannedIsbn)}
+                            {formatBookIdentifier(scannedIsbn)}
                           </span>
                           {decodedFormat && (
                             <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
@@ -828,7 +849,12 @@ export function AddBookModal({
                         </div>
                         <p className="text-[11px] font-mono text-stone-500">
                           Raw: {decodedRawValue || scannedIsbn}
-                          {parseIsbn(scannedIsbn).isbn10 ? ` · ISBN-10: ${parseIsbn(scannedIsbn).isbn10}` : ''}
+                          {(() => {
+                            const p = parseBookIdentifier(scannedIsbn);
+                            if (p.prefixGroup === '978' && p.isbn10) return ` · ISBN-10: ${p.isbn10}`;
+                            if (p.identifierType === 'ean13') return ' · GS1 EAN-13 (non-ISBN book barcode)';
+                            return '';
+                          })()}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -838,7 +864,7 @@ export function AddBookModal({
                           className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium hover:bg-stone-50 dark:hover:bg-slate-800"
                         >
                           {copiedIsbn ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                          {copiedIsbn ? 'Copied' : 'Copy ISBN'}
+                          {copiedIsbn ? 'Copied' : 'Copy ID'}
                         </button>
                         <button
                           type="button"
@@ -873,6 +899,14 @@ export function AddBookModal({
                     </p>
                   )}
 
+                  {!loadingLookup && verificationStatus && (
+                    <VerificationBanner
+                      status={verificationStatus}
+                      message={verificationMessage}
+                      retrievedAt={retrievedAt}
+                    />
+                  )}
+
                   {!loadingLookup && providerStatuses.length > 0 && (
                     <ProviderStatusStrip
                       statuses={providerStatuses}
@@ -883,6 +917,10 @@ export function AddBookModal({
                           : undefined
                       }
                     />
+                  )}
+
+                  {!loadingLookup && identityMismatches.length > 0 && (
+                    <IdentityMismatchesPanel mismatches={identityMismatches} />
                   )}
 
                   <CandidateResultsList
@@ -910,7 +948,7 @@ export function AddBookModal({
                   type="text"
                   value={isbnInput}
                   onChange={(e) => setIsbnInput(e.target.value)}
-                  placeholder="9780140449136, 9784088820200, or 9786042243568"
+                  placeholder="9780140449136, 9786043590296, or 8935235220423"
                   className="flex-1 rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-mono tabular-nums"
                 />
                 <button
@@ -922,19 +960,49 @@ export function AddBookModal({
                   {loadingLookup ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Lookup'}
                 </button>
               </div>
-              {parsedIsbn && (
+              {parsedIdentifier && (
                 <div className="rounded-lg border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs flex flex-wrap items-center gap-3">
-                  <span className={parsedIsbn.isValid ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-red-600 font-semibold'}>
-                    {parsedIsbn.isValid ? 'Valid ISBN' : 'Invalid ISBN check digit'}
+                  <span
+                    className={
+                      parsedIdentifier.isValid
+                        ? 'text-emerald-700 dark:text-emerald-400 font-semibold'
+                        : 'text-red-600 font-semibold'
+                    }
+                  >
+                    {parsedIdentifier.isValid
+                      ? parsedIdentifier.identifierType === 'ean13'
+                        ? 'Valid EAN-13 Barcode'
+                        : parsedIdentifier.identifierType === 'isbn10'
+                          ? 'Valid ISBN-10'
+                          : 'Valid ISBN-13'
+                      : 'Invalid identifier check digit'}
                   </span>
-                  {parsedIsbn.isbn13 && <span className="font-mono">ISBN-13: {parsedIsbn.isbn13}</span>}
-                  {parsedIsbn.prefixGroup === '978' && parsedIsbn.isbn10 && (
-                    <span className="font-mono text-stone-500">ISBN-10: {parsedIsbn.isbn10}</span>
+                  {parsedIdentifier.isbn13 && (
+                    <span className="font-mono">ISBN-13: {parsedIdentifier.isbn13}</span>
                   )}
-                  {parsedIsbn.prefixGroup === '979' && (
+                  {!parsedIdentifier.isbn13 && parsedIdentifier.ean13 && (
+                    <span className="font-mono">EAN-13: {parsedIdentifier.ean13}</span>
+                  )}
+                  {parsedIdentifier.prefixGroup === '978' && parsedIdentifier.isbn10 && (
+                    <span className="font-mono text-stone-500">ISBN-10: {parsedIdentifier.isbn10}</span>
+                  )}
+                  {parsedIdentifier.prefixGroup === '979' && (
                     <span className="text-stone-500">979-* prefix (no ISBN-10 equivalent)</span>
                   )}
+                  {parsedIdentifier.identifierType === 'ean13' && (
+                    <span className="text-stone-500">GS1 EAN-13 barcode (no ISBN-10)</span>
+                  )}
+                  {!parsedIdentifier.isValid && parsedIdentifier.errorReason && (
+                    <span className="text-red-600 dark:text-red-400">{parsedIdentifier.errorReason}</span>
+                  )}
                 </div>
+              )}
+              {!loadingLookup && verificationStatus && (
+                <VerificationBanner
+                  status={verificationStatus}
+                  message={verificationMessage}
+                  retrievedAt={retrievedAt}
+                />
               )}
               {!loadingLookup && providerStatuses.length > 0 && (
                 <ProviderStatusStrip
@@ -947,6 +1015,9 @@ export function AddBookModal({
                   }
                 />
               )}
+              {!loadingLookup && identityMismatches.length > 0 && (
+                <IdentityMismatchesPanel mismatches={identityMismatches} />
+              )}
               <CandidateResultsList
                 candidates={candidates}
                 possibleEditionMatches={possibleEditionMatches}
@@ -955,7 +1026,7 @@ export function AddBookModal({
                 approximateMatches={approximateMatches}
                 loading={loadingLookup}
                 hasSearched={hasSearched}
-                queriedIsbn={parsedIsbn?.isbn13 ?? (isbnInput.trim() || null)}
+                queriedIsbn={parsedIdentifier?.normalizedId ?? (isbnInput.trim() || null)}
                 onSelect={applyCandidateToForm}
                 onRetry={isbnInput.trim() ? () => handleIsbnLookup(undefined, { bypassCache: true }) : undefined}
                 onSwitchManual={() => setTab('manual')}
@@ -1139,14 +1210,14 @@ export function AddBookModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">ISBN-13 / ISBN-10</label>
+                  <label className="block text-xs font-semibold mb-1">ISBN-13 / ISBN-10 / EAN-13</label>
                   <input
                     value={isbnInput}
                     onChange={(e) => {
                       markUserEdited('isbnInput');
                       setIsbnInput(e.target.value);
                     }}
-                    placeholder="978..."
+                    placeholder="978..., 893..."
                     className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono tabular-nums"
                   />
                 </div>
@@ -1186,14 +1257,26 @@ export function AddBookModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Publishers</label>
+                  <label className="block text-xs font-semibold mb-1">Publishers (Nhà xuất bản)</label>
                   <input
                     value={publishersText}
                     onChange={(e) => {
                       markUserEdited('publishersText');
                       setPublishersText(e.target.value);
                     }}
-                    placeholder="NXB Kim Đồng, Amak Books..."
+                    placeholder="Nhà xuất bản Văn Học, NXB Kim Đồng..."
+                    className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Distributor / Issuing House (Nhà phát hành)</label>
+                  <input
+                    value={distributorText}
+                    onChange={(e) => {
+                      markUserEdited('distributorText', 'distributor');
+                      setDistributorText(e.target.value);
+                    }}
+                    placeholder="Nhã Nam, IPM, Amak Books..."
                     className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                   />
                 </div>
@@ -1549,6 +1632,7 @@ function ScannerDiagnosticsPanel({
   decodedFormat,
   decodedChecksumError,
   scannedIsbn,
+  scannedIdentifierType,
 }: {
   cameraActive: boolean;
   cameraResolution: string | null;
@@ -1560,6 +1644,7 @@ function ScannerDiagnosticsPanel({
   decodedFormat: string | null;
   decodedChecksumError: string | null;
   scannedIsbn: string | null;
+  scannedIdentifierType?: BookIdentifierType;
 }) {
   const caps = getScannerCapabilities();
   const nativeAvail = diagnostics?.nativeSupported ?? caps.nativeSupported;
@@ -1583,10 +1668,14 @@ function ScannerDiagnosticsPanel({
         <div>Raw value: {decodedRawValue || diagnostics?.rawValue || '—'}</div>
         <div>Barcode format: {decodedFormat || diagnostics?.format || '—'}</div>
         <div className="sm:col-span-2">
-          ISBN validation:{' '}
+          Identifier validation:{' '}
           {scannedIsbn
-            ? `Valid ISBN-13 (${scannedIsbn})`
-            : decodedChecksumError || diagnostics?.checksumError || 'No valid ISBN decoded'}
+            ? scannedIdentifierType === 'ean13'
+              ? `Valid GS1 EAN-13 (${scannedIsbn})`
+              : scannedIdentifierType === 'isbn10'
+                ? `Valid ISBN-10 → ${scannedIsbn}`
+                : `Valid ISBN-13 (${scannedIsbn})`
+            : decodedChecksumError || diagnostics?.checksumError || 'No valid identifier decoded'}
         </div>
         {diagnostics && diagnostics.regionsExamined.length > 0 && (
           <div className="sm:col-span-2 break-words text-stone-500">
@@ -1601,6 +1690,84 @@ function ScannerDiagnosticsPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function VerificationBanner({
+  status,
+  message,
+  retrievedAt,
+}: {
+  status: VerificationStatus;
+  message?: string;
+  retrievedAt?: string;
+}) {
+  const styles: Record<VerificationStatus, { label: string; cls: string }> = {
+    verified_match: {
+      label: 'Verified Match',
+      cls: 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200',
+    },
+    conflicting_records: {
+      label: 'Conflicting Records',
+      cls: 'border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200',
+    },
+    identity_mismatch: {
+      label: 'Identity Mismatch Rejected',
+      cls: 'border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200',
+    },
+    valid_identifier_unconfirmed: {
+      label: 'Valid Identifier (Unconfirmed)',
+      cls: 'border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200',
+    },
+    not_found: {
+      label: 'Valid Identifier (Not Found)',
+      cls: 'border-stone-300 dark:border-slate-700 bg-stone-50 dark:bg-slate-900 text-stone-800 dark:text-slate-200',
+    },
+    invalid_identifier: {
+      label: 'Invalid Identifier',
+      cls: 'border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/30 text-red-900 dark:text-red-200',
+    },
+  };
+  const cfg = styles[status];
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2 ${cfg.cls}`}>
+      <div className="space-y-0.5">
+        <span className="font-semibold">{cfg.label}</span>
+        {message && <p className="text-[11px] opacity-90">{message}</p>}
+      </div>
+      {retrievedAt && (
+        <span className="font-mono text-[10px] opacity-75">
+          Checked: {new Date(retrievedAt).toLocaleTimeString()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function IdentityMismatchesPanel({ mismatches }: { mismatches: MetadataCandidate[] }) {
+  return (
+    <details className="rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/25 px-3 py-2 text-[11px] text-rose-900 dark:text-rose-200">
+      <summary className="cursor-pointer font-semibold flex items-center gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        Rejected {mismatches.length} mismatched-identifier record{mismatches.length > 1 ? 's' : ''} (not auto-accepted)
+      </summary>
+      <div className="mt-2 space-y-1.5">
+        {mismatches.map((m) => (
+          <div
+            key={`mismatch-${m.provider}-${m.externalId}`}
+            className="rounded-lg bg-white/80 dark:bg-slate-950/80 border border-rose-200/70 dark:border-rose-900/40 px-2.5 py-1.5 text-[11px]"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-rose-700 dark:text-rose-300">
+              <span>{(m.sources ?? [m.provider]).join(' + ')}</span>
+              <span>Returned ID: {m.isbn13 || m.ean13 || m.isbn10 || 'none'}</span>
+            </div>
+            <p className="font-semibold text-stone-900 dark:text-slate-100">{m.title}</p>
+            {m.mismatchReason && <p className="text-rose-800 dark:text-rose-300">{m.mismatchReason}</p>}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -1827,7 +1994,8 @@ function CandidateCard({
           </p>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-stone-500 font-mono">
             {c.publishers.length > 0 && <span>Pub: {c.publishers.join(' / ')}</span>}
-            {c.isbn13 && <span>ISBN: {c.isbn13}</span>}
+            {c.distributor && <span>Dist: {c.distributor}</span>}
+            {c.isbn13 ? <span>ISBN: {c.isbn13}</span> : c.ean13 ? <span>EAN-13: {c.ean13}</span> : null}
             {c.pageCount && <span>{c.pageCount}p</span>}
             {c.publishedYear && <span>{c.publishedYear}</span>}
             {c.language && c.language !== 'und' && <span className="uppercase">{c.language}</span>}
@@ -1911,12 +2079,12 @@ function CandidateResultsList({
       <div className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-5 text-center space-y-2.5">
         {hasSearched && queriedIsbn ? (
           <p className="text-xs text-stone-600 dark:text-slate-300">
-            Barcode / ISBN <span className="font-mono font-semibold">{formatIsbn13(queriedIsbn)}</span> was
-            decoded, but no matching book record was found across active providers.
+            Identifier <span className="font-mono font-semibold">{formatBookIdentifier(queriedIsbn)}</span> was
+            validated, but no matching book record was confirmed across active providers.
           </p>
         ) : (
           <p className="text-xs text-stone-500">
-            Search by ISBN or keywords, or switch directly to Cover OCR / Manual entry.
+            Search by ISBN, EAN-13 barcode, or keywords, or switch directly to Cover OCR / Manual entry.
           </p>
         )}
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -1934,7 +2102,7 @@ function CandidateResultsList({
             onClick={onSwitchManual}
             className="text-xs font-semibold text-[#C2410C] hover:underline"
           >
-            {queriedIsbn ? 'Enter Manually with this ISBN' : 'Open Manual Entry'}
+            {queriedIsbn ? 'Enter Manually with this ID' : 'Open Manual Entry'}
           </button>
         </div>
       </div>

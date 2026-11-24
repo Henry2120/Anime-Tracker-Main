@@ -1,8 +1,10 @@
 import type { BarcodeScanAttemptResult } from '../services/scannerAndOcr';
 import type {
+  BookIdentifierType,
   MetadataCandidate,
   MetadataLookupResult,
   ProviderStatusReport,
+  VerificationStatus,
 } from '../types/domain';
 
 export type AddBookModalTab = 'scan' | 'isbn' | 'search' | 'manual';
@@ -12,6 +14,7 @@ export interface ScanLookupUiState {
   cameraActive: boolean;
   cameraError: string | null;
   scannedIsbn: string | null;
+  scannedIdentifierType?: BookIdentifierType;
   decodedRawValue: string | null;
   decodedFormat: string | null;
   decodedChecksumError: string | null;
@@ -24,8 +27,12 @@ export interface ScanLookupUiState {
   relatedEditions: MetadataCandidate[];
   workMatches: MetadataCandidate[];
   approximateMatches: MetadataCandidate[];
+  identityMismatches: MetadataCandidate[];
   providerStatuses: ProviderStatusReport[];
   stagesExecuted: string[];
+  verificationStatus?: VerificationStatus;
+  verificationMessage?: string;
+  retrievedAt?: string;
   selectedCandidate: MetadataCandidate | null;
   lookupFromCache: boolean;
   lastAttemptDiagnostics: BarcodeScanAttemptResult | null;
@@ -39,6 +46,7 @@ export function createInitialScanLookupState(
     cameraActive: false,
     cameraError: null,
     scannedIsbn: null,
+    scannedIdentifierType: undefined,
     decodedRawValue: null,
     decodedFormat: null,
     decodedChecksumError: null,
@@ -51,8 +59,12 @@ export function createInitialScanLookupState(
     relatedEditions: [],
     workMatches: [],
     approximateMatches: [],
+    identityMismatches: [],
     providerStatuses: [],
     stagesExecuted: [],
+    verificationStatus: undefined,
+    verificationMessage: undefined,
+    retrievedAt: undefined,
     selectedCandidate: null,
     lookupFromCache: false,
     lastAttemptDiagnostics: null,
@@ -60,8 +72,8 @@ export function createInitialScanLookupState(
 }
 
 /**
- * Transitions state after live camera or photo upload decodes an ISBN barcode.
- * Strictly keeps `tab` on `'scan'`, stops camera, and records decoded ISBN & format
+ * Transitions state after live camera or photo upload decodes a book identifier barcode.
+ * Strictly keeps `tab` on `'scan'`, stops camera, and records decoded ID & format
  * independently of metadata lookup.
  */
 export function transitionOnBarcodeDecoded(
@@ -70,6 +82,7 @@ export function transitionOnBarcodeDecoded(
   meta?: {
     rawValue?: string | null;
     format?: string | null;
+    identifierType?: BookIdentifierType;
     diagnostics?: BarcodeScanAttemptResult | null;
   }
 ): ScanLookupUiState {
@@ -79,6 +92,7 @@ export function transitionOnBarcodeDecoded(
     cameraActive: false,
     cameraError: null,
     scannedIsbn: isbn,
+    scannedIdentifierType: meta?.identifierType ?? meta?.diagnostics?.identifierType,
     decodedRawValue: meta?.rawValue ?? isbn,
     decodedFormat: meta?.format ?? 'EAN-13',
     decodedChecksumError: null,
@@ -108,7 +122,7 @@ export function transitionOnBarcodeNotDetected(
 
 /**
  * Records a live-frame invalid-checksum detection in diagnostics without halting the camera
- * or accepting invalid digits as an ISBN.
+ * or accepting invalid digits as an identifier.
  */
 export function transitionOnInvalidChecksumFrame(
   state: ScanLookupUiState,
@@ -139,14 +153,18 @@ export function transitionOnLookupCompleted(
     relatedEditions: result.relatedEditions ?? [],
     workMatches: result.workMatches ?? [],
     approximateMatches: result.approximateMatches ?? [],
+    identityMismatches: result.identityMismatches ?? [],
     providerStatuses: result.providerStatuses,
     stagesExecuted: result.stagesExecuted ?? [],
+    verificationStatus: result.verificationStatus,
+    verificationMessage: result.verificationMessage,
+    retrievedAt: result.retrievedAt,
     lookupFromCache: Boolean(result.fromCache),
   };
 }
 
 /**
- * Handles lookup error/rejection while strictly preserving the decoded ISBN & manual fallback options.
+ * Handles lookup error/rejection while strictly preserving the decoded ID & manual fallback options.
  */
 export function transitionOnLookupFailed(state: ScanLookupUiState): ScanLookupUiState {
   return {
@@ -175,6 +193,7 @@ export function transitionOnClearScan(state: ScanLookupUiState): ScanLookupUiSta
     ...state,
     tab: 'scan',
     scannedIsbn: null,
+    scannedIdentifierType: undefined,
     decodedRawValue: null,
     decodedFormat: null,
     decodedChecksumError: null,
@@ -184,8 +203,12 @@ export function transitionOnClearScan(state: ScanLookupUiState): ScanLookupUiSta
     relatedEditions: [],
     workMatches: [],
     approximateMatches: [],
+    identityMismatches: [],
     providerStatuses: [],
     stagesExecuted: [],
+    verificationStatus: undefined,
+    verificationMessage: undefined,
+    retrievedAt: undefined,
     hasSearched: false,
     cameraError: null,
     lookupFromCache: false,

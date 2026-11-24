@@ -100,6 +100,16 @@ export interface FieldProvenanceEntry {
 
 export type MatchConfidence = 'exact_isbn' | 'approximate_match' | 'unverified_isbn' | 'title_match';
 
+export type BookIdentifierType = 'isbn13' | 'isbn10' | 'ean13' | 'invalid';
+
+export type VerificationStatus =
+  | 'verified_match'
+  | 'valid_identifier_unconfirmed'
+  | 'conflicting_records'
+  | 'identity_mismatch'
+  | 'not_found'
+  | 'invalid_identifier';
+
 export type ProviderLookupStatusCode =
   | 'exact_match'
   | 'approximate_match'
@@ -132,6 +142,7 @@ export interface MetadataConflict {
     | 'editors'
     | 'publishers'
     | 'publishingPartner'
+    | 'distributor'
     | 'language'
     | 'format'
     | 'pageCount'
@@ -197,6 +208,7 @@ export interface Edition extends BaseEntity {
   contributors?: ContributorCredit[];
   publishers: string[];
   publishingPartner?: string;
+  distributor?: string;
   publishedDate?: string;
   publishedYear?: number | null;
   language: string;
@@ -218,6 +230,8 @@ export interface EditionIsbn extends BaseEntity {
   editionId: string;
   isbn13: string;
   isbn10: string | null;
+  ean13?: string | null;
+  identifierType?: BookIdentifierType;
   prefixGroup: '978' | '979' | 'other';
   isPrimary: boolean;
 }
@@ -333,6 +347,7 @@ export interface MetadataRecord {
   provider: MetadataProviderName;
   externalId: string;
   isbn13?: string | null;
+  ean13?: string | null;
   rawPayload: Record<string, unknown>;
   fetchedAt: string;
 }
@@ -422,6 +437,7 @@ export interface MetadataCandidate {
   matchConfidence?: MatchConfidence;
   editionMatchLevel?: EditionMatchLevel;
   matchedIsbns?: string[];
+  matchedIdentifiers?: string[];
   title: string;
   originalTitle?: string;
   translationTitle?: string;
@@ -434,6 +450,7 @@ export interface MetadataCandidate {
   contributors?: ContributorCredit[];
   publishers: string[];
   publishingPartner?: string;
+  distributor?: string;
   publishedDate?: string;
   publishedYear?: number | null;
   language: string;
@@ -443,10 +460,14 @@ export interface MetadataCandidate {
   description?: string;
   isbn13?: string | null;
   isbn10?: string | null;
+  ean13?: string | null;
+  identifierType?: BookIdentifierType;
   coverUrl?: string;
   seriesName?: string;
   volumeNumber?: string;
   sourceUrl?: string;
+  retrievedAt?: string;
+  mismatchReason?: string;
   conflicts?: MetadataConflict[];
   contradictions?: string[];
   fieldProvenance?: Record<string, FieldProvenanceEntry>;
@@ -460,8 +481,15 @@ export interface MetadataLookupResult {
   relatedEditions?: MetadataCandidate[];
   workMatches?: MetadataCandidate[];
   approximateMatches?: MetadataCandidate[];
+  identityMismatches?: MetadataCandidate[];
   providerStatuses: ProviderStatusReport[];
   queriedIsbn: string | null;
+  rawIdentifier?: string | null;
+  normalizedIdentifier?: string | null;
+  identifierType?: BookIdentifierType;
+  verificationStatus?: VerificationStatus;
+  verificationMessage?: string;
+  retrievedAt?: string;
   exactMatchCount: number;
   stagesExecuted?: string[];
   fromCache?: boolean;
