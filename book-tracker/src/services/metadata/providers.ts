@@ -12,7 +12,9 @@ import {
   decodeHtmlEntities,
   extractJsonLdBooks,
   extractVietnameseBookSpecs,
+  foldVietnameseDiacritics,
   stripHtmlToText,
+  stripSiteChromeHtml,
 } from './htmlAndText';
 import { parseMarc21Record } from './marc21';
 import {
@@ -669,17 +671,27 @@ function createSapoStoreProvider(config: {
     },
 
     async search(query, ctx) {
-      const res = await fetchWithTimeout(
-        ctx,
-        `${config.baseUrl}/search?q=${encodeURIComponent(query)}&view=json`
-      );
-      assertCleanHttpResponse(res, config.label);
-      if (!res.ok) {
-        throw new ProviderStatusError('upstream_error', `${config.label} HTTP ${res.status}`);
+      const fetchEntries = async (term: string) => {
+        const res = await fetchWithTimeout(
+          ctx,
+          `${config.baseUrl}/search?q=${encodeURIComponent(term)}&view=json`
+        );
+        assertCleanHttpResponse(res, config.label);
+        if (!res.ok) {
+          throw new ProviderStatusError('upstream_error', `${config.label} HTTP ${res.status}`);
+        }
+        const body = await res.text();
+        assertCleanTextBody(body, config.label);
+        return extractSapoSearchEntries(body, config.baseUrl);
+      };
+
+      let entries = (await fetchEntries(query)).slice(0, 4);
+      if (entries.length === 0) {
+        const folded = foldVietnameseDiacritics(query).trim();
+        if (folded && folded.toLowerCase() !== query.trim().toLowerCase()) {
+          entries = (await fetchEntries(folded)).slice(0, 4);
+        }
       }
-      const body = await res.text();
-      assertCleanTextBody(body, config.label);
-      const entries = extractSapoSearchEntries(body, config.baseUrl).slice(0, 4);
       const fetched = await Promise.all(
         entries
           .filter((e) => e.url && !e.url.includes('${'))
@@ -858,13 +870,26 @@ function createHaravanStoreProvider(config: {
     if (!res.ok) return [];
     const html = await res.text();
     assertCleanTextBody(html, config.label);
-    return Array.from(
+    const bodyHtml = stripSiteChromeHtml(html);
+    const rawSlugs = Array.from(
       new Set(
-        [...html.matchAll(/href=["'](?:https?:\/\/[^"'\s]+)?(\/products\/[^"'?#]+)["']/gi)].map(
+        [...bodyHtml.matchAll(/href=["'](?:https?:\/\/[^"'\s]+)?(\/products\/[^"'?#]+)["']/gi)].map(
           (m) => m[1]
         )
       )
     );
+    const queryTokens = foldVietnameseDiacritics(query)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 2);
+    if (queryTokens.length === 0) return rawSlugs;
+    return rawSlugs.sort((a, b) => {
+      const scoreSlug = (slug: string) => {
+        const lower = slug.toLowerCase();
+        return queryTokens.reduce((sum, tok) => sum + (lower.includes(tok) ? 1 : 0), 0);
+      };
+      return scoreSlug(b) - scoreSlug(a);
+    });
   };
 
   return {
@@ -920,6 +945,184 @@ export const phuongNamProvider = createHaravanStoreProvider({
   supportsDirectBrowserCors: true,
   defaultPublishers: ['Nhà sách Phương Nam'],
 });
+
+// ============================================================================
+// 3b. First News - Trí Việt (https://firstnews.vn)
+// ============================================================================
+function extractFirstNewsProductUrls(html: string, term: string): string[] {
+  const bodyHtml = stripSiteChromeHtml(html);
+  const rawUrls = Array.from(
+    new Set(
+      [
+        ...bodyHtml.matchAll(
+          /href=["']((?:https?:\/\/firstnews\.vn)?\/(?:[^"'?#\s]+-p\d+\.html|san-pham\/[^"'?#\s]+))["']/gi
+        ),
+      ].map((m) => (m[1].startsWith('http') ? m[1] : `https://firstnews.vn${m[1]}`))
+    )
+  );
+  const tokens = foldVietnameseDiacritics(term)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return rawUrls;
+  return rawUrls.sort((a, b) => {
+    const score = (u: string) =>
+      tokens.reduce((sum, tok) => sum + (u.toLowerCase().includes(tok) ? 1 : 0), 0);
+    return score(b) - score(a);
+  });
+}
+
+async function fetchFirstNewsProductCandidate(
+  productUrl: string,
+  ctx: ProviderExecutionContext,
+  expectedId: string | null
+): Promise<MetadataCandidate | null> {
+  const res = await fetchWithTimeout(ctx, productUrl);
+  if (res.status === 404) return null;
+  assertCleanHttpResponse(res, 'First News - Trí Việt');
+  if (!res.ok) return null;
+  const html = await res.text();
+  assertCleanTextBody(html, 'First News - Trí Việt');
+
+  const bodyHtml = stripSiteChromeHtml(html);
+  const specs = extractVietnameseBookSpecs(bodyHtml);
+  const ldBooks = extractJsonLdBooks(html);
+  const ld = ldBooks[0];
+
+  const allIds = collectValidIdentifiers(
+    [...specs.identifiers, ...(ld?.identifiers ?? []), ...(ld?.isbns ?? [])],
+    bodyHtml,
+    { includeAllEan13InValues: true }
+  );
+
+  if (expectedId && !allIds.includes(expectedId)) {
+    return null;
+  }
+
+  const ogTitleRaw =
+    html.match(/property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    html.match(/content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
+  const metaTitleTag = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  const rawHeading = bodyHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '');
+  const cleanTitleCandidate = (raw?: string | null) =>
+    decodeHtmlEntities(raw ?? '')
+      .replace(/\s*[-|]\s*First News.*$/i, '')
+      .trim();
+
+  const h1Clean = cleanTitleCandidate(rawHeading);
+  const title =
+    cleanTitleCandidate(ogTitleRaw) ||
+    cleanTitleCandidate(ld?.title) ||
+    cleanTitleCandidate(metaTitleTag) ||
+    (!/khuyến\s*mại/i.test(h1Clean) ? h1Clean : '');
+  if (!title) return null;
+
+  const ogImg =
+    html.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    html.match(/content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1];
+
+  const targetId = expectedId || allIds[0] || null;
+  const targetParsed = targetId ? parseBookIdentifier(targetId) : null;
+
+  const publishers = specs.publishers.length > 0 ? specs.publishers : ld?.publishers ?? [];
+  const distributor = specs.distributor || 'First News - Trí Việt';
+
+  return {
+    externalId: productUrl,
+    provider: 'first_news',
+    tier: 'tier3_publisher',
+    verified: false,
+    matchConfidence: expectedId ? 'exact_isbn' : 'title_match',
+    matchedIsbns: allIds.filter((id) => id.startsWith('978') || id.startsWith('979')),
+    matchedIdentifiers: allIds,
+    title,
+    authors: specs.authors.length > 0 ? specs.authors : ld?.authors ?? [],
+    translators: specs.translators,
+    illustrators: specs.illustrators,
+    publishers: publishers.length > 0 ? publishers : ['First News - Trí Việt'],
+    publishingPartner: specs.publishingPartner,
+    distributor,
+    publishedDate: specs.publishedDate || ld?.publishedDate,
+    publishedYear: specs.publishedYear ?? ld?.publishedYear ?? null,
+    language: specs.language || normalizeLanguageCode(undefined, { isbn13: targetId }) || 'vi',
+    format: specs.format || detectFormatFromText(bodyHtml),
+    pageCount: specs.pageCount ?? ld?.pageCount ?? null,
+    genres: specs.genres,
+    description: ld?.description,
+    isbn13: targetParsed?.isIsbn ? targetParsed.isbn13 : null,
+    isbn10: targetParsed?.prefixGroup === '978' ? targetParsed.isbn10 : null,
+    ean13: targetParsed?.ean13 ?? targetId,
+    identifierType: targetParsed?.identifierType,
+    coverUrl: normalizeUrl(ogImg || ld?.coverUrl),
+    sourceUrl: productUrl,
+    rawPayload: { specs, url: productUrl },
+  };
+}
+
+export const firstNewsProvider: MetadataProviderAdapter = {
+  name: 'first_news',
+  label: 'First News - Trí Việt',
+  tier: 'tier3_publisher',
+  region: 'vi',
+  supportsDirectBrowserCors: false,
+
+  async lookupByIsbn(isbn13, ctx) {
+    const forms = generateSearchIsbnForms(isbn13).slice(0, 3);
+    const settled = await Promise.allSettled(
+      forms.map(async (form) => {
+        const res = await fetchWithTimeout(
+          ctx,
+          `https://firstnews.vn/tim-kiem?keyword=${encodeURIComponent(form)}`
+        );
+        assertCleanHttpResponse(res, 'First News - Trí Việt');
+        if (!res.ok) return [] as string[];
+        const html = await res.text();
+        assertCleanTextBody(html, 'First News - Trí Việt');
+        return extractFirstNewsProductUrls(html, form);
+      })
+    );
+
+    const fulfilled = settled.filter(
+      (r): r is PromiseFulfilledResult<string[]> => r.status === 'fulfilled'
+    );
+    if (fulfilled.length === 0) {
+      const rejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (rejected) throw rejected.reason;
+    }
+
+    const urls = Array.from(new Set(fulfilled.flatMap((r) => r.value))).slice(0, 4);
+    const fetched = await Promise.all(
+      urls.map((u) => fetchFirstNewsProductCandidate(u, ctx, isbn13).catch(() => null))
+    );
+    return fetched.filter((x): x is MetadataCandidate => x !== null);
+  },
+
+  async search(query, ctx) {
+    const searchUrls = async (term: string) => {
+      const res = await fetchWithTimeout(
+        ctx,
+        `https://firstnews.vn/tim-kiem?keyword=${encodeURIComponent(term)}`
+      );
+      assertCleanHttpResponse(res, 'First News - Trí Việt');
+      if (!res.ok) return [] as string[];
+      const html = await res.text();
+      assertCleanTextBody(html, 'First News - Trí Việt');
+      return extractFirstNewsProductUrls(html, term);
+    };
+
+    let urls = await searchUrls(query);
+    if (urls.length === 0) {
+      const folded = foldVietnameseDiacritics(query).trim();
+      if (folded && folded.toLowerCase() !== query.trim().toLowerCase()) {
+        urls = await searchUrls(folded);
+      }
+    }
+    const fetched = await Promise.all(
+      urls.slice(0, 4).map((u) => fetchFirstNewsProductCandidate(u, ctx, null).catch(() => null))
+    );
+    return fetched.filter((x): x is MetadataCandidate => x !== null);
+  },
+};
 
 // ============================================================================
 // 4. Amak Books (WordPress /book/<slug>/ Catalogue — proxy/server mode)
@@ -2493,6 +2696,7 @@ export const ALL_METADATA_PROVIDERS: MetadataProviderAdapter[] = [
   goodaProvider,
   hikaruProvider,
   phuongNamProvider,
+  firstNewsProvider,
   nxbKimDongProvider,
   nhaNamProvider,
   ipmProvider,

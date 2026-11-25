@@ -39,9 +39,6 @@ export type ReadingStatus =
   | 'on_hold'
   | 'abandoned';
 
-export type LoanDirection = 'lent' | 'borrowed';
-export type LoanStatus = 'active' | 'returned' | 'overdue' | 'lost';
-
 export type JournalEntryType = 'note' | 'quote' | 'character' | 'reflection';
 
 export type MetadataProviderName =
@@ -69,6 +66,7 @@ export type MetadataProviderName =
   | 'ipm'
   | 'amak'
   | 'phuong_nam'
+  | 'first_news'
   | 'nxb_tre'
   | 'tiki'
   | 'fahasa'
@@ -159,12 +157,9 @@ export type SyncEntityType =
   | 'editions'
   | 'edition_isbns'
   | 'physical_copies'
-  | 'loans'
   | 'shelves'
   | 'shelf_items'
   | 'reading_cycles'
-  | 'reading_progress'
-  | 'reading_sessions'
   | 'reviews'
   | 'journal_entries';
 
@@ -252,20 +247,6 @@ export interface PhysicalCopy extends BaseEntity {
   notes?: string;
 }
 
-export interface Loan extends BaseEntity {
-  workId: string;
-  editionId?: string | null;
-  physicalCopyId?: string | null;
-  direction: LoanDirection;
-  personName: string;
-  personContact?: string;
-  loanDate: string;
-  dueDate?: string;
-  returnedDate?: string;
-  status: LoanStatus;
-  notes?: string;
-}
-
 export interface Shelf extends BaseEntity {
   name: string;
   description?: string;
@@ -287,32 +268,7 @@ export interface ReadingCycle extends BaseEntity {
   startedAt?: string | null;
   finishedAt?: string | null;
   targetFinishDate?: string | null;
-  dailyPageGoal?: number | null;
   isActive: boolean;
-}
-
-export interface ReadingProgress extends BaseEntity {
-  cycleId: string;
-  workId: string;
-  editionId: string;
-  currentPage: number;
-  totalPages: number;
-  percentage: number;
-  lastRewoundAt?: string | null;
-}
-
-export interface ReadingSession extends BaseEntity {
-  cycleId: string;
-  workId: string;
-  editionId: string;
-  sessionDate: string; // YYYY-MM-DD local date
-  startedAt?: string | null;
-  endedAt?: string | null;
-  durationMinutes: number;
-  startPage: number;
-  endPage: number;
-  pagesRead: number;
-  notes?: string;
 }
 
 export interface Review extends BaseEntity {
@@ -404,7 +360,7 @@ export interface DeviceRecord {
 
 export interface BackupRecord {
   id: string;
-  backupType: 'json_full' | 'csv_collection' | 'csv_sessions' | 'csv_journal' | 'cloud_snapshot';
+  backupType: 'json_full' | 'csv_collection' | 'csv_journal' | 'cloud_snapshot';
   filename: string;
   entityCounts: Record<string, number>;
   includesCoverManifest: boolean;
@@ -417,11 +373,10 @@ export interface AppSettings {
   id: 'default';
   language: SupportedLocale;
   defaultCurrency: CurrencyCode;
-  dailyPageGoal: number;
-  yearlyBookGoal: number;
   theme: 'light' | 'dark' | 'system';
   lastSyncedSeq: number;
   lastSyncedAt?: string | null;
+  cloudSyncPausedAfterWipe?: boolean;
   aiCoverAssistOptIn: boolean;
   userId?: string | null;
   userEmail?: string | null;

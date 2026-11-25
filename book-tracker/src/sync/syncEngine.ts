@@ -14,17 +14,21 @@ const ENTITY_ORDER: SyncEntityType[] = [
   'edition_isbns',
   'shelves',
   'physical_copies',
-  'loans',
   'shelf_items',
   'reading_cycles',
-  'reading_progress',
-  'reading_sessions',
   'reviews',
   'journal_entries',
 ];
 
 export interface SyncRunSummary {
-  status: 'synced' | 'offline' | 'unconfigured' | 'unauthenticated' | 'conflicts' | 'error';
+  status:
+    | 'synced'
+    | 'offline'
+    | 'unconfigured'
+    | 'unauthenticated'
+    | 'paused_after_wipe'
+    | 'conflicts'
+    | 'error';
   pushedCount: number;
   pulledCount: number;
   conflictsCount: number;
@@ -188,7 +192,9 @@ async function performFullResync(
   };
 }
 
-export async function runSyncCycle(): Promise<SyncRunSummary> {
+export async function runSyncCycle(options?: {
+  manualTrigger?: boolean;
+}): Promise<SyncRunSummary> {
   const supabase = getSupabaseClient();
   if (!supabase) {
     return {
@@ -200,7 +206,7 @@ export async function runSyncCycle(): Promise<SyncRunSummary> {
       message: 'Supabase not configured — running safely in local-first IndexedDB mode.',
     };
   }
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return {
       status: 'offline',
       pushedCount: 0,
@@ -224,6 +230,28 @@ export async function runSyncCycle(): Promise<SyncRunSummary> {
   }
 
   const settings = await ensureAppSettings();
+  const persistedCloudWiped =
+    typeof localStorage !== 'undefined' && localStorage.getItem('book_tracker_cloud_wiped') === '1';
+
+  if ((settings.cloudSyncPausedAfterWipe || persistedCloudWiped) && !options?.manualTrigger) {
+    return {
+      status: 'paused_after_wipe',
+      pushedCount: 0,
+      pulledCount: 0,
+      conflictsCount: 0,
+      cursorReset: false,
+      message:
+        'Cloud sync is paused because cloud Book Tracker data was cleared. Click Sync Now when you want to upload again.',
+    };
+  }
+
+  if (options?.manualTrigger && (settings.cloudSyncPausedAfterWipe || persistedCloudWiped)) {
+    await db.app_settings.put({ ...settings, cloudSyncPausedAfterWipe: false });
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('book_tracker_cloud_wiped');
+    }
+    settings.cloudSyncPausedAfterWipe = false;
+  }
 
   try {
     // Upload pending local cover images first
@@ -420,7 +448,7 @@ export async function registerOrRefreshDevices(userId: string): Promise<DeviceRe
   await db.devices.put(cur);
 
   const supabase = getSupabaseClient();
-  if (supabase && (typeof navigator === 'undefined' || navigator.onLine)) {
+  if (supabase && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
     await supabase.from('devices').upsert({
       id: cur.id,
       user_id: userId,
@@ -462,7 +490,16 @@ export async function revokeDevice(deviceId: string): Promise<void> {
     await db.devices.put({ ...existing, revokedAt: now });
   }
   const supabase = getSupabaseClient();
-  if (supabase && (typeof navigator === 'undefined' || navigator.onLine)) {
-    await supabase.from('devices').update({ revoked_at: now }).eq('id', deviceId);
+  if (supabase && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      await supabase
+        .from('devices')
+        .update({ revoked_at: now })
+        .eq('id', deviceId)
+        .eq('user_id', user.id);
+    }
   }
 }

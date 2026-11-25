@@ -10,14 +10,10 @@ import type {
   FieldProvenanceEntry,
   JournalEntry,
   JournalEntryType,
-  Loan,
-  LoanDirection,
   MetadataProviderName,
   OwnershipStatus,
   PhysicalCopy,
   ReadingCycle,
-  ReadingProgress,
-  ReadingSession,
   ReadingStatus,
   Review,
   Shelf,
@@ -27,7 +23,7 @@ import type {
   Work,
 } from '../types/domain';
 import { parseBookIdentifier } from '../utils/isbn';
-import { calculatePercentage, getLocalDateString } from '../utils/statsCalculator';
+import { getLocalDateString } from '../utils/statsCalculator';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -97,6 +93,7 @@ export interface CreateBookBundleInput {
     volumeNumber?: string;
     coverUrl?: string;
     coverBlobKey?: string;
+    coverStoragePath?: string;
     description?: string;
     metadataSource?: MetadataProviderName;
     metadataVerified?: boolean;
@@ -136,7 +133,6 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
       db.edition_isbns,
       db.physical_copies,
       db.reading_cycles,
-      db.reading_progress,
       db.shelf_items,
       db.sync_operations,
     ],
@@ -204,6 +200,7 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
         volumeNumber: input.edition.volumeNumber?.trim() || undefined,
         coverUrl: input.edition.coverUrl?.trim() || undefined,
         coverBlobKey: input.edition.coverBlobKey || undefined,
+        coverStoragePath: input.edition.coverStoragePath || undefined,
         description: input.edition.description?.trim() || undefined,
         metadataSource: input.edition.metadataSource ?? 'manual',
         metadataVerified: input.edition.metadataVerified ?? true,
@@ -298,7 +295,6 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           startedAt: status === 'currently_reading' || status === 'finished' ? getLocalDateString() : null,
           finishedAt: status === 'finished' ? getLocalDateString() : null,
           targetFinishDate: null,
-          dailyPageGoal: null,
           isActive: true,
           createdAt: ts,
           updatedAt: ts,
@@ -312,32 +308,6 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           'upsert',
           createdCycle as unknown as Record<string, unknown>,
           Object.keys(createdCycle),
-          0
-        );
-
-        const totalPages = edition.pageCount ?? 0;
-        const currentPage = status === 'finished' ? totalPages : 0;
-        const progress: ReadingProgress = {
-          id: createUuid(),
-          cycleId: createdCycle.id,
-          workId: work.id,
-          editionId: edition.id,
-          currentPage,
-          totalPages,
-          percentage: calculatePercentage(currentPage, totalPages),
-          lastRewoundAt: null,
-          createdAt: ts,
-          updatedAt: ts,
-          deletedAt: null,
-          version: 1,
-        };
-        await db.reading_progress.put(progress);
-        await enqueueSyncOp(
-          'reading_progress',
-          progress.id,
-          'upsert',
-          progress as unknown as Record<string, unknown>,
-          Object.keys(progress),
           0
         );
       }
@@ -542,38 +512,6 @@ export async function restoreSoftDeletedEntity(
   });
 }
 
-export async function saveLoan(
-  input: Omit<Loan, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'version'> & {
-    id?: string;
-    direction: LoanDirection;
-  }
-): Promise<Loan> {
-  const ts = nowIso();
-  return db.transaction('rw', [db.loans, db.sync_operations], async () => {
-    const existing = input.id ? await db.loans.get(input.id) : undefined;
-    const row: Loan = existing
-      ? { ...existing, ...input, updatedAt: ts, version: existing.version + 1 }
-      : {
-          ...input,
-          id: input.id ?? createUuid(),
-          createdAt: ts,
-          updatedAt: ts,
-          deletedAt: null,
-          version: 1,
-        };
-    await db.loans.put(row);
-    await enqueueSyncOp(
-      'loans',
-      row.id,
-      'upsert',
-      row as unknown as Record<string, unknown>,
-      Object.keys(input),
-      existing?.version ?? 0
-    );
-    return row;
-  });
-}
-
 export async function saveShelf(
   input: { id?: string; name: string; description?: string; color?: string }
 ): Promise<Shelf> {
@@ -659,13 +597,12 @@ export async function startReadingCycle(params: {
   workId: string;
   editionId: string;
   status?: ReadingStatus;
-  totalPages?: number | null;
   startedAt?: string | null;
-}): Promise<{ cycle: ReadingCycle; progress: ReadingProgress }> {
+}): Promise<{ cycle: ReadingCycle }> {
   const ts = nowIso();
   return db.transaction(
     'rw',
-    [db.reading_cycles, db.reading_progress, db.editions, db.sync_operations],
+    [db.reading_cycles, db.sync_operations],
     async () => {
       const existingCycles = await db.reading_cycles
         .where('workId')
@@ -696,8 +633,6 @@ export async function startReadingCycle(params: {
 
       const maxNum = existingCycles.reduce((m, c) => Math.max(m, c.cycleNumber), 0);
       const status = params.status ?? 'currently_reading';
-      const edition = await db.editions.get(params.editionId);
-      const totalPages = params.totalPages ?? edition?.pageCount ?? 0;
 
       const cycle: ReadingCycle = {
         id: createUuid(),
@@ -713,7 +648,6 @@ export async function startReadingCycle(params: {
               : null,
         finishedAt: status === 'finished' ? getLocalDateString() : null,
         targetFinishDate: null,
-        dailyPageGoal: null,
         isActive: true,
         createdAt: ts,
         updatedAt: ts,
@@ -730,32 +664,7 @@ export async function startReadingCycle(params: {
         0
       );
 
-      const initialPage = status === 'finished' ? totalPages : 0;
-      const progress: ReadingProgress = {
-        id: createUuid(),
-        cycleId: cycle.id,
-        workId: params.workId,
-        editionId: params.editionId,
-        currentPage: initialPage,
-        totalPages,
-        percentage: calculatePercentage(initialPage, totalPages),
-        lastRewoundAt: null,
-        createdAt: ts,
-        updatedAt: ts,
-        deletedAt: null,
-        version: 1,
-      };
-      await db.reading_progress.put(progress);
-      await enqueueSyncOp(
-        'reading_progress',
-        progress.id,
-        'upsert',
-        progress as unknown as Record<string, unknown>,
-        Object.keys(progress),
-        0
-      );
-
-      return { cycle, progress };
+      return { cycle };
     }
   );
 }
@@ -836,191 +745,6 @@ export async function updateCycleStatus(
   });
 }
 
-/**
- * Updates currentPage & totalPages for a cycle.
- * Explicitly allows INTENTIONAL REWINDS (currentPage < previous currentPage),
- * recording lastRewoundAt so sync & UI preserve the lower page number cleanly.
- */
-export async function updateCycleProgress(params: {
-  cycleId: string;
-  currentPage: number;
-  totalPages?: number;
-  markFinishedIfComplete?: boolean;
-}): Promise<ReadingProgress> {
-  const ts = nowIso();
-  return db.transaction(
-    'rw',
-    [db.reading_progress, db.reading_cycles, db.editions, db.sync_operations],
-    async () => {
-      const cycle = await db.reading_cycles.get(params.cycleId);
-      if (!cycle) throw new Error('Cycle not found');
-
-      let existing = await db.reading_progress
-        .where('cycleId')
-        .equals(params.cycleId)
-        .filter((p) => !p.deletedAt)
-        .first();
-
-      const edition = await db.editions.get(cycle.editionId);
-      const totalPages = Math.max(
-        0,
-        params.totalPages ?? existing?.totalPages ?? edition?.pageCount ?? 0
-      );
-      const clampedCurrent = Math.max(
-        0,
-        totalPages > 0 ? Math.min(params.currentPage, totalPages) : params.currentPage
-      );
-      const isRewind = existing ? clampedCurrent < existing.currentPage : false;
-
-      if (!existing) {
-        const created: ReadingProgress = {
-          id: createUuid(),
-          cycleId: cycle.id,
-          workId: cycle.workId,
-          editionId: cycle.editionId,
-          currentPage: clampedCurrent,
-          totalPages,
-          percentage: calculatePercentage(clampedCurrent, totalPages),
-          lastRewoundAt: null,
-          createdAt: ts,
-          updatedAt: ts,
-          deletedAt: null,
-          version: 1,
-        };
-        await db.reading_progress.put(created);
-        await enqueueSyncOp(
-          'reading_progress',
-          created.id,
-          'upsert',
-          created as unknown as Record<string, unknown>,
-          Object.keys(created),
-          0
-        );
-        existing = created;
-      } else {
-        const updated: ReadingProgress = {
-          ...existing,
-          currentPage: clampedCurrent,
-          totalPages,
-          percentage: calculatePercentage(clampedCurrent, totalPages),
-          lastRewoundAt: isRewind ? ts : existing.lastRewoundAt,
-          updatedAt: ts,
-          version: existing.version + 1,
-        };
-        await db.reading_progress.put(updated);
-        await enqueueSyncOp(
-          'reading_progress',
-          updated.id,
-          'upsert',
-          updated as unknown as Record<string, unknown>,
-          ['currentPage', 'totalPages', 'percentage', 'lastRewoundAt'],
-          existing.version
-        );
-        existing = updated;
-      }
-
-      if (params.markFinishedIfComplete && totalPages > 0 && clampedCurrent >= totalPages && cycle.status !== 'finished') {
-        const finishedCycle: ReadingCycle = {
-          ...cycle,
-          status: 'finished',
-          finishedAt: cycle.finishedAt || getLocalDateString(),
-          updatedAt: ts,
-          version: cycle.version + 1,
-        };
-        await db.reading_cycles.put(finishedCycle);
-        await enqueueSyncOp(
-          'reading_cycles',
-          finishedCycle.id,
-          'upsert',
-          finishedCycle as unknown as Record<string, unknown>,
-          ['status', 'finishedAt'],
-          cycle.version
-        );
-      }
-
-      return existing;
-    }
-  );
-}
-
-export async function logOrUpdateReadingSession(params: {
-  id?: string;
-  cycleId: string;
-  sessionDate: string;
-  durationMinutes: number;
-  startPage: number;
-  endPage: number;
-  startedAt?: string | null;
-  endedAt?: string | null;
-  notes?: string;
-  syncProgressToEndPage?: boolean;
-}): Promise<ReadingSession> {
-  const ts = nowIso();
-  const pagesRead = Math.max(0, params.endPage - params.startPage);
-
-  const session = await db.transaction(
-    'rw',
-    [db.reading_sessions, db.reading_cycles, db.sync_operations],
-    async () => {
-      const cycle = await db.reading_cycles.get(params.cycleId);
-      if (!cycle) throw new Error('Reading cycle not found');
-
-      const existing = params.id ? await db.reading_sessions.get(params.id) : undefined;
-      const row: ReadingSession = existing
-        ? {
-            ...existing,
-            sessionDate: params.sessionDate,
-            durationMinutes: Math.max(0, params.durationMinutes),
-            startPage: Math.max(0, params.startPage),
-            endPage: Math.max(0, params.endPage),
-            pagesRead,
-            startedAt: params.startedAt ?? existing.startedAt,
-            endedAt: params.endedAt ?? existing.endedAt,
-            notes: params.notes,
-            updatedAt: ts,
-            version: existing.version + 1,
-          }
-        : {
-            id: createUuid(),
-            cycleId: cycle.id,
-            workId: cycle.workId,
-            editionId: cycle.editionId,
-            sessionDate: params.sessionDate || getLocalDateString(),
-            startedAt: params.startedAt ?? null,
-            endedAt: params.endedAt ?? null,
-            durationMinutes: Math.max(0, params.durationMinutes),
-            startPage: Math.max(0, params.startPage),
-            endPage: Math.max(0, params.endPage),
-            pagesRead,
-            notes: params.notes?.trim() || undefined,
-            createdAt: ts,
-            updatedAt: ts,
-            deletedAt: null,
-            version: 1,
-          };
-      await db.reading_sessions.put(row);
-      await enqueueSyncOp(
-        'reading_sessions',
-        row.id,
-        'upsert',
-        row as unknown as Record<string, unknown>,
-        Object.keys(row),
-        existing?.version ?? 0
-      );
-      return row;
-    }
-  );
-
-  if (params.syncProgressToEndPage !== false) {
-    await updateCycleProgress({
-      cycleId: params.cycleId,
-      currentPage: params.endPage,
-      markFinishedIfComplete: true,
-    });
-  }
-  return session;
-}
-
 export async function saveReview(input: {
   id?: string;
   workId: string;
@@ -1069,7 +793,7 @@ export async function saveReview(input: {
 }
 
 /**
- * Deletes ONLY the Review record. Reading cycles, progress, and sessions remain completely intact.
+ * Deletes ONLY the Review record. Reading cycles and journal notes remain completely intact.
  */
 export async function deleteReviewOnly(reviewId: string): Promise<void> {
   await softDeleteEntity('reviews', reviewId);

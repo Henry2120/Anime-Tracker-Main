@@ -15,12 +15,9 @@ const ALLOWED_TABLES = new Set([
   'editions',
   'edition_isbns',
   'physical_copies',
-  'loans',
   'shelves',
   'shelf_items',
   'reading_cycles',
-  'reading_progress',
-  'reading_sessions',
   'reviews',
   'journal_entries',
 ]);

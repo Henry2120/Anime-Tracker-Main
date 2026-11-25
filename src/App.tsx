@@ -1867,11 +1867,6 @@ function AppContent() {
   const isEffectiveDark = isDarkThemeFamily(theme, customThemeConfig.pageBg);
 
   useEffect(() => {
-    if (appMode === 'books') {
-      document.documentElement.removeAttribute('data-theme');
-      document.body.removeAttribute('data-theme');
-      return;
-    }
     document.documentElement.setAttribute('data-theme', theme);
     document.body.setAttribute('data-theme', theme);
     if (isEffectiveDark) {
@@ -1886,11 +1881,21 @@ function AppContent() {
   return (
     <>
       {appMode === 'books' ? (
-        <div className="w-full min-w-full min-h-screen flex-1">
+        <div
+          data-theme={theme}
+          className={`app-theme-root w-full min-w-full min-h-screen flex-1 relative ${
+            isEffectiveDark ? 'dark text-[#F4F2F7]' : 'text-[#25242A]'
+          }`}
+        >
+          <AtmosphericCanvas
+            theme={theme}
+            rainIntensity={rainIntensity}
+            customPageBg={theme === 'custom' ? customThemeConfig.pageBg : undefined}
+          />
           <ViewErrorBoundary viewName="AniVerse Book Tracker">
             <Suspense
               fallback={
-                <div className="flex min-h-screen items-center justify-center bg-[#FAF9F6] dark:bg-slate-950 text-sm text-stone-500">
+                <div className="flex min-h-screen items-center justify-center bg-transparent text-sm text-stone-500">
                   Loading AniVerse Book Tracker...
                 </div>
               }

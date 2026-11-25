@@ -28,6 +28,7 @@ import {
   britishLibraryProvider,
   crossrefProvider,
   fahasaProvider,
+  firstNewsProvider,
   goodaProvider,
   googleBooksProvider,
   hcmLibraryProvider,
@@ -57,6 +58,7 @@ export {
   britishLibraryProvider,
   crossrefProvider,
   fahasaProvider,
+  firstNewsProvider,
   goodaProvider,
   googleBooksProvider,
   hcmLibraryProvider,
@@ -293,6 +295,7 @@ function normalizeEdgePayload(
     verificationStatus?: VerificationStatus;
     verificationMessage?: string;
     retrievedAt?: string;
+    searchQuery?: string;
   }
 ): MetadataLookupResult {
   const allRaw = [
@@ -302,7 +305,7 @@ function normalizeEdgePayload(
     ...(extra?.workMatches ?? []),
   ];
   const classified = allRaw.map((c) => classifyCandidateMatch(c, targetIsbn).candidate);
-  const partitioned = partitionAndMergeCandidates(classified, targetIsbn);
+  const partitioned = partitionAndMergeCandidates(classified, targetIsbn, extra?.searchQuery ?? null);
   const fallbackApprox = (extra?.approximateMatches ?? []).map((c) => ({
     ...classifyCandidateMatch(c, null).candidate,
     matchConfidence: 'approximate_match' as const,
@@ -779,6 +782,7 @@ export async function searchMetadataWithReportByQuery(
           stagesExecuted: Array.isArray(proxyData.stagesExecuted)
             ? (proxyData.stagesExecuted as string[])
             : ['server_proxy'],
+          searchQuery: trimmed,
         }
       );
       if (proxyRes.candidates.length > 0 || proxyRes.providerStatuses.length > 0) {
@@ -811,6 +815,7 @@ export async function searchMetadataWithReportByQuery(
               stagesExecuted: Array.isArray(data.stagesExecuted)
                 ? (data.stagesExecuted as string[])
                 : ['edge'],
+              searchQuery: trimmed,
             }
           );
           if (edgeRes.candidates.length > 0 || edgeRes.providerStatuses.length > 0) {

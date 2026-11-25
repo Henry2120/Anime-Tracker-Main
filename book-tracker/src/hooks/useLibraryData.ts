@@ -8,11 +8,8 @@ import type {
   Edition,
   EditionIsbn,
   JournalEntry,
-  Loan,
   PhysicalCopy,
   ReadingCycle,
-  ReadingProgress,
-  ReadingSession,
   Review,
   Shelf,
   ShelfItem,
@@ -29,12 +26,8 @@ export interface EnrichedBookRecord {
   copies: PhysicalCopy[];
   ownedCopiesCount: number;
   wishlistCopiesCount: number;
-  loans: Loan[];
-  activeLoansCount: number;
   cycles: ReadingCycle[];
   activeCycle: ReadingCycle | undefined;
-  activeProgress: ReadingProgress | undefined;
-  sessions: ReadingSession[];
   reviews: Review[];
   journalEntries: JournalEntry[];
   shelfIds: string[];
@@ -53,7 +46,6 @@ export function useLibrarySnapshot() {
     useLiveQuery(() => db.edition_isbns.filter((i) => !i.deletedAt).toArray(), []) ?? [];
   const physicalCopies =
     useLiveQuery(() => db.physical_copies.filter((c) => !c.deletedAt).toArray(), []) ?? [];
-  const loans = useLiveQuery(() => db.loans.filter((l) => !l.deletedAt).toArray(), []) ?? [];
   const shelves =
     useLiveQuery(
       () => db.shelves.filter((s) => !s.deletedAt).sortBy('sortOrder'),
@@ -63,10 +55,6 @@ export function useLibrarySnapshot() {
     useLiveQuery(() => db.shelf_items.filter((i) => !i.deletedAt).toArray(), []) ?? [];
   const cycles =
     useLiveQuery(() => db.reading_cycles.filter((c) => !c.deletedAt).toArray(), []) ?? [];
-  const progressList =
-    useLiveQuery(() => db.reading_progress.filter((p) => !p.deletedAt).toArray(), []) ?? [];
-  const sessions =
-    useLiveQuery(() => db.reading_sessions.filter((s) => !s.deletedAt).toArray(), []) ?? [];
   const reviews = useLiveQuery(() => db.reviews.filter((r) => !r.deletedAt).toArray(), []) ?? [];
   const journalEntries =
     useLiveQuery(() => db.journal_entries.filter((j) => !j.deletedAt).toArray(), []) ?? [];
@@ -84,9 +72,6 @@ export function useLibrarySnapshot() {
       .filter((c) => c.workId === work.id)
       .sort((a, b) => b.cycleNumber - a.cycleNumber);
     const activeCycle = workCycles.find((c) => c.isActive) ?? workCycles[0];
-    const activeProgress = activeCycle
-      ? progressList.find((p) => p.cycleId === activeCycle.id)
-      : undefined;
 
     const primaryEdition =
       (activeCycle && workEditions.find((e) => e.id === activeCycle.editionId)) ||
@@ -110,10 +95,6 @@ export function useLibrarySnapshot() {
 
     const editionIds = new Set(workEditions.map((e) => e.id));
     const isbns = editionIsbns.filter((i) => editionIds.has(i.editionId));
-    const workLoans = loans.filter((l) => l.workId === work.id);
-    const workSessions = sessions
-      .filter((s) => s.workId === work.id)
-      .sort((a, b) => (b.sessionDate + b.createdAt).localeCompare(a.sessionDate + a.createdAt));
     const workReviews = reviews
       .filter((r) => r.workId === work.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -134,12 +115,8 @@ export function useLibrarySnapshot() {
       copies: workCopies,
       ownedCopiesCount: workCopies.filter((c) => c.ownershipStatus === 'owned').length,
       wishlistCopiesCount: workCopies.filter((c) => c.ownershipStatus === 'wishlist').length,
-      loans: workLoans,
-      activeLoansCount: workLoans.filter((l) => l.status === 'active' || l.status === 'overdue').length,
       cycles: workCycles,
       activeCycle,
-      activeProgress,
-      sessions: workSessions,
       reviews: workReviews,
       journalEntries: workJournal,
       shelfIds: workShelfIds,
@@ -154,12 +131,9 @@ export function useLibrarySnapshot() {
     editions,
     editionIsbns,
     physicalCopies,
-    loans,
     shelves: shelves as Shelf[],
     shelfItems: shelfItems as ShelfItem[],
     cycles,
-    progressList,
-    sessions,
     reviews,
     journalEntries,
     pendingOps: pendingOps as SyncOperation[],

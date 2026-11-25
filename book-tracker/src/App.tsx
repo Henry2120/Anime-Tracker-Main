@@ -9,12 +9,10 @@ import {
   Home,
   Library,
   Menu,
-  Moon,
   Plus,
   Quote,
   RefreshCw,
   Settings,
-  Sun,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -93,11 +91,12 @@ function AppShell({
   const settings = snapshot.settings;
 
   useEffect(() => {
+    if (embedded) return;
     const theme = settings?.theme ?? 'light';
     const isDark = theme === 'dark';
     document.documentElement.classList.toggle('dark', isDark);
     document.body.classList.toggle('dark', isDark);
-  }, [settings?.theme]);
+  }, [embedded, settings?.theme]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -140,7 +139,7 @@ function AppShell({
   const handleTriggerSync = async () => {
     setSyncing(true);
     try {
-      await runSyncCycle();
+      await runSyncCycle({ manualTrigger: true });
     } finally {
       setSyncing(false);
     }
@@ -153,19 +152,16 @@ function AppShell({
     });
   };
 
-  const toggleTheme = async () => {
-    await db.app_settings.put({
-      ...settings,
-      theme: settings.theme === 'dark' ? 'light' : 'dark',
-    });
-  };
-
   const currentNavLabel = navItems.find((n) => n.id === activeTab)?.label ?? 'Book Tracker';
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-[#FAF9F6] dark:bg-slate-950 text-stone-900 dark:text-slate-100">
+    <div
+      className={`min-h-screen flex flex-col lg:flex-row relative z-20 ${
+        embedded ? 'bg-transparent' : 'bg-[#FAF9F6] dark:bg-slate-950'
+      } text-stone-900 dark:text-slate-100`}
+    >
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 border-r border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:z-30 border-r border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <div className="flex items-center gap-2.5 border-b border-stone-200 dark:border-slate-800 px-5 py-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#C2410C] text-white font-editorial font-bold text-lg">
             B
@@ -222,7 +218,7 @@ function AppShell({
       {/* Main Content Column */}
       <div className="flex-1 lg:pl-64 flex flex-col min-h-screen">
         {/* Sticky Top Bar */}
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-stone-200 dark:border-slate-800 bg-[#FAF9F6]/90 dark:bg-slate-950/90 backdrop-blur-md px-4 lg:px-6">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-stone-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-4 lg:px-6">
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
@@ -267,19 +263,6 @@ function AppShell({
               title="Switch Language EN / VI"
             >
               {settings.language.toUpperCase()}
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-            >
-              {settings.theme === 'dark' ? (
-                <Sun className="h-4 w-4 text-amber-400" />
-              ) : (
-                <Moon className="h-4 w-4 text-stone-600" />
-              )}
             </button>
 
             {isSupabaseConfigured() && (
@@ -336,8 +319,6 @@ function AppShell({
               editions={snapshot.editions}
               copies={snapshot.physicalCopies}
               cycles={snapshot.cycles}
-              sessions={snapshot.sessions}
-              loans={snapshot.loans}
               settings={settings}
               onOpenBook={(id) => setSelectedWorkId(id)}
               onOpenAddBook={() => setAddOpen(true)}
@@ -349,7 +330,6 @@ function AppShell({
             <LibraryView
               books={snapshot.books}
               shelves={snapshot.shelves}
-              loans={snapshot.loans}
               onOpenBook={(id) => setSelectedWorkId(id)}
               onOpenAddBook={() => setAddOpen(true)}
             />
@@ -372,7 +352,6 @@ function AppShell({
           {activeTab === 'history' && (
             <ReadingHistoryView
               books={snapshot.books}
-              sessions={snapshot.sessions}
               onOpenBook={(id) => setSelectedWorkId(id)}
             />
           )}
@@ -392,7 +371,6 @@ function AppShell({
               editions={snapshot.editions}
               copies={snapshot.physicalCopies}
               cycles={snapshot.cycles}
-              sessions={snapshot.sessions}
             />
           )}
 

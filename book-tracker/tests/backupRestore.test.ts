@@ -14,7 +14,7 @@ describe('Lossless JSON backup, CSV exports, duplicate detection & restore', () 
     await Promise.all(db.tables.map((t) => t.clear()));
   });
 
-  it('exports full lossless JSON, detects duplicates, and restores cleanly after wipe', async () => {
+  it('exports full lossless JSON without removed tables, detects duplicates, and restores legacy JSON cleanly', async () => {
     const { work, edition, cycle } = await createBookBundle({
       work: { title: 'Số Đỏ', authors: ['Vũ Trọng Phụng'], genres: ['Satire'] },
       edition: { title: 'Số Đỏ (Ấn bản kỷ niệm)', language: 'vi', format: 'hardcover', pageCount: 240 },
@@ -42,6 +42,11 @@ describe('Lossless JSON backup, CSV exports, duplicate detection & restore', () 
     });
 
     const { json } = await exportFullBackupJson();
+    const parsedExport = JSON.parse(json) as { tables: Record<string, unknown[]> };
+    expect(parsedExport.tables.loans).toBeUndefined();
+    expect(parsedExport.tables.reading_progress).toBeUndefined();
+    expect(parsedExport.tables.reading_sessions).toBeUndefined();
+
     const csvRes = await exportCollectionCsv();
     expect(csvRes.csv.startsWith('\uFEFF')).toBe(true);
     expect(csvRes.csv).toContain('9791090636071');
@@ -52,9 +57,14 @@ describe('Lossless JSON backup, CSV exports, duplicate detection & restore', () 
     expect(dupPreview.duplicateWorkCount).toBe(1);
     expect(dupPreview.duplicateIsbnCount).toBe(1);
 
-    // Wipe DB and restore
+    // Wipe DB and restore a legacy JSON that still includes dropped tables
     await Promise.all(db.tables.map((t) => t.clear()));
-    const cleanPreview = await previewBackupImport(json);
+    const legacyPayload = JSON.parse(json) as { tables: Record<string, unknown[]> };
+    legacyPayload.tables.loans = [{ id: 'legacy-loan-1' }];
+    legacyPayload.tables.reading_progress = [{ id: 'legacy-prog-1' }];
+    legacyPayload.tables.reading_sessions = [{ id: 'legacy-sess-1' }];
+
+    const cleanPreview = await previewBackupImport(JSON.stringify(legacyPayload));
     expect(cleanPreview.newWorkCount).toBe(1);
 
     const res = await applyBackupRestore(cleanPreview, 'replace_all');

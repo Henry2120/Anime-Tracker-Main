@@ -8,6 +8,7 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { db } from '../db/dexie';
@@ -18,12 +19,20 @@ import {
   exportCollectionCsv,
   exportFullBackupJson,
   exportJournalCsv,
-  exportReadingSessionsCsv,
   previewBackupImport,
   triggerCloudBackupSnapshot,
   triggerFileDownload,
   type ImportPreviewSummary,
 } from '../services/backupService';
+import {
+  deleteBothBookTrackerData,
+  deleteCloudBookTrackerData,
+  deleteLocalBookTrackerData,
+  type BothDeleteResult,
+  type CloudDeleteResult,
+  type DeleteScope,
+  type LocalDeleteResult,
+} from '../services/dataManagementService';
 import { registerOrRefreshDevices, revokeDevice, runSyncCycle } from '../sync/syncEngine';
 import type {
   AppSettings,
@@ -62,6 +71,20 @@ export function SettingsView({
 
   const [importPreview, setImportPreview] = useState<ImportPreviewSummary | null>(null);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
+
+  // Configurable Book Tracker data deletion state
+  const [deleteScope, setDeleteScope] = useState<DeleteScope>('local_only');
+  const [confirmStepOpen, setConfirmStepOpen] = useState(false);
+  const [confirmChecked, setConfirmChecked] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteFeedback, setDeleteFeedback] = useState<{
+    ok: boolean;
+    message: string;
+    localClearedCount?: number;
+    cloudClearedCount?: number;
+    storageDeletedCount?: number;
+    errors: string[];
+  } | null>(null);
 
   const supabaseConfigured = isSupabaseConfigured();
 
@@ -107,7 +130,7 @@ export function SettingsView({
     setSyncing(true);
     setSyncMsg(null);
     try {
-      const res = await runSyncCycle();
+      const res = await runSyncCycle({ manualTrigger: true });
       setSyncMsg(
         `Sync status: ${res.status} · pushed ${res.pushedCount}, pulled ${res.pulledCount}` +
           (res.cursorReset ? ' (full resync completed)' : '') +
@@ -131,12 +154,69 @@ export function SettingsView({
     }
   };
 
+  const handleQuickBackup = async () => {
+    const { filename, json } = await exportFullBackupJson();
+    triggerFileDownload(filename, json, 'application/json');
+    setBackupMsg(`Exported full lossless JSON backup: ${filename}`);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    setDeleteFeedback(null);
+    try {
+      if (deleteScope === 'local_only') {
+        const res: LocalDeleteResult = await deleteLocalBookTrackerData();
+        setDeleteFeedback({
+          ok: res.ok,
+          message: res.ok
+            ? 'Cleared all local Book Tracker data cleanly.'
+            : 'Local deletion encountered an error.',
+          localClearedCount: res.clearedTables.length,
+          errors: res.error ? [res.error] : [],
+        });
+      } else if (deleteScope === 'cloud_only') {
+        const res: CloudDeleteResult = await deleteCloudBookTrackerData();
+        setDeleteFeedback({
+          ok: res.ok,
+          message: res.ok
+            ? 'Deleted your Cloud Book Tracker records and paused auto-reupload.'
+            : 'Cloud deletion reported issues.',
+          cloudClearedCount: res.deletedTables.length,
+          storageDeletedCount: res.deletedStorageObjects,
+          errors: res.error ? [res.error] : [],
+        });
+      } else {
+        const res: BothDeleteResult = await deleteBothBookTrackerData();
+        const errs = [res.cloud.error, res.local.error].filter((e): e is string => Boolean(e));
+        setDeleteFeedback({
+          ok: res.ok,
+          message: res.ok
+            ? 'Erased both Local and Cloud Book Tracker data cleanly.'
+            : res.partialFailure
+              ? 'Partial deletion completed — check details below.'
+              : 'Deletion failed on both local and cloud targets.',
+          localClearedCount: res.local.ok ? res.local.clearedTables.length : undefined,
+          cloudClearedCount: res.cloud.ok ? res.cloud.deletedTables.length : undefined,
+          storageDeletedCount: res.cloud.deletedStorageObjects,
+          errors: errs,
+        });
+      }
+      setConfirmStepOpen(false);
+      setConfirmChecked(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const scopeNeedsCloud = deleteScope === 'cloud_only' || deleteScope === 'both';
+  const cloudReadyForDelete = supabaseConfigured && Boolean(settings.userId);
+
   return (
     <div className="space-y-6 max-w-4xl">
-      {/* Preferences & Goals */}
+      {/* Preferences */}
       <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
         <h2 className="font-editorial text-lg font-semibold">{t('settings.preferences')}</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-semibold mb-1">Language / Ngôn ngữ</label>
             <select
@@ -163,30 +243,6 @@ export function SettingsView({
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Daily Page Goal</label>
-            <input
-              type="number"
-              min={1}
-              value={settings.dailyPageGoal}
-              onChange={(e) =>
-                updateSettings({ dailyPageGoal: Math.max(1, Number(e.target.value) || 25) })
-              }
-              className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Yearly Book Goal</label>
-            <input
-              type="number"
-              min={1}
-              value={settings.yearlyBookGoal}
-              onChange={(e) =>
-                updateSettings({ yearlyBookGoal: Math.max(1, Number(e.target.value) || 24) })
-              }
-              className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-mono"
-            />
           </div>
         </div>
 
@@ -236,6 +292,12 @@ export function SettingsView({
           </div>
         </div>
 
+        {settings.cloudSyncPausedAfterWipe && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            Automatic background cloud sync is paused following your recent cloud wipe so local data is not silently re-uploaded. Click &ldquo;{t('action.syncNow')}&rdquo; when you want to resume cloud synchronization.
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="rounded-xl border border-stone-100 dark:border-slate-800 p-3">
             <span className="text-stone-500">Outbox Queue</span>
@@ -270,9 +332,8 @@ export function SettingsView({
               Running in Local-First Offline Mode
             </p>
             <p>
-              To enable multi-device Supabase cloud sync, set <code className="font-mono">VITE_SUPABASE_URL</code> and{' '}
-              <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> in <code className="font-mono">book-tracker/.env</code> and run{' '}
-              <code className="font-mono">supabase/migrations/001_initial_schema.sql</code>.
+              To enable multi-device Supabase cloud sync, configure <code className="font-mono">VITE_SUPABASE_URL</code> and{' '}
+              <code className="font-mono">VITE_SUPABASE_ANON_KEY</code>.
             </p>
           </div>
         ) : settings.userEmail ? (
@@ -371,11 +432,7 @@ export function SettingsView({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={async () => {
-              const { filename, json } = await exportFullBackupJson();
-              triggerFileDownload(filename, json, 'application/json');
-              setBackupMsg(`Exported full lossless JSON backup: ${filename}`);
-            }}
+            onClick={handleQuickBackup}
             className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-stone-900 dark:bg-[#C2410C] px-3.5 py-2 text-xs font-semibold text-white"
           >
             <Download className="h-3.5 w-3.5" />
@@ -391,17 +448,6 @@ export function SettingsView({
             className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
           >
             CSV: Physical Collection
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => {
-              const { filename, csv } = await exportReadingSessionsCsv();
-              triggerFileDownload(filename, csv, 'text/csv;charset=utf-8');
-            }}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
-          >
-            CSV: Reading Sessions
           </button>
 
           <button
@@ -450,7 +496,7 @@ export function SettingsView({
             <p className="font-mono">
               Works: {importPreview.counts.works} ({importPreview.newWorkCount} new,{' '}
               {importPreview.duplicateWorkCount} existing UUIDs) · Duplicate ISBNs:{' '}
-              {importPreview.duplicateIsbnCount} · Sessions: {importPreview.counts.reading_sessions}
+              {importPreview.duplicateIsbnCount} · Cycles: {importPreview.counts.reading_cycles}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -507,6 +553,159 @@ export function SettingsView({
                 <span className="shrink-0">{Math.round(r.byteSize / 1024)} KB</span>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* Configurable Book Tracker Data Deletion */}
+      <section className="rounded-2xl border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="font-editorial text-lg font-semibold flex items-center gap-2 text-red-700 dark:text-red-400">
+              <Trash2 className="h-5 w-5" />
+              {t('settings.dataManagement')}
+            </h2>
+            <p className="text-xs text-stone-600 dark:text-slate-400">
+              Permanently erase Book Tracker data on this device, in your Supabase cloud account, or both. Anime Tracker, 3D Viewer, Music Lab, MAL authentication, and AniVerse themes remain completely untouched.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleQuickBackup}
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800 shrink-0"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download Backup First
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          {(
+            [
+              {
+                id: 'local_only',
+                title: 'Delete Local Data Only',
+                desc: 'Clears local IndexedDB library, covers, reading history, sync queue, and lookup cache on this browser.',
+              },
+              {
+                id: 'cloud_only',
+                title: 'Delete Cloud Data Only',
+                desc: 'Deletes your Book Tracker records & cover/backup storage files in Supabase while keeping local data and pausing auto-reupload.',
+              },
+              {
+                id: 'both',
+                title: 'Delete Local & Cloud Data',
+                desc: 'Performs a complete wipe of Book Tracker data on both this device and your signed-in cloud account.',
+              },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => {
+                setDeleteScope(opt.id);
+                setConfirmStepOpen(false);
+                setConfirmChecked(false);
+              }}
+              className={`rounded-xl border p-3 text-left transition-colors ${
+                deleteScope === opt.id
+                  ? 'border-red-500 bg-red-50/70 dark:bg-red-950/30'
+                  : 'border-stone-200 dark:border-slate-800 hover:border-stone-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <p className="font-semibold text-stone-900 dark:text-slate-100">{opt.title}</p>
+              <p className="mt-1 text-[11px] text-stone-500 dark:text-slate-400">{opt.desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {scopeNeedsCloud && !cloudReadyForDelete && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            {!supabaseConfigured
+              ? 'Cloud sync is not configured in this environment, so cloud deletion is unavailable.'
+              : 'Sign in above to enable Cloud Book Tracker deletion.'}
+          </p>
+        )}
+
+        {!confirmStepOpen ? (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={scopeNeedsCloud && !cloudReadyForDelete}
+              onClick={() => setConfirmStepOpen(true)}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Continue to Confirm ({deleteScope.replace('_', ' ')})
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-red-300 bg-red-50/80 dark:bg-red-950/40 p-4 space-y-3 text-xs">
+            <p className="font-semibold text-red-800 dark:text-red-300 flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Confirm Permanent Deletion ({deleteScope.replace('_', ' ')})
+            </p>
+            <label className="flex items-start gap-2 cursor-pointer text-stone-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={confirmChecked}
+                onChange={(e) => setConfirmChecked(e.target.checked)}
+                className="mt-0.5 accent-red-600"
+              />
+              <span>
+                I understand this permanently deletes my selected Book Tracker records and cannot be undone without a JSON backup.
+              </span>
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmStepOpen(false);
+                  setConfirmChecked(false);
+                }}
+                className="rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!confirmChecked || deleting}
+                onClick={handleConfirmDelete}
+                className="rounded-lg bg-red-600 px-4 py-1.5 font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Permanently Delete Book Tracker Data'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {deleteFeedback && (
+          <div
+            className={`rounded-xl border p-3 text-xs space-y-1 ${
+              deleteFeedback.ok
+                ? 'border-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200'
+                : 'border-amber-300 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+            }`}
+          >
+            <p className="font-semibold">{deleteFeedback.message}</p>
+            {deleteFeedback.localClearedCount !== undefined && (
+              <p className="font-mono text-[11px]">
+                Local tables cleared: {deleteFeedback.localClearedCount}
+              </p>
+            )}
+            {deleteFeedback.cloudClearedCount !== undefined && (
+              <p className="font-mono text-[11px]">
+                Cloud tables cleared: {deleteFeedback.cloudClearedCount} · Storage files deleted:{' '}
+                {deleteFeedback.storageDeletedCount ?? 0}
+              </p>
+            )}
+            {deleteFeedback.errors.length > 0 && (
+              <ul className="list-disc pl-4 text-red-700 dark:text-red-300">
+                {deleteFeedback.errors.map((er, i) => (
+                  <li key={i}>{er}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </section>

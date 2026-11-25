@@ -104,6 +104,7 @@ const EDGE_PRIORITY: Record<string, number> = {
   nlc_china: 93,
   nxb_kim_dong: 92,
   nha_nam: 90,
+  first_news: 89,
   ipm: 88,
   amak: 86,
   adcbook: 84,
@@ -528,9 +529,26 @@ function addUnique(list: string[], vals: string[]): void {
   }
 }
 
+function stripSiteChromeHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, ' ');
+}
+
+function foldVietnameseDiacritics(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 function extractVnSpecs(html: string) {
   const INLINE_LABEL_SPLIT =
-    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|Barcode|EAN(?:-13)?|SKU|ISBN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
+    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Biên dịch|Người dịch|Minh họa|Họa sĩ|Hình thức bìa|Quy cách in|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|Barcode|EAN(?:-13)?|SKU|ISBN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
   const lines = htmlLines(html).flatMap((line) =>
     line.includes('\t')
       ? [line]
@@ -558,7 +576,7 @@ function extractVnSpecs(html: string) {
     if (!v || v.length < 2 || /^[\s:|\-–—•.,;/\\]+$/.test(v) || /^đang cập nhật$/i.test(v)) return;
     const splitNames = v.split(/[,;&/]+|\bvà\b/i).map((s) => s.trim()).filter((s) => s.length >= 2);
     if (k === 'tác giả' || k === 'tác giả/ dịch giả') addUnique(authors, splitNames);
-    else if (k === 'dịch giả' || k === 'người dịch') addUnique(translators, splitNames);
+    else if (k === 'dịch giả' || k === 'người dịch' || k === 'biên dịch') addUnique(translators, splitNames);
     else if (k === 'minh họa' || k === 'họa sĩ') addUnique(illustrators, splitNames);
     else if (k === 'nxb liên kết') {
       publishingPartner = publishingPartner || v;
@@ -585,7 +603,7 @@ function extractVnSpecs(html: string) {
     } else if (k === 'ngôn ngữ') {
       if (v.toLocaleLowerCase('vi').includes('tiếng việt')) language = 'vi';
     } else if (k === 'thể loại') addUnique(genres, splitNames);
-    else if (k === 'hình thức bìa' || k === 'định dạng') {
+    else if (k === 'hình thức bìa' || k === 'quy cách in' || k === 'định dạng') {
       if (v.toLocaleLowerCase('vi').includes('bìa cứng')) format = 'hardcover';
       else if (v.toLocaleLowerCase('vi').includes('bìa')) format = 'paperback';
     } else if (/^(?:isbn|mã sản phẩm|mã vạch|barcode|ean(?:-13)?|sku)$/i.test(k)) {
@@ -808,7 +826,34 @@ function collectCandidateIdsEdge(c: Candidate): string[] {
   ], undefined, true);
 }
 
-function mergeCandidatesEdge(rawList: Candidate[], targetId: string) {
+function computeQueryRelevanceEdge(c: Candidate, searchQuery = ''): number {
+  const rawQ = searchQuery.trim();
+  if (!rawQ) return 0;
+  const fold = (s: string) =>
+    foldVietnameseDiacritics(s)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+  const qFolded = fold(rawQ);
+  if (!qFolded) return 0;
+  const qTokens = qFolded.split(/\s+/).filter((t) => t.length >= 2);
+  const titleFolded = fold(`${c.title ?? ''} ${c.originalTitle ?? ''} ${c.subtitle ?? ''}`);
+  const fullFolded = fold(`${titleFolded} ${(c.authors ?? []).join(' ')}`);
+  if (!fullFolded) return 0;
+  let score = 0;
+  if (titleFolded === qFolded) score += 100;
+  else if (titleFolded.includes(qFolded)) score += 60;
+  else if (fullFolded.includes(qFolded)) score += 45;
+  const checkTokens = qTokens.length > 0 ? qTokens : [qFolded];
+  let matched = 0;
+  for (const tok of checkTokens) if (fullFolded.includes(tok)) matched++;
+  if (matched === 0) return 0;
+  score += Math.round((matched / checkTokens.length) * 40);
+  if (matched === checkTokens.length) score += 20;
+  return score;
+}
+
+function mergeCandidatesEdge(rawList: Candidate[], targetId: string, searchQuery = '') {
   const sorted = [...rawList].sort((a, b) => (EDGE_PRIORITY[b.provider] ?? 50) - (EDGE_PRIORITY[a.provider] ?? 50));
   const byId = new Map<string, Candidate>();
   const possibleOrWork: Candidate[] = [];
@@ -913,7 +958,20 @@ function mergeCandidatesEdge(rawList: Candidate[], targetId: string) {
     if (c.contradictions && c.contradictions.length > 0) possibleEditionMatches.push(c);
     else exactMatches.push(c);
   }
-  const workMatches = targetId ? [] : possibleOrWork;
+  let workMatches = targetId ? [] : possibleOrWork;
+  if (!targetId && searchQuery.trim() && workMatches.length > 0) {
+    const scored = workMatches.map((item) => ({
+      item,
+      rel: computeQueryRelevanceEdge(item, searchQuery),
+    }));
+    const hasPos = scored.some((s) => s.rel > 0);
+    const filtered = hasPos ? scored.filter((s) => s.rel > 0) : scored;
+    filtered.sort(
+      (a, b) =>
+        b.rel * 1000 + (EDGE_PRIORITY[b.item.provider] ?? 50) - (a.rel * 1000 + (EDGE_PRIORITY[a.item.provider] ?? 50))
+    );
+    workMatches = filtered.map((s) => s.item);
+  }
   if (targetId) possibleEditionMatches.push(...possibleOrWork);
   const approximateMatches = [...possibleEditionMatches, ...workMatches];
   const merged = targetId && exactMatches.length > 0 ? exactMatches : [...exactMatches, ...approximateMatches];
@@ -1186,16 +1244,28 @@ serve(async (req) => {
           const rej = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
           if (rej) throw rej.reason;
         }
-        const slugs = Array.from(
+        const rawSlugs = Array.from(
           new Set(
             fulfilled
-              .map((s) => s.value)
+              .map((s) => stripSiteChromeHtml(s.value))
               .flatMap((h) =>
                 [...h.matchAll(/href=["'](?:https?:\/\/[^"'\s]+)?(\/products\/[^"'?#]+)["']/gi)].map(
                   (m) => m[1]
                 )
               )
           )
+        );
+        const termTokens = foldVietnameseDiacritics(terms.join(' '))
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((t) => t.length >= 2);
+        const slugs = (termTokens.length > 0
+          ? rawSlugs.sort((a, b) => {
+              const sA = termTokens.reduce((n, t) => n + (a.toLowerCase().includes(t) ? 1 : 0), 0);
+              const sB = termTokens.reduce((n, t) => n + (b.toLowerCase().includes(t) ? 1 : 0), 0);
+              return sB - sA;
+            })
+          : rawSlugs
         ).slice(0, 5);
         const out: Candidate[] = [];
         for (const slug of slugs) {
@@ -1959,6 +2029,100 @@ serve(async (req) => {
       makeHaravanTask('ipm', 'IPM', 'vi', 'https://ipm.vn'),
       makeHaravanTask('phuong_nam', 'Nhà sách Phương Nam', 'vi', 'https://nhasachphuongnam.com'),
       {
+        provider: 'first_news',
+        label: 'First News - Trí Việt',
+        tier: 'tier3_publisher',
+        region: 'vi',
+        run: async () => {
+          const searchTerms = cleanId ? vnSearchForms(cleanId).slice(0, 3) : [q];
+          const extractUrls = (html: string, term: string) => {
+            const body = stripSiteChromeHtml(html);
+            const raw = Array.from(
+              new Set(
+                [...body.matchAll(/href=["']((?:https?:\/\/firstnews\.vn)?\/[^"'?#\s]+-p\d+\.html)["']/gi)].map(
+                  (m) => (m[1].startsWith('http') ? m[1] : `https://firstnews.vn${m[1]}`)
+                )
+              )
+            );
+            const toks = foldVietnameseDiacritics(term)
+              .toLowerCase()
+              .split(/[^a-z0-9]+/)
+              .filter((t) => t.length >= 2);
+            if (!toks.length) return raw;
+            return raw.sort((a, b) => {
+              const sA = toks.reduce((n, t) => n + (a.toLowerCase().includes(t) ? 1 : 0), 0);
+              const sB = toks.reduce((n, t) => n + (b.toLowerCase().includes(t) ? 1 : 0), 0);
+              return sB - sA;
+            });
+          };
+          const settled = await Promise.allSettled(
+            searchTerms.map(async (term) => {
+              const r = await fTimeout(`https://firstnews.vn/tim-kiem?keyword=${encodeURIComponent(term)}`);
+              assertCleanResponse(r, 'First News - Trí Việt');
+              if (!r.ok) return [] as string[];
+              const h = await r.text();
+              assertCleanTextBody(h, 'First News - Trí Việt');
+              return extractUrls(h, term);
+            })
+          );
+          const fulfilled = settled.filter((s): s is PromiseFulfilledResult<string[]> => s.status === 'fulfilled');
+          if (fulfilled.length === 0) {
+            const rej = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+            if (rej) throw rej.reason;
+          }
+          const urls = Array.from(new Set(fulfilled.flatMap((s) => s.value))).slice(0, 4);
+          const out: Candidate[] = [];
+          for (const u of urls) {
+            const det = await fTimeout(u).catch(() => null);
+            if (!det?.ok) continue;
+            const dHtml = await det.text();
+            assertCleanTextBody(dHtml, 'First News - Trí Việt');
+            const bodyHtml = stripSiteChromeHtml(dHtml);
+            const specs = extractVnSpecs(bodyHtml);
+            const allIds = collectValidIdentifiers(specs.identifiers, bodyHtml, true);
+            if (cleanId && !allIds.includes(cleanId)) continue;
+            const ogTitle = dHtml.match(/property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ?? dHtml.match(/content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
+            const metaTitle = dHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+            const h1 = bodyHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, '');
+            const cleanT = (s?: string | null) => decodeHtml(s ?? '').replace(/\s*[-|]\s*First News.*$/i, '').trim();
+            const h1Clean = cleanT(h1);
+            const title = cleanT(ogTitle) || cleanT(metaTitle) || (!/khuyến\s*mại/i.test(h1Clean) ? h1Clean : '');
+            if (!title) continue;
+            const targetId = cleanId || allIds[0] || '';
+            const parsedTarget = targetId ? parseBookIdentifier(targetId) : null;
+            out.push({
+              externalId: u,
+              provider: 'first_news',
+              tier: 'tier3_publisher',
+              verified: false,
+              matchConfidence: cleanId ? 'exact_isbn' : 'title_match',
+              matchedIsbns: allIds.filter((x) => x.startsWith('978') || x.startsWith('979')),
+              matchedIdentifiers: allIds,
+              title,
+              authors: specs.authors,
+              translators: specs.translators,
+              illustrators: specs.illustrators,
+              publishers: specs.publishers.length ? specs.publishers : ['First News - Trí Việt'],
+              publishingPartner: specs.publishingPartner,
+              distributor: specs.distributor || 'First News - Trí Việt',
+              publishedYear: specs.publishedYear,
+              language: specs.language || normLang(undefined, targetId) || 'vi',
+              format: specs.format,
+              pageCount: specs.pageCount,
+              genres: specs.genres,
+              isbn13: parsedTarget?.isIsbn ? parsedTarget.isbn13 : null,
+              isbn10: parsedTarget?.prefixGroup === '978' ? parsedTarget.isbn10 : null,
+              ean13: parsedTarget?.ean13 ?? (targetId || null),
+              identifierType: parsedTarget?.identifierType,
+              coverUrl: normalizeUrl(dHtml.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]),
+              sourceUrl: u,
+              rawPayload: { url: u, specs },
+            });
+          }
+          return out;
+        },
+      },
+      {
         provider: 'amak',
         label: 'Amak Books',
         tier: 'tier3_publisher',
@@ -2144,7 +2308,7 @@ serve(async (req) => {
     }
 
     const { merged, exactMatches, possibleEditionMatches, workMatches, approximateMatches, identityMismatches } =
-      mergeCandidatesEdge(candidates, cleanId);
+      mergeCandidatesEdge(candidates, cleanId, cleanId ? '' : q);
 
     const degraded = statuses.some((s) =>
       ['timeout', 'access_denied', 'upstream_error', 'api_key_required', 'proxy_required'].includes(s.status)

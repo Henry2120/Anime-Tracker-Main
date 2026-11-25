@@ -87,6 +87,23 @@ export function stripHtmlToText(html: string): string {
     .join('\n');
 }
 
+export function stripSiteChromeHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, ' ');
+}
+
+export function foldVietnameseDiacritics(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 export interface VietnameseSpecs {
   title?: string;
   authors: string[];
@@ -155,7 +172,7 @@ function normalizeLanguageLabel(val: string): string | undefined {
 export function extractVietnameseBookSpecs(htmlOrText: string): VietnameseSpecs {
   const rawLines = htmlOrText.includes('<') ? htmlToStructuredLines(htmlOrText) : htmlOrText.split(/\r?\n/);
   const INLINE_LABEL_SPLIT =
-    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Minh họa|Họa sĩ|Hình thức bìa|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|ISBN|EAN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
+    /(?=\b(?:Nhà phát hành|Công ty phát hành|Đơn vị phát hành|Nhà xuất bản|NXB liên kết|Nhà cung cấp|Tác giả\/\s*Dịch giả|Tác giả|Dịch giả|Biên dịch|Người dịch|Minh họa|Họa sĩ|Hình thức bìa|Quy cách in|Định dạng|Số trang|Kích thước|Trọng lượng|Mã sản phẩm|Mã vạch|ISBN|EAN|Năm xuất bản|Ngày phát hành|Phát hành|Ngôn ngữ|Thể loại)\s*:)/gi;
   const lines = rawLines.flatMap((line) =>
     line.includes('\t')
       ? [line]
@@ -305,7 +322,12 @@ function applyKeyValue(specs: VietnameseSpecs, rawLabel: string, rawValue: strin
     if (lang && !specs.language) specs.language = lang;
   } else if (label === 'thể loại' || label === 'danh mục' || label === 'genre') {
     addUnique(specs.genres, splitContributors(value));
-  } else if (label === 'hình thức bìa' || label === 'định dạng' || label === 'loại bìa') {
+  } else if (
+    label === 'hình thức bìa' ||
+    label === 'quy cách in' ||
+    label === 'định dạng' ||
+    label === 'loại bìa'
+  ) {
     const lower = value.toLocaleLowerCase('vi');
     if (lower.includes('bìa cứng') || lower.includes('hardcover')) specs.format = 'hardcover';
     else if (lower.includes('bìa mềm') || lower.includes('bìa rời') || lower.includes('paperback')) {

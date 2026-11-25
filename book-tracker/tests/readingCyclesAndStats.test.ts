@@ -5,15 +5,14 @@ import { db, ensureAppSettings } from '../src/db/dexie';
 import {
   createBookBundle,
   deleteReviewOnly,
-  logOrUpdateReadingSession,
-  saveLoan,
   saveReview,
   startReadingCycle,
-  updateCycleProgress,
+  switchActiveCycle,
+  updateCycleStatus,
 } from '../src/services/libraryService';
-import { calculateCycleMetrics, calculateStreaks } from '../src/utils/statsCalculator';
+import { computeLibraryStatistics } from '../src/utils/statsCalculator';
 
-describe('Reading cycles, intentional rewind, session edits, loans, and safe review deletion', () => {
+describe('Reading cycles, re-reads, stats, and safe review deletion', () => {
   beforeEach(async () => {
     await Promise.all(db.tables.map((t) => t.clear()));
   });
@@ -40,7 +39,7 @@ describe('Reading cycles, intentional rewind, session edits, loans, and safe rev
     expect((observed as { defaultCurrency: string }).defaultCurrency).toBe('VND');
   });
 
-  it('preserves multiple reading cycles, intentional progress rewinds, and recalculates edited sessions', async () => {
+  it('preserves multiple reading cycles, cycle status transitions, re-reads, and active cycle switching', async () => {
     const { work, edition, cycle: cycle1 } = await createBookBundle({
       work: { title: 'Kafka on the Shore', authors: ['Haruki Murakami'], genres: ['Fiction'] },
       edition: { title: 'Kafka bên bờ biển', language: 'vi', format: 'paperback', pageCount: 520 },
@@ -57,42 +56,14 @@ describe('Reading cycles, intentional rewind, session edits, loans, and safe rev
 
     expect(cycle1).toBeDefined();
 
-    // Advance to page 200
-    await updateCycleProgress({ cycleId: cycle1!.id, currentPage: 200, totalPages: 520 });
-    let prog = await db.reading_progress.where('cycleId').equals(cycle1!.id).first();
-    expect(prog?.currentPage).toBe(200);
-    expect(prog?.lastRewoundAt).toBeNull();
-
-    // Intentional rewind back to page 135
-    await updateCycleProgress({ cycleId: cycle1!.id, currentPage: 135, totalPages: 520 });
-    prog = await db.reading_progress.where('cycleId').equals(cycle1!.id).first();
-    expect(prog?.currentPage).toBe(135);
-    expect(prog?.lastRewoundAt).toBeTruthy();
-
-    // Log session and edit it
-    const session = await logOrUpdateReadingSession({
-      cycleId: cycle1!.id,
-      sessionDate: '2026-05-01',
-      durationMinutes: 60,
-      startPage: 135,
-      endPage: 195,
-      syncProgressToEndPage: false,
+    // Finish first reading cycle with explicit finished date
+    await updateCycleStatus(cycle1!.id, 'finished', {
+      startedAt: '2026-04-01',
+      finishedAt: '2026-05-01',
     });
-    expect(session.pagesRead).toBe(60);
-
-    await logOrUpdateReadingSession({
-      id: session.id,
-      cycleId: cycle1!.id,
-      sessionDate: '2026-05-01',
-      durationMinutes: 30,
-      startPage: 135,
-      endPage: 195,
-      syncProgressToEndPage: false,
-    });
-
-    const sessions = await db.reading_sessions.where('cycleId').equals(cycle1!.id).toArray();
-    const metrics = calculateCycleMetrics(cycle1!, prog, edition, sessions);
-    expect(metrics.pagesPerHour).toBe(120);
+    const finishedC1 = await db.reading_cycles.get(cycle1!.id);
+    expect(finishedC1?.status).toBe('finished');
+    expect(finishedC1?.finishedAt).toBe('2026-05-01');
 
     // Start a second reading cycle (re-read) without deleting cycle 1
     const { cycle: cycle2 } = await startReadingCycle({
@@ -106,9 +77,15 @@ describe('Reading cycles, intentional rewind, session edits, loans, and safe rev
     expect(allCycles).toHaveLength(2);
     expect(allCycles.find((c) => c.id === cycle1!.id)?.isActive).toBe(false);
     expect(allCycles.find((c) => c.id === cycle2.id)?.isActive).toBe(true);
+
+    // Switching active cycle keeps both cycles intact
+    await switchActiveCycle(work.id, cycle1!.id);
+    const updatedCycles = await db.reading_cycles.where('workId').equals(work.id).toArray();
+    expect(updatedCycles.find((c) => c.id === cycle1!.id)?.isActive).toBe(true);
+    expect(updatedCycles.find((c) => c.id === cycle2.id)?.isActive).toBe(false);
   });
 
-  it('tracks borrowed books with 0 owned copies and deletes reviews without deleting reading history', async () => {
+  it('tracks works with 0 copies and deletes reviews without deleting reading history', async () => {
     const { work, edition, cycle } = await createBookBundle({
       work: { title: 'Dune', authors: ['Frank Herbert'], genres: ['Sci-Fi'] },
       edition: { title: 'Dune', language: 'en', format: 'hardcover', pageCount: 650 },
@@ -118,16 +95,6 @@ describe('Reading cycles, intentional rewind, session edits, loans, and safe rev
 
     const ownedCount = await db.physical_copies.where('workId').equals(work.id).count();
     expect(ownedCount).toBe(0);
-
-    const loan = await saveLoan({
-      workId: work.id,
-      editionId: edition.id,
-      direction: 'borrowed',
-      personName: 'Minh',
-      loanDate: '2026-05-02',
-      status: 'active',
-    });
-    expect(loan.direction).toBe('borrowed');
 
     const review = await saveReview({
       workId: work.id,
@@ -151,57 +118,47 @@ describe('Reading cycles, intentional rewind, session edits, loans, and safe rev
     expect(survivingCycles).toHaveLength(1);
   });
 
-  it('computes daily reading streaks accurately', () => {
-    const streaks = calculateStreaks(
-      [
-        {
-          id: '1',
-          cycleId: 'c1',
-          workId: 'w1',
-          editionId: 'e1',
-          sessionDate: '2026-05-08',
-          durationMinutes: 20,
-          startPage: 0,
-          endPage: 20,
-          pagesRead: 20,
-          createdAt: '',
-          updatedAt: '',
-          deletedAt: null,
-          version: 1,
-        },
-        {
-          id: '2',
-          cycleId: 'c1',
-          workId: 'w1',
-          editionId: 'e1',
-          sessionDate: '2026-05-09',
-          durationMinutes: 25,
-          startPage: 20,
-          endPage: 45,
-          pagesRead: 25,
-          createdAt: '',
-          updatedAt: '',
-          deletedAt: null,
-          version: 1,
-        },
-        {
-          id: '3',
-          cycleId: 'c1',
-          workId: 'w1',
-          editionId: 'e1',
-          sessionDate: '2026-05-10',
-          durationMinutes: 15,
-          startPage: 45,
-          endPage: 60,
-          pagesRead: 15,
-          createdAt: '',
-          updatedAt: '',
-          deletedAt: null,
-          version: 1,
-        },
-      ],
-      '2026-05-10'
-    );
-    expect(streaks).toEqual({ currentStreak: 3, longestStreak: 3 });
+  it('computes finished books, monthly finished series, owned copies, and wishlist counts accurately', async () => {
+    await createBookBundle({
+      work: { title: 'Book A', authors: ['Author A'], genres: ['Philosophy'] },
+      edition: { title: 'Book A', language: 'vi', format: 'paperback', pageCount: 300 },
+      copy: {
+        ownershipStatus: 'owned',
+        format: 'paperback',
+        condition: 'new',
+        acquisitionMethod: 'purchased',
+        purchasePrice: 120000,
+        currency: 'VND',
+      },
+      initialReadingStatus: 'finished',
+    });
+
+    await createBookBundle({
+      work: { title: 'Book B', authors: ['Author B'], genres: ['History'] },
+      edition: { title: 'Book B', language: 'en', format: 'paperback', pageCount: 250 },
+      copy: {
+        ownershipStatus: 'wishlist',
+        format: 'paperback',
+        condition: 'new',
+        acquisitionMethod: 'purchased',
+      },
+      initialReadingStatus: 'want_to_read',
+    });
+
+    const [works, editions, copies, cycles] = await Promise.all([
+      db.works.toArray(),
+      db.editions.toArray(),
+      db.physical_copies.toArray(),
+      db.reading_cycles.toArray(),
+    ]);
+
+    const stats = computeLibraryStatistics({ works, editions, copies, cycles });
+    expect(stats.finishedUniqueWorksCount).toBe(1);
+    expect(stats.finishedCyclesCount).toBe(1);
+    expect(stats.ownedCopiesCount).toBe(1);
+    expect(stats.wishlistCopiesCount).toBe(1);
+    expect(stats.collectionSpendByCurrency.VND).toBe(120000);
+    expect(stats.monthlyFinishedSeries).toHaveLength(12);
+    expect(stats.monthlyFinishedSeries.reduce((s, m) => s + m.booksFinished, 0)).toBe(1);
   });
 });

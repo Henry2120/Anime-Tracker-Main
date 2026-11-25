@@ -7,8 +7,6 @@ import type {
   EditionIsbn,
   JournalEntry,
   PhysicalCopy,
-  ReadingCycle,
-  ReadingSession,
   Review,
   Work,
 } from '../types/domain';
@@ -18,14 +16,15 @@ export const BackupTablesSchema = z.object({
   editions: z.array(z.record(z.unknown())).default([]),
   edition_isbns: z.array(z.record(z.unknown())).default([]),
   physical_copies: z.array(z.record(z.unknown())).default([]),
-  loans: z.array(z.record(z.unknown())).default([]),
   shelves: z.array(z.record(z.unknown())).default([]),
   shelf_items: z.array(z.record(z.unknown())).default([]),
   reading_cycles: z.array(z.record(z.unknown())).default([]),
-  reading_progress: z.array(z.record(z.unknown())).default([]),
-  reading_sessions: z.array(z.record(z.unknown())).default([]),
   reviews: z.array(z.record(z.unknown())).default([]),
   journal_entries: z.array(z.record(z.unknown())).default([]),
+  // Tolerate legacy fields from older backup files during import (ignored cleanly on restore)
+  loans: z.array(z.record(z.unknown())).optional(),
+  reading_progress: z.array(z.record(z.unknown())).optional(),
+  reading_sessions: z.array(z.record(z.unknown())).optional(),
 });
 
 export const FullBackupSchema = z.object({
@@ -65,12 +64,9 @@ export async function exportFullBackupJson(): Promise<{
     editions,
     edition_isbns,
     physical_copies,
-    loans,
     shelves,
     shelf_items,
     reading_cycles,
-    reading_progress,
-    reading_sessions,
     reviews,
     journal_entries,
     coverAssets,
@@ -79,12 +75,9 @@ export async function exportFullBackupJson(): Promise<{
     db.editions.toArray(),
     db.edition_isbns.toArray(),
     db.physical_copies.toArray(),
-    db.loans.toArray(),
     db.shelves.toArray(),
     db.shelf_items.toArray(),
     db.reading_cycles.toArray(),
-    db.reading_progress.toArray(),
-    db.reading_sessions.toArray(),
     db.reviews.toArray(),
     db.journal_entries.toArray(),
     db.cover_assets.toArray(),
@@ -95,12 +88,9 @@ export async function exportFullBackupJson(): Promise<{
     editions,
     edition_isbns,
     physical_copies,
-    loans,
     shelves,
     shelf_items,
     reading_cycles,
-    reading_progress,
-    reading_sessions,
     reviews,
     journal_entries,
   };
@@ -166,7 +156,8 @@ export async function previewBackupImport(rawJsonText: string): Promise<ImportPr
 
   const counts: Record<string, number> = {};
   for (const [k, arr] of Object.entries(payload.tables)) {
-    counts[k] = arr.length;
+    if (k === 'loans' || k === 'reading_progress' || k === 'reading_sessions') continue;
+    if (Array.isArray(arr)) counts[k] = arr.length;
   }
 
   return {
@@ -189,11 +180,8 @@ export async function applyBackupRestore(
     'edition_isbns',
     'shelves',
     'physical_copies',
-    'loans',
     'shelf_items',
     'reading_cycles',
-    'reading_progress',
-    'reading_sessions',
     'reviews',
     'journal_entries',
   ] as const;
@@ -323,53 +311,6 @@ export async function exportCollectionCsv(): Promise<{ filename: string; csv: st
     backupType: 'csv_collection',
     filename,
     entityCounts: { physical_copies: rows.length },
-    includesCoverManifest: false,
-    byteSize: new Blob([csv]).size,
-    createdAt: new Date().toISOString(),
-  });
-  return { filename, csv };
-}
-
-export async function exportReadingSessionsCsv(): Promise<{ filename: string; csv: string }> {
-  const [works, cycles, sessions] = await Promise.all([
-    db.works.toArray(),
-    db.reading_cycles.toArray(),
-    db.reading_sessions.filter((s) => !s.deletedAt).toArray(),
-  ]);
-  const workMap = new Map<string, Work>(works.map((w) => [w.id, w]));
-  const cycleMap = new Map<string, ReadingCycle>(cycles.map((c) => [c.id, c]));
-
-  const headers = [
-    'Session ID',
-    'Date',
-    'Book Title',
-    'Cycle #',
-    'Start Page',
-    'End Page',
-    'Pages Read',
-    'Duration (min)',
-    'Notes',
-  ];
-
-  const rows = (sessions as ReadingSession[]).map((s) => [
-    s.id,
-    s.sessionDate,
-    workMap.get(s.workId)?.title ?? '',
-    cycleMap.get(s.cycleId)?.cycleNumber ?? 1,
-    s.startPage,
-    s.endPage,
-    s.pagesRead,
-    s.durationMinutes,
-    s.notes ?? '',
-  ]);
-
-  const csv = buildCsvWithBom(headers, rows);
-  const filename = `aniverse-reading-sessions-${new Date().toISOString().slice(0, 10)}.csv`;
-  await db.backup_records.put({
-    id: createUuid(),
-    backupType: 'csv_sessions',
-    filename,
-    entityCounts: { reading_sessions: rows.length },
     includesCoverManifest: false,
     byteSize: new Blob([csv]).size,
     createdAt: new Date().toISOString(),

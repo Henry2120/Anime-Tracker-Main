@@ -1,15 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   BookOpen,
-  Calendar,
-  Clock,
   Edit3,
   Eye,
   EyeOff,
-  History,
   Layers,
-  Pause,
-  Play,
   Plus,
   Quote,
   RefreshCw,
@@ -18,7 +13,6 @@ import {
   Star,
   Trash2,
   Upload,
-  Users,
   X,
 } from 'lucide-react';
 import type { EnrichedBookRecord } from '../hooks/useLibraryData';
@@ -27,16 +21,13 @@ import { saveLocalCoverBlob } from '../services/covers';
 import { computeLocalDiscoveryRelations } from '../services/discoveryService';
 import {
   deleteReviewOnly,
-  logOrUpdateReadingSession,
   saveJournalEntry,
-  saveLoan,
   savePhysicalCopy,
   saveReview,
   softDeleteEntity,
   startReadingCycle,
   switchActiveCycle,
   toggleWorkOnShelf,
-  updateCycleProgress,
   updateCycleStatus,
   updateEdition,
   updateWork,
@@ -49,15 +40,12 @@ import type {
   CurrencyCode,
   Edition,
   JournalEntryType,
-  LoanDirection,
   OwnershipStatus,
-  ReadingSession,
   ReadingStatus,
   Shelf,
   Work,
 } from '../types/domain';
 import { CURRENCY_OPTIONS, formatCurrency } from '../utils/currency';
-import { calculateCycleMetrics, getLocalDateString } from '../utils/statsCalculator';
 import { CoverImage } from './CoverImage';
 
 interface BookDetailModalProps {
@@ -71,7 +59,7 @@ interface BookDetailModalProps {
   onDeletedWork?: (workId: string, title: string) => void;
 }
 
-type DetailTab = 'reading' | 'copies' | 'loans' | 'journal' | 'discovery';
+type DetailTab = 'reading' | 'copies' | 'journal' | 'discovery';
 
 export function BookDetailModal({
   book,
@@ -86,22 +74,6 @@ export function BookDetailModal({
   const { t } = useI18n();
   const [tab, setTab] = useState<DetailTab>('reading');
 
-  // Active cycle & progress inputs
-  const [pageInput, setPageInput] = useState('0');
-  const [totalPagesInput, setTotalPagesInput] = useState('0');
-
-  // Live timer state
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  // Manual / edit session state
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [sessDate, setSessDate] = useState(getLocalDateString());
-  const [sessStartPage, setSessStartPage] = useState('0');
-  const [sessEndPage, setSessEndPage] = useState('0');
-  const [sessMinutes, setSessMinutes] = useState('25');
-  const [sessNotes, setSessNotes] = useState('');
-
   // Add copy form state
   const [showAddCopy, setShowAddCopy] = useState(false);
   const [copyEditionId, setCopyEditionId] = useState('');
@@ -115,13 +87,6 @@ export function BookDetailModal({
   const [copyLocation, setCopyLocation] = useState('');
   const [copyDate, setCopyDate] = useState('');
   const [copyNotes, setCopyNotes] = useState('');
-
-  // Loan form state
-  const [loanDir, setLoanDir] = useState<LoanDirection>('lent');
-  const [loanPerson, setLoanPerson] = useState('');
-  const [loanDue, setLoanDue] = useState('');
-  const [loanNotes, setLoanNotes] = useState('');
-  const [loanCopyId, setLoanCopyId] = useState('');
 
   // Review & Journal state
   const [reviewRating, setReviewRating] = useState('5');
@@ -151,12 +116,6 @@ export function BookDetailModal({
 
   useEffect(() => {
     if (!book) return;
-    const curPage = book.activeProgress?.currentPage ?? 0;
-    const totPage = book.activeProgress?.totalPages ?? book.primaryEdition.pageCount ?? 0;
-    setPageInput(String(curPage));
-    setTotalPagesInput(String(totPage));
-    setSessStartPage(String(curPage));
-    setSessEndPage(String(curPage));
     setCopyEditionId(book.primaryEdition.id);
     setCopyCurrency(defaultCurrency);
     setMetaTitle(book.work.title);
@@ -166,13 +125,7 @@ export function BookDetailModal({
     setMetaGenres(book.work.genres.join(', '));
     setMetaPages(book.primaryEdition.pageCount ? String(book.primaryEdition.pageCount) : '');
     setMetaPublisher(book.primaryEdition.publishers.join(', '));
-  }, [book?.work.id, book?.activeCycle?.id, book?.activeProgress?.currentPage, defaultCurrency]);
-
-  useEffect(() => {
-    if (!timerRunning) return;
-    const iv = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-    return () => window.clearInterval(iv);
-  }, [timerRunning]);
+  }, [book?.work.id, book?.activeCycle?.id, defaultCurrency]);
 
   if (!book) return null;
 
@@ -180,10 +133,6 @@ export function BookDetailModal({
   const activeEdition =
     (activeCycle && book.editions.find((e) => e.id === activeCycle.editionId)) ||
     book.primaryEdition;
-
-  const metrics = activeCycle
-    ? calculateCycleMetrics(activeCycle, book.activeProgress, activeEdition, book.sessions)
-    : null;
 
   const discovery = computeLocalDiscoveryRelations({
     targetWork: book.work,
@@ -196,62 +145,6 @@ export function BookDetailModal({
     const file = e.target.files?.[0];
     if (!file) return;
     await saveLocalCoverBlob(activeEdition.id, file);
-  };
-
-  const handleUpdateProgress = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCycle) return;
-    await updateCycleProgress({
-      cycleId: activeCycle.id,
-      currentPage: Number(pageInput) || 0,
-      totalPages: Number(totalPagesInput) || 0,
-      markFinishedIfComplete: true,
-    });
-  };
-
-  const handleFinishTimerSession = async () => {
-    if (!activeCycle) return;
-    setTimerRunning(false);
-    const mins = Math.max(1, Math.round(elapsedSeconds / 60));
-    setSessMinutes(String(mins));
-    const endP = Number(sessEndPage) || Number(pageInput) || 0;
-    const startP = Number(sessStartPage) || 0;
-    await logOrUpdateReadingSession({
-      cycleId: activeCycle.id,
-      sessionDate: getLocalDateString(),
-      durationMinutes: mins,
-      startPage: startP,
-      endPage: Math.max(startP, endP),
-      notes: sessNotes || 'Timed reading session',
-    });
-    setElapsedSeconds(0);
-    setSessNotes('');
-  };
-
-  const handleSaveSession = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCycle) return;
-    await logOrUpdateReadingSession({
-      id: editingSessionId ?? undefined,
-      cycleId: activeCycle.id,
-      sessionDate: sessDate,
-      durationMinutes: Number(sessMinutes) || 0,
-      startPage: Number(sessStartPage) || 0,
-      endPage: Number(sessEndPage) || 0,
-      notes: sessNotes,
-      syncProgressToEndPage: !editingSessionId,
-    });
-    setEditingSessionId(null);
-    setSessNotes('');
-  };
-
-  const beginEditSession = (s: ReadingSession) => {
-    setEditingSessionId(s.id);
-    setSessDate(s.sessionDate);
-    setSessStartPage(String(s.startPage));
-    setSessEndPage(String(s.endPage));
-    setSessMinutes(String(s.durationMinutes));
-    setSessNotes(s.notes ?? '');
   };
 
   const handleSaveCopy = async (e: React.FormEvent) => {
@@ -275,25 +168,6 @@ export function BookDetailModal({
     setCopySeller('');
     setCopyLocation('');
     setCopyNotes('');
-  };
-
-  const handleSaveLoan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loanPerson.trim()) return;
-    await saveLoan({
-      workId: book.work.id,
-      editionId: activeEdition.id,
-      physicalCopyId: loanDir === 'lent' && loanCopyId ? loanCopyId : null,
-      direction: loanDir,
-      personName: loanPerson.trim(),
-      loanDate: getLocalDateString(),
-      dueDate: loanDue || undefined,
-      status: 'active',
-      notes: loanNotes || undefined,
-    });
-    setLoanPerson('');
-    setLoanDue('');
-    setLoanNotes('');
   };
 
   const handleSaveReview = async (e: React.FormEvent) => {
@@ -369,12 +243,6 @@ export function BookDetailModal({
       setNewIsbn('');
     }
     setEditingMeta(false);
-  };
-
-  const formatTimer = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   return (
@@ -576,7 +444,6 @@ export function BookDetailModal({
             [
               ['reading', t('book.readingCycles'), BookOpen],
               ['copies', `${t('book.physicalCopies')} (${book.copies.length})`, Layers],
-              ['loans', `${t('book.loans')} (${book.loans.length})`, Users],
               ['journal', `${t('book.journal')} (${book.reviews.length + book.journalEntries.length})`, Quote],
               ['discovery', t('book.discovery'), RefreshCw],
             ] as const
@@ -630,7 +497,6 @@ export function BookDetailModal({
                         workId: book.work.id,
                         editionId: activeEdition.id,
                         status: 'currently_reading',
-                        totalPages: activeEdition.pageCount ?? 0,
                       })
                     }
                     className="inline-flex items-center gap-1 rounded-lg bg-stone-900 dark:bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
@@ -686,52 +552,7 @@ export function BookDetailModal({
                         />
                       </div>
                     </div>
-
-                    {/* Progress & Intentional Rewind */}
-                    <form onSubmit={handleUpdateProgress} className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold">Progress</span>
-                        <span className="font-mono tabular-nums text-stone-600 dark:text-slate-300">
-                          {metrics?.currentPage ?? 0} / {metrics?.totalPages ?? 0} pages ({metrics?.percentage ?? 0}%)
-                          {metrics && metrics.pagesPerHour > 0 && ` · ${metrics.pagesPerHour} p/hr`}
-                        </span>
-                      </div>
-                      <div className="h-2.5 w-full overflow-hidden rounded-full bg-stone-200 dark:bg-slate-800">
-                        <div
-                          className="h-full bg-[#C2410C] transition-all"
-                          style={{ width: `${Math.min(100, metrics?.percentage ?? 0)}%` }}
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-end gap-2 pt-1">
-                        <div>
-                          <label className="block text-[11px] text-stone-500">Current Page</label>
-                          <input
-                            type="number"
-                            min={0}
-                            value={pageInput}
-                            onChange={(e) => setPageInput(e.target.value)}
-                            className="w-28 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs font-mono tabular-nums"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] text-stone-500">Total Pages</label>
-                          <input
-                            type="number"
-                            min={0}
-                            value={totalPagesInput}
-                            onChange={(e) => setTotalPagesInput(e.target.value)}
-                            className="w-28 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs font-mono tabular-nums"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          className="min-h-[34px] rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
-                        >
-                          {t('reading.updatePage')}
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-stone-500">{t('book.rewindHint')}</p>
-                    </form>
+                    <p className="text-[11px] text-stone-500">{t('book.trackCycleHint')}</p>
                   </div>
                 ) : (
                   <p className="text-xs text-stone-500">
@@ -739,135 +560,6 @@ export function BookDetailModal({
                   </p>
                 )}
               </div>
-
-              {/* Active Timer & Session Logger */}
-              {activeCycle && (
-                <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 dark:border-slate-800 pb-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-[#C2410C]" />
-                      <span className="text-sm font-semibold">Reading Timer</span>
-                      <span className="font-mono text-lg font-bold tabular-nums text-stone-900 dark:text-white ml-2">
-                        {formatTimer(elapsedSeconds)}
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setTimerRunning((r) => !r)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold"
-                      >
-                        {timerRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                        {timerRunning ? t('reading.pauseTimer') : t('reading.startTimer')}
-                      </button>
-                      {elapsedSeconds > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleFinishTimerSession}
-                          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
-                        >
-                          {t('reading.finishSave')}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleSaveSession} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-1">Date</label>
-                      <input
-                        type="date"
-                        value={sessDate}
-                        onChange={(e) => setSessDate(e.target.value)}
-                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-1">Start Page</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={sessStartPage}
-                        onChange={(e) => setSessStartPage(e.target.value)}
-                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-1">End Page</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={sessEndPage}
-                        onChange={(e) => setSessEndPage(e.target.value)}
-                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-stone-500 mb-1">Minutes</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={sessMinutes}
-                        onChange={(e) => setSessMinutes(e.target.value)}
-                        className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs font-mono"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="min-h-[34px] rounded-lg bg-stone-900 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      {editingSessionId ? 'Update Session' : t('reading.logSession')}
-                    </button>
-                    <div className="col-span-2 sm:col-span-5">
-                      <input
-                        value={sessNotes}
-                        onChange={(e) => setSessNotes(e.target.value)}
-                        placeholder="Optional session note..."
-                        className="w-full rounded-lg border border-stone-200 dark:border-slate-800 bg-stone-50 dark:bg-slate-950 px-3 py-1.5 text-xs"
-                      />
-                    </div>
-                  </form>
-
-                  {/* Past Sessions List (editable!) */}
-                  <div className="space-y-1.5 pt-2">
-                    <p className="text-xs font-semibold text-stone-500 flex items-center gap-1">
-                      <History className="h-3.5 w-3.5" />
-                      Sessions for this book ({book.sessions.length})
-                    </p>
-                    {book.sessions.map((s) => (
-                      <div
-                        key={s.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-stone-100 dark:border-slate-800 px-3 py-2 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <span className="font-mono font-medium">{s.sessionDate}</span>
-                          <span className="mx-2 text-stone-400">·</span>
-                          <span className="tabular-nums">
-                            p.{s.startPage} → p.{s.endPage} ({s.pagesRead}p in {s.durationMinutes}m)
-                          </span>
-                          {s.notes && <p className="text-stone-500 truncate">{s.notes}</p>}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => beginEditSession(s)}
-                            className="p-1.5 text-stone-500 hover:text-stone-900"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => softDeleteEntity('reading_sessions', s.id)}
-                            className="p-1.5 text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -1023,7 +715,7 @@ export function BookDetailModal({
 
               {book.copies.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-6 text-center text-xs text-stone-500">
-                  0 physical copies recorded. You can still track reading cycles or borrowed loans for this book.
+                  0 physical copies recorded. You can still track reading cycles and journal notes for this book.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1068,122 +760,6 @@ export function BookDetailModal({
                   })}
                 </div>
               )}
-            </div>
-          )}
-
-          {tab === 'loans' && (
-            <div className="space-y-4">
-              <form
-                onSubmit={handleSaveLoan}
-                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
-              >
-                <div>
-                  <label className="block text-xs font-medium mb-1">Direction</label>
-                  <select
-                    value={loanDir}
-                    onChange={(e) => setLoanDir(e.target.value as LoanDirection)}
-                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
-                  >
-                    <option value="lent">Lent to someone</option>
-                    <option value="borrowed">Borrowed from someone</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Person Name *</label>
-                  <input
-                    required
-                    value={loanPerson}
-                    onChange={(e) => setLoanPerson(e.target.value)}
-                    placeholder="Minh, Linh..."
-                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Due Date</label>
-                  <input
-                    type="date"
-                    value={loanDue}
-                    onChange={(e) => setLoanDue(e.target.value)}
-                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="min-h-[34px] rounded-lg bg-[#C2410C] px-3 py-2 text-xs font-semibold text-white"
-                >
-                  Record Loan
-                </button>
-                {loanDir === 'lent' && book.copies.length > 0 && (
-                  <div className="sm:col-span-2">
-                    <select
-                      value={loanCopyId}
-                      onChange={(e) => setLoanCopyId(e.target.value)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs"
-                    >
-                      <option value="">Any copy</option>
-                      {book.copies.map((c, i) => (
-                        <option key={c.id} value={c.id}>
-                          Copy #{i + 1} ({c.format})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className={loanDir === 'lent' && book.copies.length > 0 ? 'sm:col-span-2' : 'sm:col-span-4'}>
-                  <input
-                    value={loanNotes}
-                    onChange={(e) => setLoanNotes(e.target.value)}
-                    placeholder="Notes..."
-                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-              </form>
-
-              <div className="space-y-2">
-                {book.loans.map((l) => (
-                  <div
-                    key={l.id}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-xs"
-                  >
-                    <div>
-                      <p className="font-semibold">
-                        {l.direction === 'lent' ? 'Lent to' : 'Borrowed from'} {l.personName} ·{' '}
-                        <span className="uppercase font-mono text-[#C2410C]">{l.status}</span>
-                      </p>
-                      <p className="text-stone-500 flex items-center gap-1 mt-0.5">
-                        <Calendar className="h-3 w-3" />
-                        Loaned {l.loanDate}
-                        {l.dueDate ? ` · Due ${l.dueDate}` : ''}
-                        {l.returnedDate ? ` · Returned ${l.returnedDate}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      {l.status !== 'returned' && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            saveLoan({
-                              ...l,
-                              status: 'returned',
-                              returnedDate: getLocalDateString(),
-                            })
-                          }
-                          className="rounded-lg border border-emerald-600 px-2.5 py-1 text-xs font-semibold text-emerald-700"
-                        >
-                          Mark Returned
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => softDeleteEntity('loans', l.id)}
-                        className="p-1.5 text-red-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

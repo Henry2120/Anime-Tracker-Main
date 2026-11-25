@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { resolveEditionCoverObjectUrl } from '../services/covers';
+import {
+  resolveEditionCoverSources,
+  sanitizeCoverUrl,
+  type ResolvedCoverSource,
+} from '../services/covers';
 
 interface CoverImageProps {
   title: string;
@@ -13,44 +17,52 @@ interface CoverImageProps {
 }
 
 export function CoverImage({ title, author, edition, className = 'w-full aspect-[2/3]' }: CoverImageProps) {
-  const [src, setSrc] = useState<string | null>(edition?.coverUrl || null);
-  const [failed, setFailed] = useState(false);
+  const initialSafeUrl = sanitizeCoverUrl(edition?.coverUrl);
+  const [sources, setSources] = useState<ResolvedCoverSource[]>(
+    initialSafeUrl ? [{ src: initialSafeUrl, isObjectUrl: false }] : []
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    let revokeUrl: string | null = null;
     let active = true;
-    setFailed(false);
+    const createdObjectUrls: string[] = [];
+
+    const immediateSafe = sanitizeCoverUrl(edition?.coverUrl);
+    setSources(immediateSafe ? [{ src: immediateSafe, isObjectUrl: false }] : []);
+    setActiveIndex(0);
 
     if (!edition) {
-      setSrc(null);
       return;
     }
 
-    resolveEditionCoverObjectUrl(edition).then((url) => {
+    resolveEditionCoverSources(edition).then((resolved) => {
+      for (const item of resolved) {
+        if (item.isObjectUrl) createdObjectUrls.push(item.src);
+      }
       if (!active) {
-        if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
+        for (const u of createdObjectUrls) URL.revokeObjectURL(u);
         return;
       }
-      if (url && url.startsWith('blob:')) {
-        revokeUrl = url;
-      }
-      setSrc(url);
+      setSources(resolved);
+      setActiveIndex(0);
     });
 
     return () => {
       active = false;
-      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+      for (const u of createdObjectUrls) URL.revokeObjectURL(u);
     };
   }, [edition?.coverBlobKey, edition?.coverStoragePath, edition?.coverUrl]);
 
-  if (src && !failed) {
+  const currentSrc = sources[activeIndex]?.src;
+
+  if (currentSrc) {
     return (
       <div className={`relative overflow-hidden rounded-lg bg-stone-200 dark:bg-slate-800 border border-stone-200/80 dark:border-slate-700/80 ${className}`}>
         <img
-          src={src}
+          src={currentSrc}
           alt={title}
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setActiveIndex((idx) => idx + 1)}
           className="h-full w-full object-cover"
         />
       </div>

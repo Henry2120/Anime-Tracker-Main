@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
-import { saveLocalCoverBlob } from '../services/covers';
+import { sanitizeCoverUrl, saveLocalCoverBlob } from '../services/covers';
 import { createBookBundle } from '../services/libraryService';
 import {
   buildStructuredContributors,
@@ -101,6 +101,8 @@ export function AddBookModal({
   const decodeRunnerRef = useRef(createSequentialDecodeRunner());
   const scanDetectedRef = useRef(false);
   const lastSubmittedIsbnRef = useRef<string | null>(null);
+  const lookupSeqRef = useRef(0);
+  const coverPreviewRef = useRef<string | null>(null);
   const [scanUi, setScanUi] = useState<ScanLookupUiState>(() => createInitialScanLookupState('isbn'));
   const [searchQuery, setSearchQuery] = useState('');
   const [cameraResolution, setCameraResolution] = useState<string | null>(null);
@@ -197,6 +199,77 @@ export function AddBookModal({
     setCurrency(defaultCurrency);
   }, [defaultCurrency]);
 
+  const resetDraftState = () => {
+    lookupSeqRef.current += 1;
+    scanDetectedRef.current = false;
+    lastSubmittedIsbnRef.current = null;
+
+    if (coverPreviewRef.current && coverPreviewRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(coverPreviewRef.current);
+    }
+    coverPreviewRef.current = null;
+
+    setScanUi(createInitialScanLookupState('isbn'));
+    setSearchQuery('');
+    setCameraResolution(null);
+    setCameraProfile(null);
+    setTorchSupported(false);
+    setTorchEnabled(false);
+    setScanModeLabel('camera');
+    setLastAttemptAt(null);
+    setCopiedIsbn(false);
+    setShowDiagnostics(false);
+
+    setCoverFile(null);
+    setCoverPreviewUrl(null);
+    setOcrStatus(null);
+    setOcrRunning(false);
+
+    setLinkToWorkId('');
+    setTitle('');
+    setOriginalTitle('');
+    setAuthorsText('');
+    setTranslatorsText('');
+    setIllustratorsText('');
+    setPublishersText('');
+    setPublishingPartner('');
+    setDistributorText('');
+    setGenresText('');
+    setLanguage('vi');
+    setFormat('paperback');
+    setPageCount('');
+    setPublishedYear('');
+    setEditionName('');
+    setSeriesName('');
+    setVolumeNumber('');
+    setCoverUrl('');
+    setDescription('');
+    setEditorsText('');
+    setUserEditedFields(new Set());
+    setFieldProvenance({});
+
+    setTrackCopy(true);
+    setOwnershipStatus('owned');
+    setCondition('new');
+    setAcquisitionMethod('purchased');
+    setPurchasePrice('');
+    setCurrency(defaultCurrency);
+    setPurchaseDate('');
+    setSeller('');
+    setShelfLocation('');
+    setCopyNotes('');
+    setInitialReadingStatus('want_to_read');
+    setSelectedShelves([]);
+    setSaving(false);
+    setErrorMsg(null);
+  };
+
+  useEffect(() => {
+    if (!open) {
+      resetDraftState();
+    }
+  }, [open]);
+
   const markUserEdited = (
     field: Exclude<keyof ManualDraftFields, 'fieldProvenance'>,
     provKey?: string
@@ -245,6 +318,7 @@ export function AddBookModal({
   ) => {
     const raw = (overrideIsbn ?? isbnInput).trim();
     if (!raw) return;
+    const seq = ++lookupSeqRef.current;
     setScanUi((prev) => ({ ...prev, loadingLookup: true, hasSearched: true }));
     setErrorMsg(null);
     try {
@@ -252,8 +326,10 @@ export function AddBookModal({
         bypassCache: lookupOpts?.bypassCache,
         retryFailedOnly: lookupOpts?.retryFailedOnly,
       });
+      if (seq !== lookupSeqRef.current) return;
       setScanUi((prev) => transitionOnLookupCompleted(prev, res));
     } catch (err) {
+      if (seq !== lookupSeqRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : 'Lookup failed');
       setScanUi((prev) => transitionOnLookupFailed(prev));
     }
@@ -394,6 +470,7 @@ export function AddBookModal({
   };
 
   const applyCandidateToForm = (cand: MetadataCandidate) => {
+    const prevCand = selectedCandidate;
     setScanUi((prev) => transitionOnSelectCandidate(prev, cand));
     const merged = mergeCandidateIntoDraft(
       {
@@ -417,26 +494,33 @@ export function AddBookModal({
         fieldProvenance,
       },
       cand,
-      userEditedFields
+      userEditedFields,
+      { replaceUnedited: true }
     );
     setTitle(merged.title);
     setOriginalTitle(merged.originalTitle);
     setAuthorsText(merged.authorsText);
     setTranslatorsText(merged.translatorsText);
     setIllustratorsText(merged.illustratorsText);
-    if (cand.editors?.length && !editorsText.trim()) setEditorsText(cand.editors.join(', '));
+    const prevEditors = prevCand?.editors?.join(', ') ?? '';
+    if (!editorsText.trim() || editorsText === prevEditors) {
+      setEditorsText(cand.editors?.join(', ') ?? '');
+    }
     setPublishersText(merged.publishersText);
     setPublishingPartner(merged.publishingPartner);
     setDistributorText(merged.distributorText ?? '');
     setGenresText(merged.genresText);
     setLanguage(merged.language);
-    if (cand.editionName && !editionName.trim()) setEditionName(cand.editionName);
-    if (cand.format) setFormat(cand.format);
+    const prevEditionName = prevCand?.editionName ?? '';
+    if (!editionName.trim() || editionName === prevEditionName) {
+      setEditionName(cand.editionName ?? '');
+    }
+    setFormat(cand.format ?? 'paperback');
     setPageCount(merged.pageCount);
     setPublishedYear(merged.publishedYear);
     setSeriesName(merged.seriesName);
     setVolumeNumber(merged.volumeNumber);
-    setCoverUrl(merged.coverUrl);
+    setCoverUrl(sanitizeCoverUrl(merged.coverUrl) ?? '');
     setDescription(merged.description);
     if (merged.isbnInput) setIsbnInput(merged.isbnInput);
     if (merged.fieldProvenance) setFieldProvenance(merged.fieldProvenance);
@@ -445,12 +529,15 @@ export function AddBookModal({
   const handleQuerySearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
+    const seq = ++lookupSeqRef.current;
     setScanUi((prev) => ({ ...prev, loadingLookup: true, hasSearched: true }));
     setErrorMsg(null);
     try {
       const res = await searchMetadataWithReportByQuery(searchQuery);
+      if (seq !== lookupSeqRef.current) return;
       setScanUi((prev) => transitionOnLookupCompleted(prev, res));
     } catch (err) {
+      if (seq !== lookupSeqRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : 'Search failed');
       setScanUi((prev) => ({ ...prev, loadingLookup: false }));
     }
@@ -463,9 +550,11 @@ export function AddBookModal({
     stopCamera();
     setScanModeLabel('upload');
     lastSubmittedIsbnRef.current = null;
+    const seq = ++lookupSeqRef.current;
     setScanUi((prev) => ({ ...prev, loadingLookup: true, cameraError: null }));
     try {
       const attempt = await detectBarcodeFromImageSourceDetailed(file);
+      if (seq !== lookupSeqRef.current) return;
       setLastAttemptAt(new Date().toLocaleTimeString());
       const decodedId = attempt.validIdentifier ?? attempt.validIsbn13;
       if (decodedId) {
@@ -487,6 +576,7 @@ export function AddBookModal({
         setScanUi((prev) => ({ ...prev, loadingLookup: false }));
       }
     } catch (err) {
+      if (seq !== lookupSeqRef.current) return;
       setScanUi((prev) => ({
         ...prev,
         loadingLookup: false,
@@ -499,8 +589,12 @@ export function AddBookModal({
     const file = e.target.files?.[0];
     if (!file) return;
     setCoverFile(file);
-    if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
-    setCoverPreviewUrl(URL.createObjectURL(file));
+    if (coverPreviewRef.current && coverPreviewRef.current.startsWith('blob:')) {
+      URL.revokeObjectURL(coverPreviewRef.current);
+    }
+    const nextUrl = URL.createObjectURL(file);
+    coverPreviewRef.current = nextUrl;
+    setCoverPreviewUrl(nextUrl);
   };
 
   const handleRunLocalOcr = async () => {
@@ -622,7 +716,7 @@ export function AddBookModal({
           pageCount: pageCount ? Number(pageCount) || null : null,
           seriesName: seriesName.trim() || undefined,
           volumeNumber: volumeNumber.trim() || undefined,
-          coverUrl: coverUrl.trim() || undefined,
+          coverUrl: sanitizeCoverUrl(coverUrl) ?? undefined,
           description: description.trim() || undefined,
           metadataSource: selectedCandidate?.provider ?? 'manual',
           metadataVerified: true,
@@ -660,6 +754,7 @@ export function AddBookModal({
       }
 
       onCreated?.(bundle.work.id);
+      resetDraftState();
       onClose();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to save book');
@@ -1103,10 +1198,13 @@ export function AddBookModal({
               <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    {coverPreviewUrl || coverUrl ? (
+                    {coverPreviewUrl || sanitizeCoverUrl(coverUrl) ? (
                       <img
-                        src={coverPreviewUrl || coverUrl}
+                        src={coverPreviewUrl || sanitizeCoverUrl(coverUrl)!}
                         alt="Cover preview"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
                         className="h-20 w-14 rounded-md object-cover border border-stone-200 dark:border-slate-700"
                       />
                     ) : (
@@ -1950,10 +2048,13 @@ function CandidateCard({
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 hover:border-[#C2410C] transition-colors">
       <div className="flex items-start gap-3">
-        {c.coverUrl ? (
+        {sanitizeCoverUrl(c.coverUrl) ? (
           <img
-            src={c.coverUrl}
+            src={sanitizeCoverUrl(c.coverUrl)!}
             alt={c.title}
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
             className="h-20 w-14 rounded object-cover border border-stone-200 dark:border-slate-700 shrink-0"
           />
         ) : (
@@ -1967,7 +2068,7 @@ function CandidateCard({
             <span className="rounded bg-stone-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-stone-600 dark:text-slate-300">
               {sourcesLabel}
             </span>
-            {c.sourceUrl && (
+            {c.sourceUrl && sanitizeCoverUrl(c.sourceUrl) && (
               <a
                 href={c.sourceUrl}
                 target="_blank"

@@ -19,6 +19,7 @@ import {
   normalizeBookIdentifier,
   parseBookIdentifier,
 } from '../../utils/isbn';
+import { foldVietnameseDiacritics } from './htmlAndText';
 
 export interface ProviderExecutionContext {
   fetchFn: typeof fetch;
@@ -63,6 +64,7 @@ export const PROVIDER_PRIORITY: Record<MetadataProviderName, number> = {
   // Tier 3 Official Publishers & Verifiable Regional Catalogues
   nxb_kim_dong: 92,
   nha_nam: 90,
+  first_news: 89,
   ipm: 88,
   amak: 86,
   nxb_tre: 85,
@@ -252,18 +254,18 @@ export function buildInitialProvenance(
   stamp('title', Boolean(cand.title && cand.title !== 'Untitled'));
   stamp('originalTitle', Boolean(cand.originalTitle));
   stamp('translationTitle', Boolean(cand.translationTitle));
-  stamp('authors', cand.authors.length > 0);
-  stamp('translators', cand.translators.length > 0);
+  stamp('authors', (cand.authors?.length ?? 0) > 0);
+  stamp('translators', (cand.translators?.length ?? 0) > 0);
   stamp('illustrators', Boolean(cand.illustrators?.length));
   stamp('editors', Boolean(cand.editors?.length));
-  stamp('publishers', cand.publishers.length > 0);
+  stamp('publishers', (cand.publishers?.length ?? 0) > 0);
   stamp('publishingPartner', Boolean(cand.publishingPartner));
   stamp('distributor', Boolean(cand.distributor));
   stamp('publishedYear', Boolean(cand.publishedYear));
   stamp('language', Boolean(cand.language && cand.language !== 'und'));
   stamp('format', Boolean(cand.format));
   stamp('pageCount', Boolean(cand.pageCount));
-  stamp('genres', cand.genres.length > 0);
+  stamp('genres', (cand.genres?.length ?? 0) > 0);
   stamp('coverUrl', Boolean(cand.coverUrl));
   stamp('description', Boolean(cand.description));
   stamp('isbn13', Boolean(cand.isbn13));
@@ -680,6 +682,45 @@ export function isSufficientlyVerifiedEdition(candidates: MetadataCandidate[]): 
   return supportingFields >= 2;
 }
 
+export function computeQueryRelevanceScore(
+  cand: Pick<MetadataCandidate, 'title' | 'originalTitle' | 'subtitle' | 'authors'>,
+  searchQuery?: string | null
+): number {
+  const rawQ = (searchQuery ?? '').trim();
+  if (!rawQ) return 0;
+
+  const fold = (s: string) =>
+    foldVietnameseDiacritics(s)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+
+  const qFolded = fold(rawQ);
+  if (!qFolded) return 0;
+
+  const qTokens = qFolded.split(/\s+/).filter((t) => t.length >= 2);
+  const titleFolded = fold(`${cand.title ?? ''} ${cand.originalTitle ?? ''} ${cand.subtitle ?? ''}`);
+  const fullFolded = fold(`${titleFolded} ${(cand.authors ?? []).join(' ')}`);
+
+  if (!fullFolded) return 0;
+
+  let score = 0;
+  if (titleFolded === qFolded) score += 100;
+  else if (titleFolded.includes(qFolded)) score += 60;
+  else if (fullFolded.includes(qFolded)) score += 45;
+
+  const checkTokens = qTokens.length > 0 ? qTokens : [qFolded];
+  let matchedCount = 0;
+  for (const tok of checkTokens) {
+    if (fullFolded.includes(tok)) matchedCount++;
+  }
+  if (matchedCount === 0) return 0;
+
+  score += Math.round((matchedCount / checkTokens.length) * 40);
+  if (matchedCount === checkTokens.length) score += 20;
+  return score;
+}
+
 /**
  * Separates and merges exact edition matches apart from possible editions,
  * related editions, and work-level keyword matches. Conflicting different-ISBN
@@ -687,7 +728,8 @@ export function isSufficientlyVerifiedEdition(candidates: MetadataCandidate[]): 
  */
 export function partitionAndMergeCandidates(
   candidates: MetadataCandidate[],
-  requestedIsbn: string | null = null
+  requestedIsbn: string | null = null,
+  searchQuery: string | null = null
 ): {
   exactMatches: MetadataCandidate[];
   possibleEditionMatches: MetadataCandidate[];
@@ -759,7 +801,7 @@ export function partitionAndMergeCandidates(
     }
   }
 
-  const workMatches: MetadataCandidate[] = [];
+  let workMatches: MetadataCandidate[] = [];
   for (const group of possibleOrWorkByKey.values()) {
     const m = mergeGroup(group);
     if (requestedIsbn) {
@@ -775,12 +817,34 @@ export function partitionAndMergeCandidates(
     }
   }
 
+  const activeQuery = !requestedIsbn ? searchQuery?.trim() || null : null;
+  if (activeQuery && workMatches.length > 0) {
+    const scored = workMatches.map((item) => ({
+      item,
+      relevance: computeQueryRelevanceScore(item, activeQuery),
+    }));
+    const hasRelevant = scored.some((entry) => entry.relevance > 0);
+    const filtered = hasRelevant ? scored.filter((entry) => entry.relevance > 0) : scored;
+    filtered.sort(
+      (a, b) =>
+        b.relevance * 1000 +
+        completenessScore(b.item) -
+        (a.relevance * 1000 + completenessScore(a.item))
+    );
+    workMatches = filtered.map((entry) => entry.item);
+  }
+
   const relatedEditions = Array.from(relatedByKey.values())
     .map(mergeGroup)
     .sort((a, b) => completenessScore(b) - completenessScore(a));
 
   const approximateMatches = [...possibleEditionMatches, ...workMatches, ...relatedEditions].sort(
-    (a, b) => completenessScore(b) - completenessScore(a)
+    (a, b) =>
+      activeQuery
+        ? computeQueryRelevanceScore(b, activeQuery) * 1000 +
+          completenessScore(b) -
+          (computeQueryRelevanceScore(a, activeQuery) * 1000 + completenessScore(a))
+        : completenessScore(b) - completenessScore(a)
   );
 
   const primaryCandidates =
@@ -807,9 +871,10 @@ export function partitionAndMergeCandidates(
  */
 export function mergeAndEnrichCandidates(
   candidates: MetadataCandidate[],
-  requestedIsbn: string | null = null
+  requestedIsbn: string | null = null,
+  searchQuery: string | null = null
 ): MetadataCandidate[] {
-  return partitionAndMergeCandidates(candidates, requestedIsbn).primaryCandidates;
+  return partitionAndMergeCandidates(candidates, requestedIsbn, searchQuery).primaryCandidates;
 }
 
 export function classifyProviderError(
@@ -1030,7 +1095,11 @@ export async function runProvidersWithIsolation(params: {
     })
   );
 
-  const partitioned = partitionAndMergeCandidates(rawResults, normId);
+  const partitioned = partitionAndMergeCandidates(
+    rawResults,
+    normId,
+    params.mode === 'query' ? params.input : null
+  );
   const mismatchPartitioned =
     rawMismatchResults.length > 0
       ? partitionAndMergeCandidates(rawMismatchResults, normId)
@@ -1095,13 +1164,15 @@ export interface ManualDraftFields {
 export function mergeCandidateIntoDraft(
   current: ManualDraftFields,
   cand: MetadataCandidate,
-  userEditedFields: Iterable<keyof ManualDraftFields> = []
+  userEditedFields: Iterable<keyof ManualDraftFields> = [],
+  options?: { replaceUnedited?: boolean }
 ): ManualDraftFields {
   const edited = new Set(userEditedFields);
   const nextProvenance: Record<string, FieldProvenanceEntry> = {
     ...(current.fieldProvenance ?? {}),
   };
   const candProv = buildInitialProvenance(cand);
+  const replaceUnedited = options?.replaceUnedited === true;
 
   const pickString = (
     field: Exclude<keyof ManualDraftFields, 'fieldProvenance'>,
@@ -1120,6 +1191,10 @@ export function mergeCandidateIntoDraft(
         trust: cand.matchConfidence === 'exact_isbn' ? 'verified' : 'approximate',
       };
       return cleanIncoming;
+    }
+    if (replaceUnedited && field !== 'isbnInput' && field !== 'language') {
+      delete nextProvenance[provKey];
+      return '';
     }
     return current[field] ?? '';
   };

@@ -7,12 +7,9 @@ import type {
   Edition,
   EditionIsbn,
   JournalEntry,
-  Loan,
   MetadataRecord,
   PhysicalCopy,
   ReadingCycle,
-  ReadingProgress,
-  ReadingSession,
   Review,
   Shelf,
   ShelfItem,
@@ -26,12 +23,9 @@ export class BookTrackerDB extends Dexie {
   editions!: Table<Edition, string>;
   edition_isbns!: Table<EditionIsbn, string>;
   physical_copies!: Table<PhysicalCopy, string>;
-  loans!: Table<Loan, string>;
   shelves!: Table<Shelf, string>;
   shelf_items!: Table<ShelfItem, string>;
   reading_cycles!: Table<ReadingCycle, string>;
-  reading_progress!: Table<ReadingProgress, string>;
-  reading_sessions!: Table<ReadingSession, string>;
   reviews!: Table<Review, string>;
   journal_entries!: Table<JournalEntry, string>;
   metadata_records!: Table<MetadataRecord, string>;
@@ -65,6 +59,24 @@ export class BookTrackerDB extends Dexie {
       backup_records: 'id, backupType, createdAt',
       app_settings: 'id',
     });
+
+    this.version(2)
+      .stores({
+        loans: null,
+        reading_progress: null,
+        reading_sessions: null,
+      })
+      .upgrade(async (tx) => {
+        const removedTypes = new Set(['loans', 'reading_progress', 'reading_sessions']);
+        await tx
+          .table('sync_operations')
+          .filter((op: { entityType?: string }) => removedTypes.has(op.entityType ?? ''))
+          .delete();
+        await tx
+          .table('sync_conflicts')
+          .filter((c: { entityType?: string }) => removedTypes.has(c.entityType ?? ''))
+          .delete();
+      });
   }
 }
 
@@ -86,15 +98,17 @@ export async function ensureAppSettings(): Promise<AppSettings> {
   if (existing) return existing;
 
   const deviceId = createUuid();
+  const persistedCloudWiped =
+    typeof localStorage !== 'undefined' && localStorage.getItem('book_tracker_cloud_wiped') === '1';
+
   const initial: AppSettings = {
     id: 'default',
     language: 'en',
     defaultCurrency: 'VND',
-    dailyPageGoal: 25,
-    yearlyBookGoal: 24,
     theme: 'light',
     lastSyncedSeq: 0,
     lastSyncedAt: null,
+    cloudSyncPausedAfterWipe: persistedCloudWiped,
     aiCoverAssistOptIn: false,
     userId: null,
     userEmail: null,
