@@ -552,6 +552,53 @@ export async function saveShelf(
   });
 }
 
+export async function deleteShelf(shelfId: string): Promise<void> {
+  const ts = nowIso();
+  await db.transaction('rw', [db.shelves, db.shelf_items, db.sync_operations], async () => {
+    const shelf = await db.shelves.get(shelfId);
+    if (shelf && !shelf.deletedAt) {
+      const updatedShelf: Shelf = {
+        ...shelf,
+        deletedAt: ts,
+        updatedAt: ts,
+        version: shelf.version + 1,
+      };
+      await db.shelves.put(updatedShelf);
+      await enqueueSyncOp(
+        'shelves',
+        shelf.id,
+        'delete',
+        updatedShelf as unknown as Record<string, unknown>,
+        ['deletedAt'],
+        shelf.version
+      );
+    }
+
+    const items = await db.shelf_items
+      .where('shelfId')
+      .equals(shelfId)
+      .filter((i) => !i.deletedAt)
+      .toArray();
+    for (const item of items) {
+      const updatedItem: ShelfItem = {
+        ...item,
+        deletedAt: ts,
+        updatedAt: ts,
+        version: item.version + 1,
+      };
+      await db.shelf_items.put(updatedItem);
+      await enqueueSyncOp(
+        'shelf_items',
+        item.id,
+        'delete',
+        updatedItem as unknown as Record<string, unknown>,
+        ['deletedAt'],
+        item.version
+      );
+    }
+  });
+}
+
 export async function toggleWorkOnShelf(
   shelfId: string,
   workId: string,

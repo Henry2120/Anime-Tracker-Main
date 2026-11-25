@@ -233,6 +233,115 @@ export function evaluateBarcodeDetections(
   };
 }
 
+export interface MultiBarcodeDetectedItem {
+  rawValue: string;
+  normalizedId: string | null;
+  identifierType: BookIdentifierType;
+  isIsbn: boolean;
+  isbn13: string | null;
+  isbn10: string | null;
+  ean13: string | null;
+  format: string | null;
+  isValid: boolean;
+  checksumError: string | null;
+  region?: string | null;
+}
+
+export interface MultiBarcodeEvaluationResult {
+  allItems: MultiBarcodeDetectedItem[];
+  validItems: MultiBarcodeDetectedItem[];
+  invalidItems: MultiBarcodeDetectedItem[];
+  rawCount: number;
+  validCount: number;
+  invalidCount: number;
+  duplicateDroppedCount: number;
+}
+
+export interface MultiBarcodeScanAttemptResult extends MultiBarcodeEvaluationResult {
+  decodersUsed: Array<'native' | 'zxing'>;
+  regionsExamined: string[];
+  nativeSupported: boolean;
+  zxingStatus: ZxingModuleStatus;
+  zxingError: string | null;
+  durationMs: number;
+  error: string | null;
+  blurryGuidance: string | null;
+}
+
+/**
+ * Evaluates every decoded barcode symbol independently without stopping after the first match.
+ * - Preserves valid ISBN-10, ISBN-13 (978/979), and GS1 EAN-13 (e.g. 893... retail barcodes)
+ * - Reports invalid checksums/non-book symbols separately without discarding valid siblings
+ * - Deduplicates repeated detections within the same frame/image
+ */
+export function evaluateMultiBarcodeDetections(
+  entries: Array<{ rawValue?: string; text?: string; format?: string; region?: string | null }>
+): MultiBarcodeEvaluationResult {
+  const allItems: MultiBarcodeDetectedItem[] = [];
+  const seenKeys = new Set<string>();
+  let duplicateDroppedCount = 0;
+
+  for (const item of entries) {
+    const raw = (item.rawValue ?? item.text ?? '').trim();
+    if (!raw) continue;
+    const fmt = item.format?.trim() || null;
+    const parsed = parseBookIdentifier(raw);
+
+    const dedupeKey = parsed.isValid && parsed.normalizedId
+      ? `valid:${parsed.normalizedId}`
+      : `invalid:${stripIsbn(raw) || raw}`;
+
+    if (seenKeys.has(dedupeKey)) {
+      duplicateDroppedCount++;
+      continue;
+    }
+    seenKeys.add(dedupeKey);
+
+    if (parsed.isValid && parsed.normalizedId) {
+      allItems.push({
+        rawValue: raw,
+        normalizedId: parsed.normalizedId,
+        identifierType: parsed.identifierType,
+        isIsbn: parsed.isIsbn,
+        isbn13: parsed.isbn13,
+        isbn10: parsed.isbn10,
+        ean13: parsed.ean13,
+        format: fmt || 'EAN-13',
+        isValid: true,
+        checksumError: null,
+        region: item.region ?? null,
+      });
+    } else {
+      allItems.push({
+        rawValue: raw,
+        normalizedId: null,
+        identifierType: 'invalid',
+        isIsbn: false,
+        isbn13: null,
+        isbn10: null,
+        ean13: null,
+        format: fmt,
+        isValid: false,
+        checksumError: explainInvalidIsbn(raw, fmt),
+        region: item.region ?? null,
+      });
+    }
+  }
+
+  const validItems = allItems.filter((i) => i.isValid);
+  const invalidItems = allItems.filter((i) => !i.isValid);
+
+  return {
+    allItems,
+    validItems,
+    invalidItems,
+    rawCount: allItems.length + duplicateDroppedCount,
+    validCount: validItems.length,
+    invalidCount: invalidItems.length,
+    duplicateDroppedCount,
+  };
+}
+
 export function extractValidIsbnFromBarcodeValues(
   entries: Array<{ rawValue?: string; text?: string; format?: string }>
 ): string | null {
@@ -246,35 +355,40 @@ export function extractValidIdentifierFromBarcodeValues(
   return res.validIdentifier ?? res.validIsbn13;
 }
 
-async function detectWithNativeDetector(source: ImageBitmapSource): Promise<{
-  evalResult: BarcodeEvaluationResult;
+async function detectRawWithNativeDetector(source: ImageBitmapSource): Promise<{
+  rawEntries: Array<{ rawValue?: string; format?: string }>;
   error: string | null;
 }> {
   if (!isNativeBarcodeDetectorSupported() || !window.BarcodeDetector) {
-    return {
-      evalResult: evaluateBarcodeDetections([]),
-      error: null,
-    };
+    return { rawEntries: [], error: null };
   }
   try {
     const detector = new window.BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'upc_a', 'code_128'],
     });
     const results = await detector.detect(source);
-    return { evalResult: evaluateBarcodeDetections(results), error: null };
+    return { rawEntries: results, error: null };
   } catch (err) {
     return {
-      evalResult: evaluateBarcodeDetections([]),
+      rawEntries: [],
       error: err instanceof Error ? err.message : 'Native BarcodeDetector error',
     };
   }
 }
 
-async function detectWithZxingInput(
-  input: Blob | Uint8Array | ImageData,
-  opts?: { binarizer?: 'LocalAverage' | 'GlobalHistogram'; minLineCount?: number }
-): Promise<{
+async function detectWithNativeDetector(source: ImageBitmapSource): Promise<{
   evalResult: BarcodeEvaluationResult;
+  error: string | null;
+}> {
+  const { rawEntries, error } = await detectRawWithNativeDetector(source);
+  return { evalResult: evaluateBarcodeDetections(rawEntries), error };
+}
+
+async function detectRawWithZxingInput(
+  input: Blob | Uint8Array | ImageData,
+  opts?: { binarizer?: 'LocalAverage' | 'GlobalHistogram'; minLineCount?: number; maxSymbols?: number }
+): Promise<{
+  rawEntries: Array<{ rawValue?: string; text?: string; format?: string }>;
   error: string | null;
 }> {
   try {
@@ -288,15 +402,26 @@ async function detectWithZxingInput(
       formats: ['EAN-13', 'EAN-8', 'UPC-A', 'Code128'],
       binarizer: opts?.binarizer ?? 'LocalAverage',
       minLineCount: opts?.minLineCount ?? 2,
-      maxNumberOfSymbols: 6,
+      maxNumberOfSymbols: opts?.maxSymbols ?? 24,
     });
-    return { evalResult: evaluateBarcodeDetections(results), error: null };
+    return { rawEntries: results, error: null };
   } catch (err) {
     return {
-      evalResult: evaluateBarcodeDetections([]),
+      rawEntries: [],
       error: err instanceof Error ? err.message : 'ZXing decode failed',
     };
   }
+}
+
+async function detectWithZxingInput(
+  input: Blob | Uint8Array | ImageData,
+  opts?: { binarizer?: 'LocalAverage' | 'GlobalHistogram'; minLineCount?: number }
+): Promise<{
+  evalResult: BarcodeEvaluationResult;
+  error: string | null;
+}> {
+  const { rawEntries, error } = await detectRawWithZxingInput(input, opts);
+  return { evalResult: evaluateBarcodeDetections(rawEntries), error };
 }
 
 // ============================================================================
@@ -584,6 +709,106 @@ export async function decodeBarcodeFromRawImageData(imageData: ImageData): Promi
   return res.validIdentifier ?? res.validIsbn13;
 }
 
+const MULTI_TILE_GRID_REGIONS: ScanRegionDef[] = [
+  { id: 'upper_half', xRatio: 0, yRatio: 0, wRatio: 1, hRatio: 0.55 },
+  { id: 'lower_half', xRatio: 0, yRatio: 0.45, wRatio: 1, hRatio: 0.55 },
+  { id: 'left_half', xRatio: 0, yRatio: 0, wRatio: 0.56, hRatio: 1 },
+  { id: 'right_half', xRatio: 0.44, yRatio: 0, wRatio: 0.56, hRatio: 1 },
+  { id: 'top_left', xRatio: 0, yRatio: 0, wRatio: 0.56, hRatio: 0.56 },
+  { id: 'top_right', xRatio: 0.44, yRatio: 0, wRatio: 0.56, hRatio: 0.56 },
+  { id: 'bottom_left', xRatio: 0, yRatio: 0.44, wRatio: 0.56, hRatio: 0.56 },
+  { id: 'bottom_right', xRatio: 0.44, yRatio: 0.44, wRatio: 0.56, hRatio: 0.56 },
+  { id: 'center_band', xRatio: 0.12, yRatio: 0.22, wRatio: 0.76, hRatio: 0.56 },
+];
+
+/**
+ * Collects ALL readable barcodes from raw ImageData (full frame + grid quadrants/halves +
+ * contrast/upscaled fallbacks) without stopping after the first valid symbol.
+ */
+export async function decodeAllBarcodesFromRawImageDataDetailed(
+  imageData: ImageData,
+  options?: { skipHeavyTilePasses?: boolean }
+): Promise<MultiBarcodeScanAttemptResult> {
+  const start = nowMs();
+  const regionsExamined: string[] = [];
+  const decodersUsed = new Set<'native' | 'zxing'>();
+  const rawCollected: Array<{ rawValue?: string; text?: string; format?: string; region?: string | null }> = [];
+  let lastError: string | null = null;
+
+  const scanPass = async (
+    regionName: string,
+    img: ImageData,
+    binarizer: 'LocalAverage' | 'GlobalHistogram',
+    minLineCount: number
+  ) => {
+    if (!regionsExamined.includes(regionName)) regionsExamined.push(regionName);
+    const { rawEntries, error } = await detectRawWithZxingInput(img, {
+      binarizer,
+      minLineCount,
+      maxSymbols: 32,
+    });
+    if (error && !lastError) lastError = error;
+    if (rawEntries.length > 0) {
+      decodersUsed.add('zxing');
+      for (const entry of rawEntries) {
+        rawCollected.push({ ...entry, region: regionName });
+      }
+    }
+  };
+
+  // Full-frame passes first (both unpadded and quiet-zone-padded)
+  await scanPass('full_frame', imageData, 'LocalAverage', 2);
+  const paddedFull = addQuietZonePadding(imageData, 24);
+  await scanPass('full_frame_padded', paddedFull, 'LocalAverage', 1);
+  await scanPass('full_frame_global', paddedFull, 'GlobalHistogram', 1);
+
+  if (imageData.width < 680 || imageData.height < 360) {
+    const upscaled = upscaleImageData2x(paddedFull);
+    await scanPass('full_frame_upscaled', upscaled, 'LocalAverage', 1);
+  }
+
+  // Always examine multi-region tiles for multi-book photos so smaller/clustered barcodes
+  // sitting outside ZXing's primary full-frame pass are also discovered.
+  if (!options?.skipHeavyTilePasses) {
+    for (const region of MULTI_TILE_GRID_REGIONS) {
+      await yieldToUi();
+      const cropped = cropImageData(imageData, region, 24);
+      const prepared = cropped.width < 520 ? upscaleImageData2x(cropped) : cropped;
+      await scanPass(region.id, prepared, 'LocalAverage', 1);
+    }
+
+    // Contrast & 90-degree rotated full pass for glare/vertical spines/low-contrast photos
+    await yieldToUi();
+    const contrastFull = buildContrastEnhancedImageData(paddedFull);
+    await scanPass('full_frame_contrast', contrastFull, 'LocalAverage', 1);
+    const rotated = rotateImageData90Cw(paddedFull);
+    await scanPass('full_frame_rotated_90', rotated, 'LocalAverage', 1);
+  }
+
+  const evalRes = evaluateMultiBarcodeDetections(rawCollected);
+  const blurryGuidance =
+    evalRes.validCount === 0
+      ? evalRes.invalidCount > 0
+        ? `Detected ${evalRes.invalidCount} partial or unreadable barcode symbol(s) (${evalRes.invalidItems
+            .map((i) => i.rawValue)
+            .slice(0, 3)
+            .join(', ')}), but no valid ISBN/EAN-13 check digits matched. Hold closer or use sharper lighting.`
+        : 'No readable barcodes were found in this image. Ensure each book barcode is evenly lit, sharp, and not cropped at the edges.'
+      : null;
+
+  return {
+    ...evalRes,
+    decodersUsed: Array.from(decodersUsed),
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+    blurryGuidance,
+  };
+}
+
 // ============================================================================
 // Canvas Drawing & Uploaded Photo / Live Camera Entry Points
 // ============================================================================
@@ -857,6 +1082,137 @@ export async function detectBarcodeFromImageFile(file: Blob): Promise<string | n
 }
 
 /**
+ * Multi-symbol decoder for uploaded photos containing 1 to 10+ books in a single frame.
+ * Combines Native BarcodeDetector + full-frame & tiled ZXing passes, deduplicates per image,
+ * and returns all valid identifiers separately from any invalid/unreadable symbols.
+ */
+export async function detectAllBarcodesFromImageFileDetailed(
+  file: Blob
+): Promise<MultiBarcodeScanAttemptResult> {
+  const start = nowMs();
+  const regionsExamined: string[] = [];
+  const decodersUsed = new Set<'native' | 'zxing'>();
+  const rawCollected: Array<{ rawValue?: string; text?: string; format?: string; region?: string | null }> = [];
+  let lastError: string | null = null;
+
+  if (isNativeBarcodeDetectorSupported()) {
+    regionsExamined.push('native_blob');
+    const nativeDirect = await detectRawWithNativeDetector(file);
+    if (nativeDirect.error) lastError = nativeDirect.error;
+    if (nativeDirect.rawEntries.length > 0) {
+      decodersUsed.add('native');
+      nativeDirect.rawEntries.forEach((e) => rawCollected.push({ ...e, region: 'native_blob' }));
+    }
+  }
+
+  const decoded = await decodeImageElementOrBitmap(file);
+  if (!decoded) {
+    const zDirect = await detectRawWithZxingInput(file, {
+      binarizer: 'LocalAverage',
+      minLineCount: 1,
+      maxSymbols: 32,
+    });
+    if (zDirect.error && !lastError) lastError = zDirect.error;
+    if (zDirect.rawEntries.length > 0) {
+      decodersUsed.add('zxing');
+      zDirect.rawEntries.forEach((e) => rawCollected.push({ ...e, region: 'blob_direct' }));
+    }
+    const evalRes = evaluateMultiBarcodeDetections(rawCollected);
+    return {
+      ...evalRes,
+      decodersUsed: Array.from(decodersUsed),
+      regionsExamined: [...regionsExamined, 'blob_direct'],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: Math.round(nowMs() - start),
+      error: lastError,
+      blurryGuidance:
+        evalRes.validCount === 0
+          ? 'Could not decode image file clearly. Try a higher-resolution photo or Bulk ISBN text entry.'
+          : null,
+    };
+  }
+
+  const { source, width, height, cleanup } = decoded;
+  try {
+    const workCanvas = document.createElement('canvas');
+    const fullImgData = drawRegionToCanvas(
+      source,
+      width,
+      height,
+      { sx: 0, sy: 0, sw: width, sh: height },
+      workCanvas,
+      2000
+    );
+
+    if (fullImgData) {
+      if (isNativeBarcodeDetectorSupported()) {
+        regionsExamined.push('full_frame_native');
+        const nativeFull = await detectRawWithNativeDetector(workCanvas);
+        if (nativeFull.error && !lastError) lastError = nativeFull.error;
+        if (nativeFull.rawEntries.length > 0) {
+          decodersUsed.add('native');
+          nativeFull.rawEntries.forEach((e) => rawCollected.push({ ...e, region: 'full_frame_native' }));
+        }
+      }
+
+      const zMulti = await decodeAllBarcodesFromRawImageDataDetailed(fullImgData);
+      zMulti.decodersUsed.forEach((d) => decodersUsed.add(d));
+      zMulti.regionsExamined.forEach((r) => {
+        if (!regionsExamined.includes(r)) regionsExamined.push(r);
+      });
+      if (zMulti.error && !lastError) lastError = zMulti.error;
+      for (const item of zMulti.allItems) {
+        rawCollected.push({
+          rawValue: item.rawValue,
+          format: item.format ?? undefined,
+          region: item.region,
+        });
+      }
+    }
+
+    // If native + tiled passes found 0 symbols, also check 90-deg native rotation
+    if (rawCollected.length === 0 && isNativeBarcodeDetectorSupported()) {
+      const rotCanvas = document.createElement('canvas');
+      if (drawRotatedCanvas(workCanvas, 90, rotCanvas)) {
+        regionsExamined.push('native_rotated_90');
+        const nativeRot = await detectRawWithNativeDetector(rotCanvas);
+        if (nativeRot.rawEntries.length > 0) {
+          decodersUsed.add('native');
+          nativeRot.rawEntries.forEach((e) => rawCollected.push({ ...e, region: 'native_rotated_90' }));
+        }
+      }
+    }
+  } finally {
+    cleanup();
+  }
+
+  const evalRes = evaluateMultiBarcodeDetections(rawCollected);
+  const blurryGuidance =
+    evalRes.validCount === 0
+      ? evalRes.invalidCount > 0
+        ? `Found ${evalRes.invalidCount} partial/invalid barcode(s) (${evalRes.invalidItems
+            .map((i) => i.rawValue)
+            .slice(0, 3)
+            .join(', ')}), none with valid check digits. Try closer framing or sharper focus.`
+        : 'No barcodes could be read from this photograph. Move closer so bars are crisp and evenly lit, or enter ISBNs via Bulk Text.'
+      : null;
+
+  return {
+    ...evalRes,
+    decodersUsed: Array.from(decodersUsed),
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+    blurryGuidance,
+  };
+}
+
+/**
  * Scans a live video frame across full frame + multiple overlapping regions (center, lower back-cover,
  * upper, edges) with lossless ImageData + quiet-zone padding + Native/ZXing fallback.
  * Never restricts detection solely to the center reticle.
@@ -1086,7 +1442,127 @@ export async function detectBarcodeFromImageSource(
   return res.validIdentifier ?? res.validIsbn13;
 }
 
-export async function openCameraStreamWithFallback(): Promise<{
+export async function scanVideoFrameForMultipleBarcodes(
+  video: HTMLVideoElement,
+  scratchCanvas: HTMLCanvasElement,
+  options?: { frameIndex?: number }
+): Promise<MultiBarcodeScanAttemptResult> {
+  const start = nowMs();
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh || video.readyState < 2) {
+    return {
+      allItems: [],
+      validItems: [],
+      invalidItems: [],
+      rawCount: 0,
+      validCount: 0,
+      invalidCount: 0,
+      duplicateDroppedCount: 0,
+      decodersUsed: [],
+      regionsExamined: [],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: 0,
+      error: null,
+      blurryGuidance: null,
+    };
+  }
+
+  const regionsExamined: string[] = [];
+  const decodersUsed = new Set<'native' | 'zxing'>();
+  const rawCollected: Array<{ rawValue?: string; text?: string; format?: string; region?: string | null }> = [];
+  let lastError: string | null = null;
+
+  const fullImgData = drawRegionToCanvas(
+    video,
+    vw,
+    vh,
+    { sx: 0, sy: 0, sw: vw, sh: vh },
+    scratchCanvas,
+    1400
+  );
+  if (!fullImgData) {
+    return {
+      allItems: [],
+      validItems: [],
+      invalidItems: [],
+      rawCount: 0,
+      validCount: 0,
+      invalidCount: 0,
+      duplicateDroppedCount: 0,
+      decodersUsed: [],
+      regionsExamined: [],
+      nativeSupported: isNativeBarcodeDetectorSupported(),
+      zxingStatus,
+      zxingError: zxingLastError,
+      durationMs: Math.round(nowMs() - start),
+      error: 'Unable to acquire 2D canvas context',
+      blurryGuidance: null,
+    };
+  }
+
+  if (isNativeBarcodeDetectorSupported()) {
+    regionsExamined.push('native_full_frame');
+    const nativeHit = await detectRawWithNativeDetector(scratchCanvas);
+    if (nativeHit.error) lastError = nativeHit.error;
+    if (nativeHit.rawEntries.length > 0) {
+      decodersUsed.add('native');
+      nativeHit.rawEntries.forEach((e) => rawCollected.push({ ...e, region: 'native_full_frame' }));
+    }
+  }
+
+  // Keep live camera frame processing smooth: alternate full frame with lightweight regional bands
+  const idx = options?.frameIndex ?? 0;
+  const zRes = await decodeAllBarcodesFromRawImageDataDetailed(fullImgData, {
+    skipHeavyTilePasses: idx % 3 !== 0,
+  });
+  zRes.decodersUsed.forEach((d) => decodersUsed.add(d));
+  zRes.regionsExamined.forEach((r) => {
+    if (!regionsExamined.includes(r)) regionsExamined.push(r);
+  });
+  if (zRes.error && !lastError) lastError = zRes.error;
+  for (const item of zRes.allItems) {
+    rawCollected.push({
+      rawValue: item.rawValue,
+      format: item.format ?? undefined,
+      region: item.region,
+    });
+  }
+
+  const evalRes = evaluateMultiBarcodeDetections(rawCollected);
+  return {
+    ...evalRes,
+    decodersUsed: Array.from(decodersUsed),
+    regionsExamined,
+    nativeSupported: isNativeBarcodeDetectorSupported(),
+    zxingStatus,
+    zxingError: zxingLastError,
+    durationMs: Math.round(nowMs() - start),
+    error: lastError,
+    blurryGuidance: null,
+  };
+}
+
+export async function listVideoInputDevices(): Promise<Array<{ deviceId: string; label: string }>> {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+    return [];
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === 'videoinput')
+      .map((d, idx) => ({
+        deviceId: d.deviceId,
+        label: d.label || `Camera ${idx + 1}`,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export async function openCameraStreamWithFallback(preferredDeviceId?: string): Promise<{
   stream: MediaStream;
   profile: string;
 }> {
@@ -1094,7 +1570,32 @@ export async function openCameraStreamWithFallback(): Promise<{
     throw new Error('Camera access is unavailable in this browser. Upload a barcode photo instead.');
   }
 
-  const profiles: Array<{ name: string; constraints: MediaStreamConstraints }> = [
+  const profiles: Array<{ name: string; constraints: MediaStreamConstraints }> = [];
+
+  if (preferredDeviceId) {
+    profiles.push(
+      {
+        name: 'selected-device-1080p',
+        constraints: {
+          video: {
+            deviceId: { exact: preferredDeviceId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        },
+      },
+      {
+        name: 'selected-device-basic',
+        constraints: {
+          video: { deviceId: { exact: preferredDeviceId } },
+          audio: false,
+        },
+      }
+    );
+  }
+
+  profiles.push(
     {
       name: 'environment-1080p',
       constraints: {
@@ -1130,8 +1631,8 @@ export async function openCameraStreamWithFallback(): Promise<{
         video: true,
         audio: false,
       },
-    },
-  ];
+    }
+  );
 
   let lastErr: unknown;
   for (const prof of profiles) {

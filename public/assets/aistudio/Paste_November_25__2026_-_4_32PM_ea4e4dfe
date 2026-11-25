@@ -1,0 +1,844 @@
+# AniVerse Book Tracker — Midnight Archive Redesign + Batch Book Scanner
+
+I want to make a major visual and functional upgrade to the existing AniVerse Book Tracker in my repository:
+
+https://github.com/Henry2120/Anime-Tracker-Main
+
+This is an implementation task. Inspect the existing codebase, understand its architecture, and make the changes directly. Do not simply provide recommendations, mockups, or a development plan.
+
+There are TWO major objectives:
+
+1. Transform the Book Tracker into an immersive, mysterious, magical library called **The Midnight Archive**.
+2. Upgrade the barcode scanner so I can scan and register multiple books in one scanning session, including multiple barcodes from one photograph.
+
+Both objectives must be implemented while preserving existing book data and unrelated AniVerse functionality.
+
+---
+
+# PART 1 — THE MIDNIGHT ARCHIVE
+
+## 1. Overall design direction
+
+I want the Book Tracker to look and feel like an enormous magical library from a fantasy wizarding world.
+
+The visual inspiration is a mysterious, ancient library with a gothic architectural style. Think dark academia, magical archives, moonlit rooms, enchanted bookshelves, and ancient manuscripts.
+
+Do not reproduce copyrighted Harry Potter characters, logos, Hogwarts branding, or exact copyrighted architectural designs. Create an original magical library identity.
+
+The name of this environment should be:
+
+**THE MIDNIGHT ARCHIVE**
+
+### Visual atmosphere
+
+The library should feel mysterious, magical, atmospheric, and immersive.
+
+Use:
+- Dark walnut bookshelves.
+- Enormous gothic arches.
+- Tall windows with moonlight streaming through them.
+- Midnight navy and charcoal backgrounds.
+- Antique gold and muted silver details.
+- Deep violet and muted blue magical lighting.
+- Floating books and occasional gently glowing magical objects.
+- Floating dust particles and subtle magical particles.
+- Antique wooden furniture.
+- Ancient manuscripts and decorative library elements.
+- Candlelight and magical lanterns.
+- Beautiful shadows and layered lighting.
+
+Suggested color palette:
+- Midnight navy: `#101827`
+- Deep blue-black: `#0B1120`
+- Dark walnut: `#392A24`
+- Antique gold: `#B49A67`
+- Muted silver: `#AEB9C9`
+- Magical blue: `#7797C9`
+- Muted violet: `#776B9C`
+- Aged parchment: `#D8C9A7`
+
+Do not make the entire application look like a flat dark dashboard with gold buttons.
+
+I want an actual library-like visual environment, with depth, architectural details, layered backgrounds, and recognizable rooms.
+
+Use high-quality visual composition. Pay attention to typography, spacing, shadows, lighting, textures, and transitions.
+
+### Important: Performance and implementation approach
+
+I want **guided exploration**, not a full video game.
+
+Use an interactive 2.5D approach:
+- Layered backgrounds.
+- CSS perspective and depth effects.
+- Carefully designed SVG elements where useful.
+- Atmospheric lighting.
+- Subtle animations.
+- Interactive architectural elements.
+- Smooth transitions between rooms.
+
+Do NOT implement:
+- First-person movement.
+- WASD movement.
+- Character movement.
+- Complex camera controls.
+- A game-like movement system.
+- A requirement to install a large 3D environment just to browse books.
+
+Users should navigate by clicking rooms, bookshelves, and books.
+
+The experience must remain responsive and performant on both desktop and mobile.
+
+Respect `prefers-reduced-motion`. Make sure animations do not interfere with reading, navigation, or accessibility.
+
+Do not rely on external image URLs that may break or require constant internet access. Prefer local project assets, CSS, SVG, and carefully optimized original visual assets.
+
+---
+
+## 2. Main entrance — The Grand Hall
+
+Replace the conventional Book Tracker Dashboard appearance with an immersive library entrance.
+
+The first screen users see should be a beautiful view of the Grand Hall.
+
+Imagine:
+- A large central library hall.
+- Enormous bookshelves surrounding the room.
+- Gothic arches and tall windows.
+- Moonlight coming through the windows.
+- A distant upper-level gallery.
+- Floating books and subtle magical particles.
+- A central navigation area showing the different library rooms.
+
+This should feel like entering an actual magical library.
+
+The Grand Hall must provide access to the other sections.
+
+Do not simply display ordinary rectangular dashboard cards with fantasy-themed icons. Design them as architectural entrances, illustrated room panels, doorways, or other visually integrated navigation elements.
+
+Clicking a room should smoothly transition to that room.
+
+Keep essential actions such as adding a book, opening search, and accessing navigation easy to reach.
+
+Do not remove useful library statistics or existing functionality unless explicitly required elsewhere.
+
+---
+
+## 3. Library navigation — The different rooms
+
+Redesign the Book Tracker navigation around these locations.
+
+### A. The Grand Hall
+
+This is the main entrance and home screen.
+
+It provides:
+- Access to all library areas.
+- A beautiful overview of the collection.
+- Useful collection statistics.
+- Recently added books.
+- A quick way to add a book.
+- Navigation to the other rooms.
+
+### B. The Grand Stacks — Main Library
+
+This is where the user's actual book collection lives.
+
+I want users to explore their books through visual bookshelves instead of immediately seeing a conventional grid of book cards.
+
+Use existing data structures wherever possible:
+- `Shelf`
+- `ShelfItem`
+- `Work`
+- `Edition`
+- `PhysicalCopy`
+
+Each existing shelf should become a corresponding visual bookshelf or section of the library.
+
+Examples of possible shelves include:
+- Vietnamese Literature.
+- English Literature.
+- Manga and Graphic Novels.
+- Fantasy and Science Fiction.
+- Programming and Artificial Intelligence.
+- Custom shelves created by the user.
+
+Do not hardcode these categories. They are examples only.
+
+### Bookshelf interactions
+
+1. Display shelves as visually rich bookshelves.
+2. Clicking a bookshelf should enter that particular aisle or shelf view.
+3. Show the books actually assigned to that shelf.
+4. Allow users to browse and search the books within it.
+5. Clicking a book should open its individual detail view.
+
+Use actual registered book data.
+
+For books with covers:
+- Display their correct cover images.
+- Preserve existing cover associations.
+- Make the covers visually attractive.
+
+For books without covers:
+- Generate an attractive fallback book spine.
+- Use consistent but varied colors and decorative details.
+- Keep the fallback design stable for that book rather than randomly changing on every render.
+
+Where appropriate, display books as individual leather-bound spines on shelves. Hovering over a book can reveal its title, author, and a small preview.
+
+For touch devices, tapping should provide equivalent functionality.
+
+Do not create decorative books that are disconnected from the actual collection.
+
+The shelves must reflect the user's real library records.
+
+### Shelf management
+
+Preserve existing functionality for:
+- Creating shelves.
+- Renaming shelves.
+- Assigning books.
+- Removing books from shelves.
+- Filtering and searching.
+- Managing physical copies.
+
+Redesign the interface, not the underlying data model unnecessarily.
+
+### C. The Acquisitions Room — Wishlist
+
+This room represents books the user wants to acquire.
+
+Maintain the existing Wishlist functionality.
+
+Provide:
+- A magical book-display environment.
+- Existing Wishlist entries.
+- Online book discovery integrated directly into this room.
+- Search by title, author, and ISBN.
+- Metadata previews.
+- The ability to add discovered books to Wishlist.
+- The ability to move or register a Wishlist book as part of the owned collection when appropriate.
+
+Do not create a separate Discover Books page.
+
+Online discovery must remain part of Wishlist.
+
+The existing Wishlist must continue to work offline. Only online searching requires an internet connection.
+
+### D. The Scholar's Study — Reading Journal
+
+This room contains the user's personal book reviews, journal entries, and reflections.
+
+Preserve:
+- Reading journal entries.
+- Book reviews.
+- Existing journal data.
+- Existing editing functionality.
+
+Give this area the atmosphere of an ancient scholar's study:
+- Wooden writing desk.
+- Old manuscripts.
+- Parchment textures.
+- Quill and ink-inspired details.
+- Warm light against a moonlit background.
+
+Important: Keep the reading journal and reviews. Do not confuse these with the page-progress, timer, and loan features that were previously requested for complete removal.
+
+### E. The Archive Office — Settings and Data Management
+
+This is where users manage the library itself.
+
+Preserve existing:
+- Settings.
+- Local backup export and restore.
+- Supabase cloud synchronization.
+- Device management.
+- Conflict resolution.
+- Language selection.
+- Data management and deletion controls.
+
+Present them as an archive administration area rather than an ordinary settings dashboard.
+
+Do not compromise the functionality of these controls for visual design.
+
+---
+
+## 4. Individual book presentation
+
+Redesign the existing Book Details interface to feel like opening an ancient archive record or an old book.
+
+When a user selects a book:
+- Present a large, attractive cover image.
+- Use an open-book or parchment-inspired detail layout.
+- Display the title and author clearly.
+- Display available edition information.
+- Display ISBN information.
+- Display publisher and publication details.
+- Display physical copy information.
+- Preserve reviews and journal access.
+
+Keep existing editing and management functionality.
+
+Do not make the detail interface difficult to navigate.
+
+The actual metadata and cover must come from the existing book records, not decorative mock data.
+
+---
+
+## 5. Navigation and responsive behavior
+
+The user must always know which room they are currently in.
+
+Implement:
+- Smooth room transitions.
+- Clear room titles.
+- A persistent navigation control.
+- An easy way to return to the Grand Hall.
+- Breadcrumbs or equivalent navigation where appropriate.
+- A conventional Catalog View for quick searching and managing books.
+
+On desktop, take advantage of the available screen space.
+
+On mobile:
+- Simplify the library layout without losing the visual identity.
+- Make room entrances easy to tap.
+- Make bookshelves usable on narrow screens.
+- Avoid horizontal overflow.
+- Avoid requiring hover to reveal essential information.
+
+The magical environment should make browsing enjoyable, not make ordinary book management slower.
+
+---
+
+# PART 2 — MULTI-BOOK BARCODE SCANNER
+
+## 6. Main objective
+
+I want to scan multiple books without having to open and close the scanner for every book.
+
+Currently, the scanner effectively works like this:
+
+1. Open camera.
+2. Scan one barcode.
+3. Stop the camera.
+4. Look up metadata.
+5. Manually start another scanning session.
+
+I want a dedicated **Batch Scan** mode.
+
+The user should be able to scan an entire stack of books in one session.
+
+The camera should remain active as books are scanned one after another.
+
+Do not make the user restart the camera after every successful barcode detection.
+
+---
+
+## 7. First investigate the existing scanner implementation
+
+Inspect these existing files:
+
+- `book-tracker/src/components/AddBookModal.tsx`
+- `book-tracker/src/services/scannerAndOcr.ts`
+- `book-tracker/src/utils/scanFlow.ts`
+- `book-tracker/src/utils/isbn.ts`
+- Relevant metadata lookup and book creation services.
+
+There are several important implementation details to investigate.
+
+### Current implementation observations
+
+The existing `scannerAndOcr.ts` uses ZXing WASM and has:
+
+`maxNumberOfSymbols: 6`
+
+However, the existing barcode evaluation function returns a single evaluated result rather than a complete collection of detected barcodes.
+
+The live scanner in `AddBookModal.tsx` also sets `scanDetectedRef.current = true`, stops the camera, and immediately starts metadata lookup after the first successful detection.
+
+This behavior must be redesigned for batch scanning.
+
+Do not replace the entire scanner infrastructure unnecessarily. Extend and reuse it.
+
+Preserve existing single-book scanning functionality as a fallback and convenience.
+
+---
+
+## 8. Batch Scan interface
+
+Add a clearly accessible Batch Scan option to the existing Add Book/scanner experience.
+
+The user should be able to switch between:
+
+- Single Scan.
+- Batch Scan.
+
+Single Scan must continue to work as before, subject to the scanner bug fixes in this request.
+
+Batch Scan should provide three input methods.
+
+### Method A — Continuous live camera scanning
+
+This is the primary workflow.
+
+Expected behavior:
+
+1. Open Batch Scan.
+2. Start the camera.
+3. Point the camera at the first book's barcode.
+4. Detect and capture the barcode.
+5. Add the detected identifier to the batch queue.
+6. Keep the camera running.
+7. Point the camera at the next book.
+8. Repeat until the user finishes.
+
+The camera must remain active after a successful scan.
+
+Provide:
+- Start scanning.
+- Pause scanning.
+- Resume scanning.
+- Finish scanning.
+- Clear queue.
+- Camera switching where supported.
+- Flash/torch control where supported.
+
+Show a clear scanning frame and visual feedback when a barcode is captured.
+
+### Critical duplicate prevention
+
+The camera may see the same barcode in many consecutive frames.
+
+Do not add the same barcode repeatedly.
+
+Maintain a per-session collection of identifiers already captured.
+
+After detecting an identifier:
+- Add it once.
+- Temporarily suppress repeated detections.
+- Continue scanning for other books.
+
+Do not permanently prevent the user from deliberately adding the same book multiple times. Duplicate ownership is possible.
+
+If the user scans the same ISBN again in the same batch, identify it as a possible duplicate and let the user decide whether to add another physical copy.
+
+### Camera performance
+
+Reuse the existing sequential decode runner or an equivalent safe mechanism.
+
+Ensure that:
+- Multiple asynchronous decode jobs do not execute uncontrolled.
+- The camera stream is cleaned up when the scanner closes.
+- Animation-frame loops are cancelled properly.
+- Closing the modal releases the camera.
+- Camera failures produce useful error messages.
+- Scanning does not freeze the interface.
+- Metadata lookup does not block subsequent camera scans.
+
+The scanner should capture identifiers first and perform metadata lookup separately.
+
+Do not stop the camera merely because a metadata provider is slow or unavailable.
+
+---
+
+## 9. Method B — Multiple barcodes from one photograph
+
+I also want to upload or take one photograph containing multiple book barcodes.
+
+The system should attempt to identify all readable barcodes in that photograph.
+
+Example:
+- Place five books on a table.
+- Position their back covers so their barcodes are visible.
+- Take one photograph.
+- Detect all readable barcode identifiers.
+- Add all unique valid detections to the batch queue.
+
+### Implementation requirements
+
+- Use a multi-symbol decoding path.
+- Retrieve all decoded symbols rather than only the first.
+- Increase the symbol limit from the existing `maxNumberOfSymbols: 6` where technically appropriate.
+- Evaluate each decoded barcode independently.
+- Preserve all successful detections even when another barcode in the same photograph is invalid.
+- Avoid adding the same decoded number twice from one image.
+- Clearly report how many barcodes were found and how many were valid.
+
+Use the existing image preprocessing and barcode decoding pipeline where possible.
+
+If a photograph is too blurry, explain that and allow another photograph or manual entry.
+
+Do not guarantee that every barcode in a photograph can be decoded. Image quality, barcode size, orientation, glare, and overlap can affect detection.
+
+The most important requirement is to preserve every successful detection rather than stopping after the first.
+
+---
+
+## 10. Method C — Bulk ISBN/EAN entry
+
+Provide a text-based fallback where users can paste multiple book identifiers.
+
+Example:
+
+8935082600287
+9786047771929
+9780321765723
+9780132350884
+
+Accept one identifier per line, with reasonable support for comma- or semicolon-separated input.
+
+Requirements:
+- Parse each identifier independently.
+- Preserve leading zeros.
+- Validate each checksum.
+- Avoid concatenating adjacent identifiers into one long invalid number.
+- Identify duplicate entries.
+- Show invalid identifiers rather than silently discarding them.
+- Allow users to correct or remove entries.
+
+This method must work even when the device has no camera.
+
+---
+
+## 11. Correct handling of Vietnamese 893-series barcodes
+
+This is especially important.
+
+Vietnamese books commonly use EAN-13 identifiers beginning with `893`.
+
+The existing `isbn.ts` already has support for Vietnamese `893`-prefix EAN-13 codes through `parseBookIdentifier`.
+
+Do not break this behavior.
+
+### Specific regression test
+
+Barcode:
+
+`8935082600287`
+
+This identifier has a valid EAN-13 check digit. Its expected check digit is `7`.
+
+The application must recognize it as a valid EAN-13 identifier.
+
+Do not reject it simply because it does not begin with `978` or `979`.
+
+### Identifier classification
+
+Keep the distinction between:
+
+- ISBN-10.
+- ISBN-13 (`978` or `979`).
+- Vietnamese EAN-13 (`893`).
+- Other supported EAN-13 identifiers.
+- Invalid identifiers.
+
+Do not incorrectly convert a non-ISBN EAN-13 into an ISBN-10.
+
+Do not modify digits to force a checksum to pass.
+
+Do not hardcode this barcode as a special case.
+
+### Important distinction: decoding versus metadata lookup
+
+There are TWO separate operations:
+
+**Stage 1 — Barcode decoding**
+
+Can the camera or uploaded image correctly read the digits?
+
+**Stage 2 — Metadata identification**
+
+Can the metadata providers find the actual book using those digits?
+
+A barcode may decode successfully even when all metadata providers fail to identify the book.
+
+These must never be treated as the same error.
+
+For `8935082600287`:
+- Successfully decode and preserve the identifier.
+- Attempt metadata lookup using the appropriate EAN/barcode identifier.
+- If no reliable match exists, retain the scanned identifier in the batch queue.
+- Let the user manually enter or correct metadata.
+
+Never discard an otherwise valid barcode because an online metadata provider did not find the book.
+
+---
+
+## 12. Batch scanning queue
+
+Every successfully captured identifier should appear in a batch review queue.
+
+The queue should update while the camera is running.
+
+Each item should show:
+- Captured barcode.
+- Identifier type.
+- Book title, if found.
+- Author, if found.
+- Cover, if available.
+- Lookup status.
+- Duplicate status.
+
+Use individual statuses:
+
+| Status | Meaning |
+|---|---|
+| Captured | Barcode decoded successfully |
+| Searching | Metadata lookup in progress |
+| Match found | Reliable metadata result available |
+| No match | No reliable metadata result found |
+| Invalid | Barcode failed validation |
+| Duplicate | Possible existing or batch duplicate |
+| Error | Lookup or processing error |
+
+Do not make the entire batch fail because one barcode could not be identified.
+
+### Metadata lookup behavior
+
+Once a barcode has been captured:
+- Start its metadata lookup independently.
+- Allow other barcodes to be scanned at the same time.
+- Use bounded concurrency for online lookup requests.
+- Avoid overwhelming metadata providers.
+- Preserve a separate result for every identifier.
+- Handle provider timeouts and network errors.
+- Allow failed lookups to be retried.
+
+Do not wait until scanning is finished before starting every lookup.
+
+However, camera scanning must never wait for metadata lookup to finish.
+
+---
+
+## 13. Batch review and registration
+
+After the user presses Finish Scanning, display a review screen.
+
+The user should be able to:
+- Review every captured identifier.
+- Inspect the corresponding metadata.
+- Edit book information.
+- Select a different metadata result.
+- Upload or select a cover image.
+- Enter metadata manually when no provider result exists.
+- Remove unwanted entries.
+- Resolve duplicate warnings.
+- Select which books to register.
+
+Provide:
+- Add Selected to Library.
+- Add All Valid to Library.
+- Remove Selected.
+- Return to Scanner.
+
+Do not automatically add books to the Library immediately upon scanning. The user must review and confirm first.
+
+### Registration behavior
+
+Use the existing book creation and library services.
+
+Create the correct Work, Edition, ISBN, and PhysicalCopy records.
+
+A scanned book that the user confirms as an owned book should create the appropriate owned physical copy.
+
+Respect existing collection structure and data relationships.
+
+Do not create duplicate Works or Editions unnecessarily.
+
+When a matching book already exists:
+- Show the existing record.
+- Let the user choose whether to add another physical copy or skip it.
+- Do not overwrite existing metadata or cover images without consent.
+
+### Partial failure handling
+
+If the user selects ten books and one fails to save:
+- Preserve the other successful registrations.
+- Identify which book failed.
+- Show the reason.
+- Allow the failed entry to be retried.
+
+Do not erase the queue just because one record failed.
+
+Use safe, idempotent operations where appropriate.
+
+---
+
+# PART 3 — INTEGRATION AND DATA PRESERVATION
+
+## 14. Preserve existing application architecture
+
+The Book Tracker is already integrated into the main AniVerse application.
+
+Relevant integration:
+- Root application: `src/App.tsx`
+- Book Tracker application: `book-tracker/src/App.tsx`
+- Book Tracker styling: `book-tracker/src/index.css`
+
+The main AniVerse application already manages shared theme and atmosphere state.
+
+Preserve the existing theme integration, including:
+- Main application theme.
+- Custom theme configuration.
+- Rain intensity.
+- `AtmosphericCanvas`.
+
+Do not introduce a separate theme state that conflicts with the main application.
+
+The Midnight Archive should retain its distinctive mysterious library identity while respecting the shared application appearance and atmosphere settings.
+
+Do not accidentally render two atmospheric canvases.
+
+Do not break the Anime Tracker, Music Lab, or 3D Viewer.
+
+## 15. Preserve existing book data
+
+This redesign must not require users to recreate their collections.
+
+Preserve:
+- Works.
+- Editions.
+- ISBN/EAN identifiers.
+- Physical copies.
+- Shelves.
+- Shelf assignments.
+- Wishlist.
+- Covers and local cover blobs.
+- Reviews.
+- Journal entries.
+- Metadata records.
+- Backup records.
+- Cloud synchronization.
+- Conflict resolution.
+
+Do not replace the existing database with mock data.
+
+Do not clear IndexedDB or Supabase.
+
+Do not rewrite the storage architecture just to support the new visual experience.
+
+Use existing services and domain types.
+
+If schema changes are genuinely necessary, implement safe migrations and explain them.
+
+## 16. Keep previously approved Book Tracker requirements intact
+
+Do not regress the previously requested Book Tracker improvements.
+
+Preserve or continue supporting these requirements:
+- Improved Vietnamese metadata lookup, including the previously supplied Vietnamese ISBN test cases.
+- Correct book cover assignment and prevention of stale-cover reuse.
+- Removal of the Dashboard sections Pages Today, Reading Streak, and Books This Year.
+- Online discovery integrated directly into Wishlist.
+- Configurable local-only, cloud-only, or combined data deletion.
+- Complete removal of page progress, reading timer, and book loans, including their associated data and synchronization structures.
+- Preservation of reviews and the reading journal.
+- Synchronization with the main AniVerse theme and atmosphere.
+- Local backup and restore.
+- Offline-first operation.
+
+Do not reintroduce reading progress, timer, or loan UI while redesigning the library.
+
+---
+
+# PART 4 — TESTING
+
+## 17. Visual acceptance tests
+
+Verify:
+
+1. The Grand Hall looks like a magical library, not a conventional dashboard.
+2. Room navigation works.
+3. The Grand Stacks displays actual registered shelves.
+4. Bookshelves display actual book records.
+5. Clicking a book opens its correct details.
+6. Missing covers have attractive fallback designs.
+7. The Acquisitions Room displays the existing Wishlist.
+8. Online discovery remains inside Wishlist.
+9. The Scholar's Study preserves journal entries and reviews.
+10. The Archive Office preserves settings and data management.
+11. Desktop and mobile layouts work.
+12. Animations are smooth and do not obstruct interaction.
+13. Reduced-motion preferences are respected.
+14. Shared theme and atmosphere integration continues working.
+
+## 18. Scanner acceptance tests
+
+Test the following:
+
+| Test | Expected result |
+|---|---|
+| Scan one book in single mode | Works as before |
+| Scan multiple books continuously | Camera remains active and captures each |
+| Scan the same book in consecutive frames | No repeated queue spam |
+| Scan the same book intentionally again | User can choose another physical copy |
+| Upload a photo with multiple barcodes | All readable identifiers are returned |
+| Upload a blurry photograph | Clear failure feedback; queue remains intact |
+| Paste several ISBNs | Each is parsed independently |
+| Enter a valid ISBN-13 | Correct classification |
+| Enter a valid ISBN-10 | Correct classification |
+| Enter a valid Vietnamese `893` EAN-13 | Correctly accepted |
+| Enter `8935082600287` | Accepted with checksum digit 7 |
+| Enter an invalid checksum | Reported as invalid without modifying digits |
+| Metadata provider cannot find a book | Identifier remains in queue |
+| Scan while another lookup is pending | Camera remains usable |
+| Duplicate already in Library | Existing record is identified |
+| Add several selected books | All successful records are registered |
+| One record fails during batch registration | Other successful registrations remain intact |
+| Close scanner | Camera stream and animation loops are released |
+| Scanner used offline | Captured identifiers remain available for manual processing |
+
+Also test on different screen sizes and browsers where camera support is available.
+
+## 19. Technical verification
+
+After implementing:
+
+- Run the Book Tracker TypeScript checks.
+- Run relevant tests.
+- Run the available build.
+- Fix errors introduced by the changes.
+- Check for React key issues and stale state.
+- Check for asynchronous race conditions.
+- Check camera cleanup and memory leaks.
+- Check offline behavior.
+- Check that the new library visuals do not interfere with existing event handlers or data operations.
+
+Add or update tests for multi-barcode evaluation, batch queue behavior, deduplication, identifier validation, and scanner lifecycle.
+
+Do not remove working single-scan functionality while adding batch scanning.
+
+---
+
+# PART 5 — FINAL IMPLEMENTATION REPORT
+
+When finished, report:
+
+1. The new Midnight Archive visual design and navigation.
+2. Which library rooms were implemented.
+3. How the bookshelf views connect to actual book records.
+4. Which scanning methods are now supported.
+5. How many symbols can be decoded from one photograph and any limitations.
+6. How duplicate detection works.
+7. How `8935082600287` is handled.
+8. Which existing files were changed or added.
+9. Tests and builds performed, including their results.
+10. Any remaining limitations or manual steps.
+
+Do not claim a test passed unless it was actually executed.
+
+Do not leave placeholder controls or decorative elements pretending to be functional.
+
+If a requirement cannot be implemented exactly because of a technical limitation, explain that limitation and implement the safest useful alternative.
+
+---
+
+**FINAL OBJECTIVE**
+
+Transform AniVerse Book Tracker into **The Midnight Archive**: a mysterious, moonlit, interactive magical library where users explore real bookshelves and rooms through simple clicking.
+
+At the same time, make book registration significantly faster through continuous batch barcode scanning, multiple barcode recognition from photographs, and bulk ISBN entry.
+
+The library must remain a real, fully functional, offline-first book management application underneath its new visual identity.
+
+Prioritize a polished and cohesive experience over simply adding many decorative effects.

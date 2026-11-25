@@ -31,62 +31,69 @@ export function StatisticsView({
 
   return (
     <div className="space-y-6">
-      <h2 className="font-editorial text-xl font-semibold">{t('nav.stats')}</h2>
+      <div className="archive-walnut-panel rounded-2xl p-5">
+        <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
+          Celestial Charting Wing
+        </p>
+        <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
+          {t('nav.stats')}
+        </h2>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-        <div className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <span className="text-xs text-stone-500">Finished Works</span>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+        <div className="archive-panel rounded-2xl p-4">
+          <span className="text-xs text-[#AEB9C9]">Finished Works</span>
+          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F4EFE6]">
             {stats.finishedUniqueWorksCount}
           </p>
         </div>
-        <div className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <span className="text-xs text-stone-500">Finished Cycles</span>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+        <div className="archive-panel rounded-2xl p-4">
+          <span className="text-xs text-[#AEB9C9]">Finished Cycles</span>
+          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F4EFE6]">
             {stats.finishedCyclesCount}
           </p>
         </div>
-        <div className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <span className="text-xs text-stone-500">Currently Reading</span>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+        <div className="archive-panel rounded-2xl p-4">
+          <span className="text-xs text-[#AEB9C9]">Currently Reading</span>
+          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#7797C9]">
             {stats.currentlyReadingCount}
           </p>
         </div>
-        <div className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <span className="text-xs text-stone-500">Owned Physical Copies</span>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+        <div className="archive-panel rounded-2xl p-4">
+          <span className="text-xs text-[#AEB9C9]">Owned Physical Copies</span>
+          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#D6BD8A]">
             {stats.ownedCopiesCount}
           </p>
         </div>
-        <div className="col-span-2 lg:col-span-1 rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <span className="text-xs text-stone-500">Wishlist Items</span>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+        <div className="col-span-2 lg:col-span-1 archive-panel rounded-2xl p-4">
+          <span className="text-xs text-[#AEB9C9]">Wishlist Items</span>
+          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F4EFE6]">
             {stats.wishlistCopiesCount}
           </p>
         </div>
       </div>
 
       {/* Monthly Books Finished Bar Chart */}
-      <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
-        <h3 className="font-editorial text-base font-semibold">
-          Monthly Books Finished (Last 12 Months)
+      <section className="archive-panel rounded-2xl p-5 space-y-4">
+        <h3 className="font-archive-display text-base font-semibold text-[#F4EFE6]">
+          Monthly Volumes Completed (Last 12 Months)
         </h3>
         <div className="grid grid-cols-12 gap-2 items-end h-44 pt-4">
           {stats.monthlyFinishedSeries.map((m) => {
             const pct = Math.round((m.booksFinished / maxMonthFinished) * 100);
             return (
               <div key={m.month} className="flex flex-col items-center justify-end h-full gap-1">
-                <span className="text-[10px] font-mono text-stone-500">
+                <span className="text-[10px] font-mono text-[#D6BD8A]">
                   {m.booksFinished > 0 ? m.booksFinished : ''}
                 </span>
                 <div className="w-full flex-1 flex items-end">
                   <div
-                    className="w-full rounded-t-md bg-[#C2410C]/85 transition-all min-h-[3px]"
+                    className="w-full rounded-t-md bg-gradient-to-t from-[#B49A67] to-[#7797C9] transition-all min-h-[3px]"
                     style={{ height: `${Math.max(4, pct)}%` }}
                     title={`${m.month}: ${m.booksFinished} book(s) finished`}
                   />
                 </div>
-                <span className="text-[9px] font-mono text-stone-500">
+                <span className="text-[9px] font-mono text-[#AEB9C9]">
                   {m.month.slice(5)}
                 </span>
               </div>
@@ -96,51 +103,53 @@ export function StatisticsView({
       </section>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+        <section className="archive-panel rounded-2xl p-4 space-y-2.5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#B49A67]">
             Top Genres
           </h3>
           {stats.genreBreakdown.length === 0 ? (
-            <p className="text-xs text-stone-500">No genres cataloged yet.</p>
+            <p className="text-xs text-[#AEB9C9]">No genres cataloged yet.</p>
           ) : (
             stats.genreBreakdown.map((g) => (
-              <div key={g.name} className="flex justify-between text-xs">
+              <div key={g.name} className="flex justify-between text-xs text-[#ECE6D8]">
                 <span>{g.name}</span>
-                <span className="font-mono font-semibold">{g.count}</span>
+                <span className="font-mono font-semibold text-[#D6BD8A]">{g.count}</span>
               </div>
             ))
           )}
         </section>
 
-        <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+        <section className="archive-panel rounded-2xl p-4 space-y-2.5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#B49A67]">
             Top Authors
           </h3>
           {stats.authorBreakdown.length === 0 ? (
-            <p className="text-xs text-stone-500">No authors cataloged yet.</p>
+            <p className="text-xs text-[#AEB9C9]">No authors cataloged yet.</p>
           ) : (
             stats.authorBreakdown.map((a) => (
-              <div key={a.name} className="flex justify-between text-xs">
+              <div key={a.name} className="flex justify-between text-xs text-[#ECE6D8]">
                 <span className="truncate pr-2">{a.name}</span>
-                <span className="font-mono font-semibold">{a.count}</span>
+                <span className="font-mono font-semibold text-[#D6BD8A]">{a.count}</span>
               </div>
             ))
           )}
         </section>
 
-        <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+        <section className="archive-panel rounded-2xl p-4 space-y-2.5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#B49A67]">
             Collection Value &amp; Languages
           </h3>
           {Object.entries(stats.collectionSpendByCurrency).map(([cur, amt]) => (
-            <div key={cur} className="flex justify-between text-xs">
+            <div key={cur} className="flex justify-between text-xs text-[#ECE6D8]">
               <span>Investment ({cur})</span>
-              <span className="font-mono font-semibold">{formatCurrency(amt, cur as CurrencyCode)}</span>
+              <span className="font-mono font-semibold text-[#D6BD8A]">
+                {formatCurrency(amt, cur as CurrencyCode)}
+              </span>
             </div>
           ))}
-          <div className="border-t border-stone-100 dark:border-slate-800 pt-2 space-y-1">
+          <div className="border-t border-[#B49A67]/20 pt-2 space-y-1">
             {stats.languageBreakdown.map((lang) => (
-              <div key={lang.name} className="flex justify-between text-xs">
+              <div key={lang.name} className="flex justify-between text-xs text-[#AEB9C9]">
                 <span className="uppercase font-mono">{lang.name}</span>
                 <span className="font-mono">{lang.count} ed.</span>
               </div>

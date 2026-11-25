@@ -9,6 +9,7 @@ import {
   FileSearch,
   Flashlight,
   ImagePlus,
+  Layers,
   Loader2,
   RotateCcw,
   Search,
@@ -16,9 +17,11 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import type { EnrichedBookRecord } from '../hooks/useLibraryData';
 import { useI18n } from '../i18n/useI18n';
 import { sanitizeCoverUrl, saveLocalCoverBlob } from '../services/covers';
 import { createBookBundle } from '../services/libraryService';
+import { BatchScannerWorkspace } from './BatchScannerWorkspace';
 import {
   buildStructuredContributors,
   mergeCandidateIntoDraft,
@@ -76,22 +79,29 @@ interface AddBookModalProps {
   open: boolean;
   onClose: () => void;
   existingWorks: Work[];
+  existingBooks?: EnrichedBookRecord[];
   shelves: Shelf[];
   defaultCurrency: CurrencyCode;
   aiCoverAssistOptIn: boolean;
+  initialMode?: 'single' | 'batch';
   onCreated?: (workId: string) => void;
+  onCreatedBatch?: (workIds: string[]) => void;
 }
 
 export function AddBookModal({
   open,
   onClose,
   existingWorks,
+  existingBooks = [],
   shelves,
   defaultCurrency,
   aiCoverAssistOptIn,
+  initialMode = 'single',
   onCreated,
+  onCreatedBatch,
 }: AddBookModalProps) {
   const { t } = useI18n();
+  const [modalMode, setModalMode] = useState<'single' | 'batch'>(initialMode);
 
   // Scanner & lookup state (managed via tested scanFlow transitions)
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -265,10 +275,12 @@ export function AddBookModal({
   };
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setModalMode(initialMode);
+    } else {
       resetDraftState();
     }
-  }, [open]);
+  }, [open, initialMode]);
 
   const markUserEdited = (
     field: Exclude<keyof ManualDraftFields, 'fieldProvenance'>,
@@ -306,11 +318,11 @@ export function AddBookModal({
   };
 
   useEffect(() => {
-    if (!open || tab !== 'scan') {
+    if (!open || modalMode !== 'single' || tab !== 'scan') {
       stopCamera();
     }
     return () => stopCamera();
-  }, [open, tab]);
+  }, [open, modalMode, tab]);
 
   const handleIsbnLookup = async (
     overrideIsbn?: string,
@@ -764,51 +776,95 @@ export function AddBookModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
-      <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl border border-stone-200 dark:border-slate-800 bg-[#FAF9F6] dark:bg-slate-950 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#060913]/80 backdrop-blur-xs p-0 sm:p-4">
+      <div
+        className={`archive-modal flex max-h-[94vh] w-full ${
+          modalMode === 'batch' ? 'max-w-4xl' : 'max-w-3xl'
+        } flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl border border-[#B49A67]/35 bg-[#101827] text-[#ECE6D8] shadow-2xl`}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-stone-200 dark:border-slate-800 px-5 py-4">
-          <h2 className="font-editorial text-lg font-semibold text-stone-900 dark:text-slate-100">
-            {t('action.addBook')}
-          </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#B49A67]/25 bg-[#0B1120] px-5 py-3.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="font-editorial text-lg font-semibold text-[#F4EFE6]">
+              {modalMode === 'batch' ? 'Batch Barcode Scanner' : t('action.addBook')}
+            </h2>
+            <div className="inline-flex rounded-xl border border-[#B49A67]/30 bg-[#101827] p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setModalMode('single')}
+                className={`rounded-lg px-3 py-1 font-semibold transition-colors ${
+                  modalMode === 'single'
+                    ? 'bg-[#B49A67] text-[#0B1120]'
+                    : 'text-[#AEB9C9] hover:text-[#ECE6D8]'
+                }`}
+              >
+                Single Book
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalMode('batch')}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 font-semibold transition-colors ${
+                  modalMode === 'batch'
+                    ? 'bg-[#B49A67] text-[#0B1120]'
+                    : 'text-[#AEB9C9] hover:text-[#ECE6D8]'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Batch Scan
+              </button>
+            </div>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:bg-stone-200/60 dark:hover:bg-slate-800"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-[#AEB9C9] hover:bg-[#182238] hover:text-[#ECE6D8]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Mode Tabs */}
-        <div className="grid grid-cols-4 border-b border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 pt-2 gap-1">
-          {(
-            [
-              ['scan', t('addBook.tabScan'), Camera],
-              ['isbn', t('addBook.tabIsbn'), FileSearch],
-              ['search', t('addBook.tabSearch'), Search],
-              ['manual', t('addBook.tabManual'), Sparkles],
-            ] as const
-          ).map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-t-lg border-b-2 px-2 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
-                tab === id
-                  ? 'border-[#C2410C] text-[#C2410C] bg-amber-50/40 dark:bg-slate-800/60'
-                  : 'border-transparent text-stone-600 dark:text-slate-400 hover:text-stone-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{label}</span>
-            </button>
-          ))}
-        </div>
+        {/* Single Book Mode Tabs */}
+        {modalMode === 'single' && (
+          <div className="grid grid-cols-4 border-b border-[#B49A67]/20 bg-[#0F172A] px-2 pt-2 gap-1">
+            {(
+              [
+                ['scan', t('addBook.tabScan'), Camera],
+                ['isbn', t('addBook.tabIsbn'), FileSearch],
+                ['search', t('addBook.tabSearch'), Search],
+                ['manual', t('addBook.tabManual'), Sparkles],
+              ] as const
+            ).map(([id, label, Icon]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-t-lg border-b-2 px-2 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
+                  tab === id
+                    ? 'border-[#B49A67] text-[#D8C9A7] bg-[#162036]'
+                    : 'border-transparent text-[#AEB9C9] hover:text-[#ECE6D8]'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {tab === 'scan' && (
+          {modalMode === 'batch' ? (
+            <BatchScannerWorkspace
+              active={open && modalMode === 'batch'}
+              existingBooks={existingBooks}
+              shelves={shelves}
+              defaultCurrency={defaultCurrency}
+              onRegisteredBatch={onCreatedBatch}
+              onClose={onClose}
+            />
+          ) : (
+            <>
+              {tab === 'scan' && (
             <div className="space-y-4">
               <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-stone-300 dark:border-slate-700 bg-stone-900 flex items-center justify-center">
                 <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
@@ -1684,36 +1740,40 @@ export function AddBookModal({
               )}
             </form>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 py-3 pb-safe">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-[44px] rounded-xl border border-stone-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-stone-700 dark:text-slate-200"
-          >
-            {t('action.cancel')}
-          </button>
-          {tab === 'manual' ? (
-            <button
-              type="submit"
-              form="add-book-form"
-              disabled={saving}
-              className="min-h-[44px] rounded-xl bg-[#C2410C] px-5 py-2 text-sm font-semibold text-white hover:bg-[#9A3412] disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save Book to Library'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setTab('manual')}
-              className="min-h-[44px] rounded-xl bg-stone-900 dark:bg-slate-800 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Continue to Editor
-            </button>
+            </>
           )}
         </div>
+
+        {/* Footer (Single Book Mode) */}
+        {modalMode === 'single' && (
+          <div className="flex items-center justify-end gap-2 border-t border-[#B49A67]/25 bg-[#0B1120] px-5 py-3 pb-safe">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[44px] rounded-xl border border-[#B49A67]/35 px-4 py-2 text-sm font-medium text-[#ECE6D8] hover:bg-[#182238]"
+            >
+              {t('action.cancel')}
+            </button>
+            {tab === 'manual' ? (
+              <button
+                type="submit"
+                form="add-book-form"
+                disabled={saving}
+                className="min-h-[44px] rounded-xl bg-[#B49A67] px-5 py-2 text-sm font-semibold text-[#0B1120] hover:bg-[#C6AD7B] disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save Book to Library'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTab('manual')}
+                className="min-h-[44px] rounded-xl border border-[#B49A67]/40 bg-[#182238] px-4 py-2 text-sm font-semibold text-[#ECE6D8]"
+              >
+                Continue to Editor
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

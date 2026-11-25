@@ -1,0 +1,223 @@
+/* ============================================================================
+   THE MIDNIGHT ARCHIVE — Scoped Visual System for AniVerse Book Tracker
+   Deep moonlit navy, carved dark walnut, antique gold filigree, aged parchment
+   ============================================================================ */
+
+.midnight-archive-shell {
+  --archive-navy: #101827;
+  --archive-abyss: #0B1120;
+  --archive-walnut: #392A24;
+  --archive-walnut-deep: #241914;
+  --archive-gold: #B49A67;
+  --archive-gold-bright: #D6BD8A;
+  --archive-silver: #AEB9C9;
+  --archive-magic-blue: #7797C9;
+  --archive-violet: #776B9C;
+  --archive-parchment: #D8C9A7;
+  --archive-parchment-ink: #241B12;
+  --archive-ivory: #F4EFE6;
+  --font-archive-display: 'Cinzel', 'Cormorant Garamond', Georgia, serif;
+  --font-archive-serif: 'Cormorant Garamond', 'Lora', 'Fraunces', Georgia, serif;
+  color: var(--archive-ivory);
+  font-family: var(--font-sans, 'Plus Jakarta Sans', system-ui, sans-serif);
+}
+
+.midnight-archive-shell .font-archive-display {
+  font-family: var(--font-archive-display);
+  letter-spacing: 0.03em;
+}
+
+.midnight-archive-shell .font-editorial {
+  font-family: var(--font-archive-serif);
+}
+
+/* Protect Midnight Archive surfaces & contrast from root [data-theme] .bg-white / h1 overrides */
+.midnight-archive-shell h1,
+.midnight-archive-shell h2,
+.midnight-archive-shell h3,
+.midnight-archive-shell h4 {
+  color: #F4EFE6 !important;
+}
+
+.midnight-archive-shell .archive-parchment-sheet h1,
+.midnight-archive-shell .archive-parchment-sheet h2,
+.midnight-archive-shell .archive-parchment-sheet h3,
+.midnight-archive-shell .archive-parchment-sheet h4,
+.midnight-archive-shell .archive-parchment-ink {
+  color: #231910 !important;
+}
+
+.midnight-archive-shell .archive-modal input,
+.midnight-archive-shell .archive-modal textarea,
+.midnight-archive-shell .archive-modal select,
+.midnight-archive-shell input.archive-input,
+.midnight-archive-shell textarea.archive-input,
+.midnight-archive-shell select.archive-input {
+  background-color: #0B1120 !important;
+  color: #F4EFE6 !important;
+  border-color: rgba(180, 154, 103, 0.34) !important;
+}
+
+.midnight-archive-shell .archive-modal .bg-white,
+.midnight-archive-shell .archive-modal .bg-stone-50,
+.midnight-archive-shell .archive-modal .bg-stone-50\/70,
+.midnight-archive-shell .archive-modal .bg-white\/80 {
+  background-color: #141E30 !important;
+  border-color: rgba(180, 154, 103, 0.25) !important;
+  color: #ECE6D8 !important;
+}
+
+.midnight-archive-shell .archive-modal .text-stone-900,
+.midnight-archive-shell .archive-modal .text-stone-800,
+.midnight-archive-shell .archive-modal .text-stone-700 {
+  color: #ECE6D8 !important;
+}
+
+.midnight-archive-shell .archive-modal .text-stone-600,
+.midnight-archive-shell .archive-modal .text-stone-500 {
+  color: #AEB9C9 !important;
+}
+
+/* Layered architectural surfaces */
+.archive-backdrop {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(119, 151, 201, 0.22), transparent 68%),
+    radial-gradient(circle at 18% 24%, rgba(119, 107, 156, 0.14), transparent 46%),
+    radial-gradient(circle at 84% 72%, rgba(180, 154, 103, 0.10), transparent 48%),
+    linear-gradient(180deg, rgba(11, 17, 32, 0.94) 0%, rgba(16, 24, 39, 0.92) 60%, rgba(9, 14, 26, 0.96) 100%);
+}
+
+.archive-backdrop-embedded {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(119, 151, 201, 0.19), transparent 68%),
+    radial-gradient(circle at 18% 24%, rgba(119, 107, 156, 0.12), transparent 46%),
+    radial-gradient(circle at 84% 72%, rgba(180, 154, 103, 0.09), transparent 48%),
+    linear-gradient(180deg, rgba(11, 17, 32, 0.78) 0%, rgba(16, 24, 39, 0.74) 60%, rgba(9, 14, 26, 0.84) 100%);
+}
+
+.archive-panel {
+  background: linear-gradient(165deg, rgba(20, 29, 48, 0.93) 0%, rgba(11, 17, 32, 0.96) 100%);
+  border: 1px solid rgba(180, 154, 103, 0.28);
+  box-shadow:
+    0 18px 42px -18px rgba(4, 7, 16, 0.85),
+    inset 0 1px 0 rgba(214, 189, 138, 0.12);
+}
+
+.archive-walnut-panel {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.015) 0px,
+      rgba(255, 255, 255, 0.015) 2px,
+      transparent 2px,
+      transparent 9px
+    ),
+    linear-gradient(180deg, #392A24 0%, #2B1F1A 55%, #1E1511 100%);
+  border: 1px solid rgba(180, 154, 103, 0.34);
+  box-shadow:
+    0 20px 44px -18px rgba(3, 5, 12, 0.9),
+    inset 0 1px 0 rgba(214, 189, 138, 0.18);
+}
+
+.archive-parchment-sheet {
+  background:
+    radial-gradient(circle at 15% 18%, rgba(255, 248, 228, 0.42), transparent 52%),
+    radial-gradient(circle at 86% 82%, rgba(145, 114, 68, 0.18), transparent 48%),
+    linear-gradient(165deg, #E5D8B9 0%, #D8C9A7 55%, #C9B58C 100%);
+  border: 1px solid rgba(138, 108, 60, 0.55);
+  color: #241B12;
+  box-shadow:
+    0 16px 32px -14px rgba(4, 7, 16, 0.72),
+    inset 0 0 28px rgba(102, 74, 34, 0.16);
+}
+
+.archive-gothic-portal {
+  position: relative;
+  border-radius: 999px 999px 1rem 1rem / 120px 120px 1rem 1rem;
+  border: 1px solid rgba(180, 154, 103, 0.36);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(119, 151, 201, 0.18), transparent 55%),
+    linear-gradient(180deg, rgba(18, 27, 46, 0.95) 0%, rgba(28, 20, 16, 0.94) 100%);
+  box-shadow:
+    0 18px 34px -16px rgba(3, 6, 14, 0.88),
+    inset 0 1px 0 rgba(214, 189, 138, 0.24);
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+}
+
+.archive-gothic-portal:hover {
+  transform: translateY(-4px);
+  border-color: rgba(214, 189, 138, 0.72);
+  box-shadow:
+    0 24px 44px -14px rgba(4, 8, 20, 0.95),
+    0 0 24px rgba(180, 154, 103, 0.16),
+    inset 0 1px 0 rgba(214, 189, 138, 0.35);
+}
+
+.archive-shelf-ledge {
+  height: 14px;
+  background: linear-gradient(180deg, #4B362C 0%, #34241D 55%, #1D130E 100%);
+  border-top: 1px solid rgba(214, 189, 138, 0.28);
+  box-shadow:
+    0 10px 18px -6px rgba(2, 4, 10, 0.92),
+    inset 0 2px 3px rgba(255, 232, 186, 0.08);
+}
+
+/* Book spine 2.5D depth & lift */
+.archive-spine-item {
+  box-shadow:
+    inset 3px 0 6px rgba(255, 255, 255, 0.14),
+    inset -4px 0 8px rgba(0, 0, 0, 0.45),
+    3px 6px 12px rgba(4, 7, 15, 0.72);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease;
+}
+
+.archive-spine-item:hover,
+.archive-spine-item:focus-visible {
+  transform: translateY(-10px) scale(1.03);
+  box-shadow:
+    inset 3px 0 7px rgba(255, 255, 255, 0.2),
+    inset -4px 0 8px rgba(0, 0, 0, 0.45),
+    0 14px 24px -6px rgba(0, 0, 0, 0.85),
+    0 0 14px rgba(180, 154, 103, 0.28);
+}
+
+/* Subtle magical motion */
+@keyframes archiveFloat {
+  0%, 100% { transform: translateY(0px) rotate(-1deg); }
+  50% { transform: translateY(-8px) rotate(1.2deg); }
+}
+
+@keyframes archiveMoteDrift {
+  0% { transform: translateY(0px) translateX(0px); opacity: 0.18; }
+  50% { transform: translateY(-22px) translateX(8px); opacity: 0.55; }
+  100% { transform: translateY(-42px) translateX(-4px); opacity: 0.12; }
+}
+
+@keyframes archiveRoomEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-archive-float {
+  animation: archiveFloat 6.5s ease-in-out infinite;
+}
+
+.animate-archive-mote {
+  animation: archiveMoteDrift 9s ease-in-out infinite;
+}
+
+.animate-archive-room {
+  animation: archiveRoomEnter 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-archive-float,
+  .animate-archive-mote,
+  .animate-archive-room,
+  .archive-gothic-portal,
+  .archive-spine-item {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

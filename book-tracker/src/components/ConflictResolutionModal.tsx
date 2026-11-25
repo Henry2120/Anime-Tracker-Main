@@ -48,19 +48,19 @@ export function ConflictResolutionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-stone-200 dark:border-slate-800 bg-[#FAF9F6] dark:bg-slate-950 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-200 dark:border-slate-800 px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+      <div className="archive-modal archive-panel flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#B49A67]/40 bg-[#0B1120] text-[#F4EFE6] shadow-2xl">
+        <div className="archive-walnut-panel flex items-center justify-between border-b border-[#B49A67]/30 px-5 py-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-600" />
-            <h2 className="font-editorial text-lg font-semibold">
+            <AlertTriangle className="h-5 w-5 text-[#D6BD8A]" />
+            <h2 className="font-editorial text-lg font-semibold text-[#F4EFE6]">
               Sync Conflict Resolution ({conflicts.length})
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-stone-200/60 dark:hover:bg-slate-800"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-[#AEB9C9] hover:bg-[#0B1120]/60 hover:text-[#F4EFE6]"
           >
             <X className="h-5 w-5" />
           </button>
@@ -68,19 +68,19 @@ export function ConflictResolutionModal({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {conflicts.length === 0 ? (
-            <p className="text-sm text-stone-500 py-8 text-center">
+            <p className="text-sm text-[#AEB9C9] py-8 text-center">
               All sync conflicts are resolved.
             </p>
           ) : (
             conflicts.map((c) => (
               <div
                 key={c.id}
-                className="rounded-xl border border-amber-300 dark:border-amber-900/60 bg-white dark:bg-slate-900 p-4 space-y-3"
+                className="archive-panel rounded-xl border border-[#B49A67]/40 p-4 space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold">{c.entityLabel}</p>
-                    <p className="text-xs text-stone-500 font-mono">
+                    <p className="text-sm font-semibold text-[#F4EFE6]">{c.entityLabel}</p>
+                    <p className="text-xs text-[#AEB9C9] font-mono">
                       {c.entityType} · Detected {new Date(c.detectedAt).toLocaleString()}
                     </p>
                   </div>
@@ -89,7 +89,7 @@ export function ConflictResolutionModal({
                       type="button"
                       disabled={busyId === c.id}
                       onClick={() => handleResolve(c, 'keep_local')}
-                      className="rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800"
+                      className="rounded-lg border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-1.5 text-xs font-semibold text-[#F4EFE6] hover:border-[#D6BD8A]"
                     >
                       Keep Local
                     </button>
@@ -97,7 +97,7 @@ export function ConflictResolutionModal({
                       type="button"
                       disabled={busyId === c.id}
                       onClick={() => handleResolve(c, 'keep_remote')}
-                      className="rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800"
+                      className="rounded-lg border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-1.5 text-xs font-semibold text-[#F4EFE6] hover:border-[#D6BD8A]"
                     >
                       Keep Remote
                     </button>
@@ -105,14 +105,14 @@ export function ConflictResolutionModal({
                       type="button"
                       disabled={busyId === c.id}
                       onClick={() => handleResolve(c, 'merged')}
-                      className="rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#9A3412]"
+                      className="rounded-lg bg-[#B49A67] px-3 py-1.5 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A]"
                     >
                       Save Merged
                     </button>
                   </div>
                 </div>
 
-                <div className="space-y-2 border-t border-stone-100 dark:border-slate-800 pt-3">
+                <div className="space-y-2 border-t border-[#B49A67]/20 pt-3">
                   {c.conflictingFields.map((field) => {
                     const key = `${c.id}:${field}`;
                     const picked = selectedFields[key] ?? 'local';
@@ -123,11 +123,11 @@ export function ConflictResolutionModal({
                           onClick={() => setSelectedFields((p) => ({ ...p, [key]: 'local' }))}
                           className={`rounded-lg border p-2.5 text-left ${
                             picked === 'local'
-                              ? 'border-[#C2410C] bg-amber-50/70 dark:bg-amber-950/30'
-                              : 'border-stone-200 dark:border-slate-800'
+                              ? 'border-[#D6BD8A] bg-[#B49A67]/15 text-[#F4EFE6]'
+                              : 'border-[#B49A67]/25 bg-[#0B1120]/60 text-[#AEB9C9]'
                           }`}
                         >
-                          <p className="font-mono text-[10px] uppercase text-stone-500">
+                          <p className="font-mono text-[10px] uppercase text-[#D6BD8A]">
                             Local · {field}
                           </p>
                           <p className="mt-1 font-medium break-words">
@@ -139,11 +139,11 @@ export function ConflictResolutionModal({
                           onClick={() => setSelectedFields((p) => ({ ...p, [key]: 'remote' }))}
                           className={`rounded-lg border p-2.5 text-left ${
                             picked === 'remote'
-                              ? 'border-[#C2410C] bg-amber-50/70 dark:bg-amber-950/30'
-                              : 'border-stone-200 dark:border-slate-800'
+                              ? 'border-[#D6BD8A] bg-[#B49A67]/15 text-[#F4EFE6]'
+                              : 'border-[#B49A67]/25 bg-[#0B1120]/60 text-[#AEB9C9]'
                           }`}
                         >
-                          <p className="font-mono text-[10px] uppercase text-stone-500">
+                          <p className="font-mono text-[10px] uppercase text-[#D6BD8A]">
                             Remote · {field}
                           </p>
                           <p className="mt-1 font-medium break-words">

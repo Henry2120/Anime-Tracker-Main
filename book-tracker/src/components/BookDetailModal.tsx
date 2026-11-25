@@ -246,34 +246,39 @@ export function BookDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
-      <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl border border-stone-200 dark:border-slate-800 bg-[#FAF9F6] dark:bg-slate-950 shadow-2xl">
-        {/* Top Summary Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4">
+      <div className="archive-modal archive-panel flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl border border-[#B49A67]/40 bg-[#0B1120] text-[#F4EFE6] shadow-2xl">
+        {/* Top Folio Spread Header (Carved Walnut) */}
+        <div className="archive-walnut-panel flex items-start justify-between gap-4 border-b border-[#B49A67]/30 p-5">
           <div className="flex gap-4 min-w-0">
             <div className="relative w-20 sm:w-24 shrink-0">
-              <CoverImage
-                title={book.work.title}
-                author={book.work.authors[0]}
-                edition={activeEdition}
-              />
-              <label className="mt-1.5 inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-stone-200 dark:border-slate-700 py-1 text-[10px] font-medium text-stone-600 dark:text-slate-300 hover:bg-stone-50 dark:hover:bg-slate-800">
+              <div className="overflow-hidden rounded-lg border border-[#B49A67]/40 shadow-lg">
+                <CoverImage
+                  title={book.work.title}
+                  author={book.work.authors[0]}
+                  edition={activeEdition}
+                />
+              </div>
+              <label className="mt-1.5 inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-[#B49A67]/35 bg-[#0B1120]/70 py-1 text-[10px] font-medium text-[#D6BD8A] hover:bg-[#141E30] transition-colors">
                 <Upload className="h-3 w-3" />
                 Cover
                 <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
               </label>
             </div>
             <div className="min-w-0 space-y-1.5">
-              <h2 className="font-editorial text-xl font-semibold text-stone-900 dark:text-slate-100 leading-tight">
+              <p className="font-archive-display text-[10px] uppercase tracking-[0.2em] text-[#D6BD8A]/85">
+                Open Ancient Archive Folio
+              </p>
+              <h2 className="font-editorial text-xl sm:text-2xl font-semibold text-[#F4EFE6] leading-tight">
                 {book.work.title}
               </h2>
-              <p className="text-sm text-stone-600 dark:text-slate-400">
+              <p className="text-sm text-[#D6BD8A]/90">
                 {book.work.authors.join(', ') || 'Unknown Author'}
               </p>
               {((book.work.illustrators && book.work.illustrators.length > 0) ||
                 (activeEdition.illustrators && activeEdition.illustrators.length > 0) ||
                 activeEdition.translators.length > 0) && (
-                <p className="text-xs text-stone-500 dark:text-slate-400">
+                <p className="text-xs text-[#AEB9C9]">
                   {((book.work.illustrators?.length
                     ? book.work.illustrators
                     : activeEdition.illustrators) ?? []).length > 0 && (
@@ -295,7 +300,7 @@ export function BookDetailModal({
                   )}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500 font-mono tabular-nums">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-[#AEB9C9] font-mono tabular-nums">
                 <span>{book.ownedCopiesCount} owned</span>
                 <span>·</span>
                 <span>{book.editions.length} edition(s)</span>
@@ -308,8 +313,8 @@ export function BookDetailModal({
                 {book.latestRating != null && (
                   <>
                     <span>·</span>
-                    <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
-                      <Star className="h-3.5 w-3.5 fill-amber-500" />
+                    <span className="inline-flex items-center gap-1 text-[#D6BD8A] font-semibold">
+                      <Star className="h-3.5 w-3.5 fill-[#D6BD8A] text-[#D6BD8A]" />
                       {book.latestRating}
                     </span>
                   </>
@@ -324,10 +329,10 @@ export function BookDetailModal({
                         key={s.id}
                         type="button"
                         onClick={() => toggleWorkOnShelf(s.id, book.work.id, activeEdition.id)}
-                        className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                        className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
                           active
-                            ? 'border-[#C2410C] bg-amber-50 dark:bg-amber-950/40 text-[#C2410C]'
-                            : 'border-stone-200 dark:border-slate-700 text-stone-500'
+                            ? 'border-[#D6BD8A] bg-[#B49A67]/20 text-[#D6BD8A]'
+                            : 'border-[#B49A67]/25 bg-[#0B1120]/60 text-[#AEB9C9] hover:border-[#B49A67]/60'
                         }`}
                       >
                         {active ? '✓ ' : '+ '}
@@ -345,7 +350,7 @@ export function BookDetailModal({
               type="button"
               onClick={() => setEditingMeta((v) => !v)}
               title="Edit Work Metadata"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 dark:hover:bg-slate-800"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-transparent text-[#AEB9C9] hover:border-[#B49A67]/30 hover:bg-[#0B1120]/60 hover:text-[#D6BD8A] transition-colors"
             >
               <Edit3 className="h-4 w-4" />
             </button>
@@ -357,14 +362,14 @@ export function BookDetailModal({
                 onDeletedWork?.(book.work.id, book.work.title);
                 onClose();
               }}
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-transparent text-rose-400 hover:border-rose-400/30 hover:bg-rose-950/40 transition-colors"
             >
               <Trash2 className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 dark:hover:bg-slate-800"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-transparent text-[#AEB9C9] hover:border-[#B49A67]/30 hover:bg-[#0B1120]/60 hover:text-[#F4EFE6] transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -375,61 +380,61 @@ export function BookDetailModal({
         {editingMeta && (
           <form
             onSubmit={handleSaveMetadataEdit}
-            className="border-b border-stone-200 dark:border-slate-800 bg-amber-50/40 dark:bg-slate-900/80 p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
+            className="border-b border-[#B49A67]/25 bg-[#11192B] p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
           >
             <input
               value={metaTitle}
               onChange={(e) => setMetaTitle(e.target.value)}
               placeholder="Title"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               value={metaAuthors}
               onChange={(e) => setMetaAuthors(e.target.value)}
               placeholder="Authors (comma-separated)"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               value={metaIllustrators}
               onChange={(e) => setMetaIllustrators(e.target.value)}
               placeholder="Illustrators (comma-separated)"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               value={metaTranslators}
               onChange={(e) => setMetaTranslators(e.target.value)}
               placeholder="Translators (comma-separated)"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               value={metaGenres}
               onChange={(e) => setMetaGenres(e.target.value)}
               placeholder="Genres (comma-separated)"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               value={metaPublisher}
               onChange={(e) => setMetaPublisher(e.target.value)}
               placeholder="Publishers"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <input
               type="number"
               value={metaPages}
               onChange={(e) => setMetaPages(e.target.value)}
               placeholder="Page count"
-              className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs"
+              className="archive-input rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs"
             />
             <div className="flex gap-2">
               <input
                 value={newIsbn}
                 onChange={(e) => setNewIsbn(e.target.value)}
                 placeholder="Add ISBN-13 / 10"
-                className="flex-1 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs font-mono"
+                className="archive-input flex-1 rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-xs font-mono"
               />
               <button
                 type="submit"
-                className="inline-flex items-center gap-1 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                className="inline-flex items-center gap-1 rounded-lg bg-[#B49A67] px-3 py-1.5 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] transition-colors"
               >
                 <Save className="h-3.5 w-3.5" />
                 Save
@@ -439,7 +444,7 @@ export function BookDetailModal({
         )}
 
         {/* Section Tabs */}
-        <div className="flex overflow-x-auto border-b border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 gap-1">
+        <div className="flex overflow-x-auto border-b border-[#B49A67]/25 bg-[#0F1727] px-3 gap-1">
           {(
             [
               ['reading', t('book.readingCycles'), BookOpen],
@@ -452,10 +457,10 @@ export function BookDetailModal({
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`flex min-h-[44px] items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold whitespace-nowrap ${
+              className={`flex min-h-[44px] items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
                 tab === id
-                  ? 'border-[#C2410C] text-[#C2410C]'
-                  : 'border-transparent text-stone-600 dark:text-slate-400 hover:text-stone-900'
+                  ? 'border-[#D6BD8A] text-[#D6BD8A]'
+                  : 'border-transparent text-[#AEB9C9] hover:text-[#F4EFE6]'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -465,14 +470,14 @@ export function BookDetailModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto bg-[#0B1120]/95 p-5 space-y-5">
           {tab === 'reading' && (
             <div className="space-y-5">
               {/* Reading Cycle Selector & Re-Read */}
-              <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3">
+              <div className="archive-panel rounded-xl p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-[#D6BD8A]">
                       Reading Cycles
                     </span>
                     {book.cycles.map((c) => (
@@ -480,10 +485,10 @@ export function BookDetailModal({
                         key={c.id}
                         type="button"
                         onClick={() => switchActiveCycle(book.work.id, c.id)}
-                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors ${
                           c.id === activeCycle?.id
-                            ? 'border-[#C2410C] bg-amber-50 dark:bg-amber-950/40 text-[#C2410C]'
-                            : 'border-stone-200 dark:border-slate-700 text-stone-600 dark:text-slate-300'
+                            ? 'border-[#D6BD8A] bg-[#B49A67]/20 text-[#D6BD8A]'
+                            : 'border-[#B49A67]/25 bg-[#0B1120]/60 text-[#AEB9C9] hover:border-[#B49A67]/50'
                         }`}
                       >
                         Cycle #{c.cycleNumber} ({c.status.replace('_', ' ')})
@@ -499,7 +504,7 @@ export function BookDetailModal({
                         status: 'currently_reading',
                       })
                     }
-                    className="inline-flex items-center gap-1 rounded-lg bg-stone-900 dark:bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                    className="inline-flex items-center gap-1 rounded-lg bg-[#B49A67] px-3 py-1.5 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] transition-colors"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     {book.cycles.length > 0 ? t('book.reread') : t('book.startNewCycle')}
@@ -507,16 +512,18 @@ export function BookDetailModal({
                 </div>
 
                 {activeCycle ? (
-                  <div className="space-y-4 pt-2 border-t border-stone-100 dark:border-slate-800">
+                  <div className="space-y-4 pt-3 border-t border-[#B49A67]/20">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs font-medium mb-1">Cycle Status</label>
+                        <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                          Cycle Status
+                        </label>
                         <select
                           value={activeCycle.status}
                           onChange={(e) =>
                             updateCycleStatus(activeCycle.id, e.target.value as ReadingStatus)
                           }
-                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-medium"
+                          className="archive-input w-full rounded-lg border px-3 py-2 text-xs font-medium"
                         >
                           <option value="want_to_read">Want to Read</option>
                           <option value="currently_reading">Currently Reading</option>
@@ -526,7 +533,9 @@ export function BookDetailModal({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium mb-1">Started</label>
+                        <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                          Started
+                        </label>
                         <input
                           type="date"
                           value={activeCycle.startedAt ?? ''}
@@ -535,11 +544,13 @@ export function BookDetailModal({
                               startedAt: e.target.value || null,
                             })
                           }
-                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                          className="archive-input w-full rounded-lg border px-3 py-2 text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium mb-1">Finished</label>
+                        <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                          Finished
+                        </label>
                         <input
                           type="date"
                           value={activeCycle.finishedAt ?? ''}
@@ -548,14 +559,14 @@ export function BookDetailModal({
                               finishedAt: e.target.value || null,
                             })
                           }
-                          className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                          className="archive-input w-full rounded-lg border px-3 py-2 text-xs"
                         />
                       </div>
                     </div>
-                    <p className="text-[11px] text-stone-500">{t('book.trackCycleHint')}</p>
+                    <p className="text-[11px] text-[#AEB9C9]">{t('book.trackCycleHint')}</p>
                   </div>
                 ) : (
-                  <p className="text-xs text-stone-500">
+                  <p className="text-xs text-[#AEB9C9]">
                     No reading cycle started yet. Click &ldquo;{t('book.startNewCycle')}&rdquo; to begin tracking.
                   </p>
                 )}
@@ -566,13 +577,13 @@ export function BookDetailModal({
           {tab === 'copies' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">
+                <h3 className="text-sm font-semibold text-[#F4EFE6]">
                   Editions ({book.editions.length}) &amp; Physical Copies ({book.copies.length})
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowAddCopy((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-lg bg-[#C2410C] px-3 py-1.5 text-xs font-semibold text-white"
+                  className="inline-flex items-center gap-1 rounded-lg bg-[#B49A67] px-3 py-1.5 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   {t('book.addCopy')}
@@ -582,14 +593,14 @@ export function BookDetailModal({
               {showAddCopy && (
                 <form
                   onSubmit={handleSaveCopy}
-                  className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  className="archive-panel rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3"
                 >
                   <div>
-                    <label className="block text-xs font-medium mb-1">Edition</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">Edition</label>
                     <select
                       value={copyEditionId}
                       onChange={(e) => setCopyEditionId(e.target.value)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     >
                       {book.editions.map((ed) => (
                         <option key={ed.id} value={ed.id}>
@@ -599,11 +610,13 @@ export function BookDetailModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1">Ownership Status</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                      Ownership Status
+                    </label>
                     <select
                       value={copyOwnership}
                       onChange={(e) => setCopyOwnership(e.target.value as OwnershipStatus)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     >
                       <option value="owned">Owned</option>
                       <option value="wishlist">Wishlist</option>
@@ -614,11 +627,11 @@ export function BookDetailModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1">Format</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">Format</label>
                     <select
                       value={copyFormat}
                       onChange={(e) => setCopyFormat(e.target.value as BookFormat)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     >
                       <option value="paperback">Paperback</option>
                       <option value="hardcover">Hardcover</option>
@@ -628,11 +641,13 @@ export function BookDetailModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1">Condition</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                      Condition
+                    </label>
                     <select
                       value={copyCondition}
                       onChange={(e) => setCopyCondition(e.target.value as CopyCondition)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     >
                       <option value="new">New</option>
                       <option value="like_new">Like New</option>
@@ -643,11 +658,13 @@ export function BookDetailModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1">Acquisition</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">
+                      Acquisition
+                    </label>
                     <select
                       value={copyAcq}
                       onChange={(e) => setCopyAcq(e.target.value as AcquisitionMethod)}
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     >
                       <option value="purchased">Purchased</option>
                       <option value="gift">Gift</option>
@@ -657,18 +674,18 @@ export function BookDetailModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1">Price</label>
+                    <label className="block text-xs font-medium text-[#D6BD8A] mb-1">Price</label>
                     <div className="flex gap-1">
                       <input
                         type="number"
                         value={copyPrice}
                         onChange={(e) => setCopyPrice(e.target.value)}
-                        className="flex-1 min-w-0 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs font-mono"
+                        className="archive-input flex-1 min-w-0 rounded-lg border px-2.5 py-2 text-xs font-mono"
                       />
                       <select
                         value={copyCurrency}
                         onChange={(e) => setCopyCurrency(e.target.value as CurrencyCode)}
-                        className="w-20 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 py-2 text-xs font-mono"
+                        className="archive-input w-20 rounded-lg border px-1.5 py-2 text-xs font-mono"
                       >
                         {CURRENCY_OPTIONS.map((c) => (
                           <option key={c.code} value={c.code}>
@@ -682,31 +699,31 @@ export function BookDetailModal({
                     value={copySeller}
                     onChange={(e) => setCopySeller(e.target.value)}
                     placeholder="Seller / Shop"
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                   />
                   <input
                     value={copyLocation}
                     onChange={(e) => setCopyLocation(e.target.value)}
                     placeholder="Shelf Location"
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                   />
                   <input
                     type="date"
                     value={copyDate}
                     onChange={(e) => setCopyDate(e.target.value)}
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                   />
                   <div className="sm:col-span-2">
                     <input
                       value={copyNotes}
                       onChange={(e) => setCopyNotes(e.target.value)}
                       placeholder="Notes (obi, signed, dust jacket...)"
-                      className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input w-full rounded-lg border px-2.5 py-2 text-xs"
                     />
                   </div>
                   <button
                     type="submit"
-                    className="rounded-lg bg-stone-900 dark:bg-[#C2410C] px-4 py-2 text-xs font-semibold text-white"
+                    className="rounded-lg bg-[#B49A67] px-4 py-2 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] transition-colors"
                   >
                     Save Copy
                   </button>
@@ -714,7 +731,7 @@ export function BookDetailModal({
               )}
 
               {book.copies.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-6 text-center text-xs text-stone-500">
+                <p className="rounded-xl border border-dashed border-[#B49A67]/30 bg-[#101827]/70 p-6 text-center text-xs text-[#AEB9C9]">
                   0 physical copies recorded. You can still track reading cycles and journal notes for this book.
                 </p>
               ) : (
@@ -724,34 +741,34 @@ export function BookDetailModal({
                     return (
                       <div
                         key={c.id}
-                        className="flex items-start justify-between gap-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs"
+                        className="archive-panel flex items-start justify-between gap-3 rounded-xl p-3.5 text-xs"
                       >
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold">
+                            <span className="font-semibold text-[#F4EFE6]">
                               Copy #{idx + 1} · {c.ownershipStatus.replace('_', ' ')}
                             </span>
-                            <span className="font-mono text-stone-500">
+                            <span className="font-mono text-[#AEB9C9]">
                               {c.format} · {c.condition.replace('_', ' ')}
                             </span>
                             {c.purchasePrice != null && (
-                              <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                              <span className="font-mono font-semibold text-[#D6BD8A]">
                                 {formatCurrency(c.purchasePrice, c.currency)}
                               </span>
                             )}
                           </div>
-                          <p className="text-stone-500">
+                          <p className="text-[#AEB9C9]">
                             {ed?.editionName || ed?.publishers.join(', ') || ed?.title}
                             {c.seller ? ` · Seller: ${c.seller}` : ''}
                             {c.shelfLocation ? ` · Shelf: ${c.shelfLocation}` : ''}
                             {c.purchaseDate ? ` · ${c.purchaseDate}` : ''}
                           </p>
-                          {c.notes && <p className="text-stone-600 dark:text-slate-300">{c.notes}</p>}
+                          {c.notes && <p className="text-[#F4EFE6]/85">{c.notes}</p>}
                         </div>
                         <button
                           type="button"
                           onClick={() => softDeleteEntity('physical_copies', c.id)}
-                          className="p-1.5 text-red-500 hover:text-red-700"
+                          className="p-1.5 text-rose-400 hover:text-rose-300"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -768,19 +785,19 @@ export function BookDetailModal({
               {/* Review editor */}
               <form
                 onSubmit={handleSaveReview}
-                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"
+                className="archive-panel rounded-xl p-4 space-y-3"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-stone-600 dark:text-slate-300">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[#D6BD8A]">
                     {t('journal.addReview')}
                   </span>
-                  <span className="text-[11px] text-stone-500">{t('journal.deleteReviewSafe')}</span>
+                  <span className="text-[11px] text-[#AEB9C9]">{t('journal.deleteReviewSafe')}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <select
                     value={reviewRating}
                     onChange={(e) => setReviewRating(e.target.value)}
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                   >
                     {['5', '4.5', '4', '3.5', '3', '2.5', '2', '1.5', '1', '0.5'].map((v) => (
                       <option key={v} value={v}>
@@ -792,7 +809,7 @@ export function BookDetailModal({
                     value={reviewHeadline}
                     onChange={(e) => setReviewHeadline(e.target.value)}
                     placeholder="Review headline"
-                    className="sm:col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                    className="archive-input sm:col-span-2 rounded-lg border px-3 py-2 text-xs"
                   />
                 </div>
                 <textarea
@@ -800,10 +817,10 @@ export function BookDetailModal({
                   value={reviewBody}
                   onChange={(e) => setReviewBody(e.target.value)}
                   placeholder="Write your thoughts..."
-                  className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                  className="archive-input w-full rounded-lg border px-3 py-2 text-xs"
                 />
                 <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-xs">
+                  <label className="flex items-center gap-2 text-xs text-[#AEB9C9]">
                     <input
                       type="checkbox"
                       checked={reviewSpoilers}
@@ -813,7 +830,7 @@ export function BookDetailModal({
                   </label>
                   <button
                     type="submit"
-                    className="rounded-lg bg-[#C2410C] px-4 py-1.5 text-xs font-semibold text-white"
+                    className="rounded-lg bg-[#B49A67] px-4 py-1.5 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] transition-colors"
                   >
                     Save Review
                   </button>
@@ -823,13 +840,13 @@ export function BookDetailModal({
               {/* Journal Entry Editor (Note / Quote / Character / Reflection) */}
               <form
                 onSubmit={handleSaveJournal}
-                className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"
+                className="archive-panel rounded-xl p-4 space-y-3"
               >
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <select
                     value={entryType}
                     onChange={(e) => setEntryType(e.target.value as JournalEntryType)}
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                   >
                     <option value="note">Reading Note</option>
                     <option value="quote">Favourite Quote</option>
@@ -841,21 +858,21 @@ export function BookDetailModal({
                     value={entryPage}
                     onChange={(e) => setEntryPage(e.target.value)}
                     placeholder="Page #"
-                    className="rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs font-mono"
+                    className="archive-input rounded-lg border px-2.5 py-2 text-xs font-mono"
                   />
                   {entryType === 'character' ? (
                     <input
                       value={entryCharacter}
                       onChange={(e) => setEntryCharacter(e.target.value)}
                       placeholder="Character name"
-                      className="col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input col-span-2 rounded-lg border px-2.5 py-2 text-xs"
                     />
                   ) : (
                     <input
                       value={entryTitle}
                       onChange={(e) => setEntryTitle(e.target.value)}
                       placeholder="Title / Chapter"
-                      className="col-span-2 rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-2 text-xs"
+                      className="archive-input col-span-2 rounded-lg border px-2.5 py-2 text-xs"
                     />
                   )}
                 </div>
@@ -865,7 +882,7 @@ export function BookDetailModal({
                     value={entryQuote}
                     onChange={(e) => setEntryQuote(e.target.value)}
                     placeholder="Exact passage or quote..."
-                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs italic"
+                    className="archive-input w-full rounded-lg border px-3 py-2 text-xs italic"
                   />
                 )}
                 <textarea
@@ -873,10 +890,10 @@ export function BookDetailModal({
                   value={entryContent}
                   onChange={(e) => setEntryContent(e.target.value)}
                   placeholder="Commentary, note, or reflection..."
-                  className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+                  className="archive-input w-full rounded-lg border px-3 py-2 text-xs"
                 />
                 <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-xs">
+                  <label className="flex items-center gap-2 text-xs text-[#AEB9C9]">
                     <input
                       type="checkbox"
                       checked={entrySpoilers}
@@ -886,28 +903,30 @@ export function BookDetailModal({
                   </label>
                   <button
                     type="submit"
-                    className="rounded-lg bg-stone-900 dark:bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white"
+                    className="rounded-lg border border-[#B49A67]/50 bg-[#1B2740] px-4 py-1.5 text-xs font-semibold text-[#D6BD8A] hover:bg-[#243354] transition-colors"
                   >
                     Add Journal Entry
                   </button>
                 </div>
               </form>
 
-              {/* Saved Reviews & Entries */}
-              <div className="space-y-2">
+              {/* Saved Reviews & Entries (Aged Parchment Folios) */}
+              <div className="space-y-2.5">
                 {book.reviews.map((r) => {
                   const hidden = r.hasSpoilers && !revealedIds[r.id];
                   return (
                     <div
                       key={r.id}
-                      className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-1.5"
+                      className="archive-parchment-sheet rounded-xl p-4 text-xs space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-amber-600">
+                          <span className="font-mono font-semibold text-[#6F4314]">
                             ★ {r.rating ?? '—'}
                           </span>
-                          <span className="font-semibold">{r.headline || 'Review'}</span>
+                          <span className="font-editorial text-sm font-semibold archive-parchment-ink">
+                            {r.headline || 'Review'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           {r.hasSpoilers && (
@@ -916,16 +935,16 @@ export function BookDetailModal({
                               onClick={() =>
                                 setRevealedIds((p) => ({ ...p, [r.id]: !p[r.id] }))
                               }
-                              className="inline-flex items-center gap-1 text-amber-700 font-medium"
+                              className="inline-flex items-center gap-1 rounded border border-[#6F4314]/35 px-2 py-0.5 text-[11px] font-medium text-[#5A3410] hover:bg-[#5A3410]/10"
                             >
                               {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                              {hidden ? 'Reveal' : 'Hide'}
+                              {hidden ? 'Unseal' : 'Seal'}
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => deleteReviewOnly(r.id)}
-                            className="p-1 text-red-500 hover:text-red-700"
+                            className="p-1 text-[#8B2318] hover:text-[#65130B]"
                             title="Delete Review Only (preserves reading history)"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -933,9 +952,9 @@ export function BookDetailModal({
                         </div>
                       </div>
                       {hidden ? (
-                        <p className="italic text-stone-500">{t('journal.spoilerWarning')}</p>
+                        <p className="italic text-[#5A442C]">{t('journal.spoilerWarning')}</p>
                       ) : (
-                        <p className="text-stone-700 dark:text-slate-300 whitespace-pre-wrap">{r.body}</p>
+                        <p className="archive-parchment-ink whitespace-pre-wrap">{r.body}</p>
                       )}
                     </div>
                   );
@@ -946,10 +965,10 @@ export function BookDetailModal({
                   return (
                     <div
                       key={j.id}
-                      className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-1.5"
+                      className="archive-parchment-sheet rounded-xl p-4 text-xs space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono uppercase text-[11px] text-[#C2410C] font-semibold">
+                        <span className="font-mono uppercase text-[11px] text-[#6F4314] font-semibold">
                           {j.entryType}
                           {j.pageNumber != null ? ` · p.${j.pageNumber}` : ''}
                           {j.characterName ? ` · ${j.characterName}` : ''}
@@ -961,31 +980,31 @@ export function BookDetailModal({
                               onClick={() =>
                                 setRevealedIds((p) => ({ ...p, [j.id]: !p[j.id] }))
                               }
-                              className="text-amber-700 font-medium"
+                              className="rounded border border-[#6F4314]/35 px-2 py-0.5 text-[11px] font-medium text-[#5A3410] hover:bg-[#5A3410]/10"
                             >
-                              {hidden ? 'Reveal' : 'Hide'}
+                              {hidden ? 'Unseal' : 'Seal'}
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => softDeleteEntity('journal_entries', j.id)}
-                            className="p-1 text-red-500"
+                            className="p-1 text-[#8B2318] hover:text-[#65130B]"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
                       {hidden ? (
-                        <p className="italic text-stone-500">{t('journal.spoilerWarning')}</p>
+                        <p className="italic text-[#5A442C]">{t('journal.spoilerWarning')}</p>
                       ) : (
                         <>
                           {j.quoteText && (
-                            <blockquote className="border-l-2 border-[#C2410C] pl-3 italic text-stone-700 dark:text-slate-200">
+                            <blockquote className="border-l-2 border-[#6F4314] pl-3 italic archive-parchment-ink">
                               &ldquo;{j.quoteText}&rdquo;
                             </blockquote>
                           )}
                           {j.content && (
-                            <p className="text-stone-700 dark:text-slate-300 whitespace-pre-wrap">
+                            <p className="archive-parchment-ink whitespace-pre-wrap">
                               {j.content}
                             </p>
                           )}
@@ -1000,19 +1019,19 @@ export function BookDetailModal({
 
           {tab === 'discovery' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+              <div className="archive-panel rounded-xl p-4 space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-[#D6BD8A]">
                   Other Editions of this Work ({discovery.otherEditionsOfWork.length})
                 </h4>
                 {discovery.otherEditionsOfWork.length === 0 ? (
-                  <p className="text-xs text-stone-500">
+                  <p className="text-xs text-[#AEB9C9]">
                     Only one edition cataloged for this Work so far.
                   </p>
                 ) : (
                   discovery.otherEditionsOfWork.map((ed) => (
-                    <div key={ed.id} className="text-xs border-t border-stone-100 dark:border-slate-800 pt-2">
-                      <p className="font-semibold">{ed.editionName || ed.title}</p>
-                      <p className="text-stone-500">
+                    <div key={ed.id} className="text-xs border-t border-[#B49A67]/20 pt-2">
+                      <p className="font-semibold text-[#F4EFE6]">{ed.editionName || ed.title}</p>
+                      <p className="text-[#AEB9C9]">
                         {ed.language.toUpperCase()} · {ed.format} · {ed.publishers.join(', ') || 'Unknown Publisher'}
                       </p>
                     </div>
@@ -1029,13 +1048,13 @@ export function BookDetailModal({
               ).map(([heading, list]) => (
                 <div
                   key={heading}
-                  className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2"
+                  className="archive-panel rounded-xl p-4 space-y-2"
                 >
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-[#D6BD8A]">
                     {heading} ({list.length})
                   </h4>
                   {list.length === 0 ? (
-                    <p className="text-xs text-stone-500">No matches in your library yet.</p>
+                    <p className="text-xs text-[#AEB9C9]">No matches in your library yet.</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {list.map((w) => (
@@ -1043,7 +1062,7 @@ export function BookDetailModal({
                           key={w.id}
                           type="button"
                           onClick={() => onSelectWork?.(w.id)}
-                          className="rounded-lg border border-stone-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium hover:border-[#C2410C]"
+                          className="rounded-lg border border-[#B49A67]/30 bg-[#0B1120]/70 px-3 py-1.5 text-xs font-medium text-[#F4EFE6] hover:border-[#D6BD8A] hover:text-[#D6BD8A] transition-colors"
                         >
                           {w.title}
                         </button>

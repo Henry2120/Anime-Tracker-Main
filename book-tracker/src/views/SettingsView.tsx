@@ -213,29 +213,45 @@ export function SettingsView({
 
   return (
     <div className="space-y-6 max-w-4xl">
+      {/* The Archive Office Header */}
+      <div className="archive-walnut-panel rounded-2xl p-5">
+        <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
+          The Archive Office · Registry &amp; Vault
+        </p>
+        <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
+          {t('nav.settings')}
+        </h2>
+      </div>
+
       {/* Preferences */}
-      <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
-        <h2 className="font-editorial text-lg font-semibold">{t('settings.preferences')}</h2>
+      <section className="archive-panel rounded-2xl p-5 space-y-4">
+        <h2 className="font-archive-display text-base font-semibold text-[#F4EFE6]">
+          {t('settings.preferences')}
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold mb-1">Language / Ngôn ngữ</label>
+            <label className="block text-xs font-semibold text-[#AEB9C9] mb-1">
+              Language / Ngôn ngữ
+            </label>
             <select
               value={settings.language}
               onChange={(e) => updateSettings({ language: e.target.value as SupportedLocale })}
-              className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-medium"
+              className="archive-input w-full rounded-xl border px-3 py-2 text-xs font-medium"
             >
               <option value="en">English (EN)</option>
               <option value="vi">Tiếng Việt (VI)</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold mb-1">Default Currency</label>
+            <label className="block text-xs font-semibold text-[#AEB9C9] mb-1">
+              Default Currency
+            </label>
             <select
               value={settings.defaultCurrency}
               onChange={(e) =>
                 updateSettings({ defaultCurrency: e.target.value as CurrencyCode })
               }
-              className="w-full rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-medium"
+              className="archive-input w-full rounded-xl border px-3 py-2 text-xs font-medium"
             >
               {CURRENCY_OPTIONS.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -246,10 +262,10 @@ export function SettingsView({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 dark:border-slate-800 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#B49A67]/20 pt-3">
           <div>
-            <p className="text-xs font-semibold">{t('settings.aiAssist')}</p>
-            <p className="text-[11px] text-stone-500">
+            <p className="text-xs font-semibold text-[#F4EFE6]">{t('settings.aiAssist')}</p>
+            <p className="text-[11px] text-[#AEB9C9]">
               Disabled by default. When enabled, only runs when you explicitly click AI Assist on a cover photo.
             </p>
           </div>
@@ -257,16 +273,16 @@ export function SettingsView({
             type="checkbox"
             checked={settings.aiCoverAssistOptIn}
             onChange={(e) => updateSettings({ aiCoverAssistOptIn: e.target.checked })}
-            className="h-4 w-4 accent-[#C2410C]"
+            className="h-4 w-4 accent-[#B49A67]"
           />
         </div>
       </section>
 
       {/* Cloud Sync & Supabase Auth */}
-      <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
+      <section className="archive-panel rounded-2xl p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-editorial text-lg font-semibold flex items-center gap-2">
-            <Cloud className="h-5 w-5 text-[#C2410C]" />
+          <h2 className="font-archive-display text-base font-semibold flex items-center gap-2 text-[#F4EFE6]">
+            <Cloud className="h-5 w-5 text-[#7797C9]" />
             {t('settings.account')}
           </h2>
           <div className="flex items-center gap-2">
@@ -274,7 +290,7 @@ export function SettingsView({
               <button
                 type="button"
                 onClick={onOpenConflicts}
-                className="inline-flex items-center gap-1 rounded-lg bg-amber-100 dark:bg-amber-950/60 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300"
+                className="inline-flex items-center gap-1 rounded-lg border border-[#B49A67]/40 bg-[#392A24] px-3 py-1.5 text-xs font-semibold text-[#D6BD8A]"
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Resolve Conflicts ({conflicts.length})
@@ -284,7 +300,7 @@ export function SettingsView({
               type="button"
               onClick={handleManualSync}
               disabled={syncing}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-stone-900 dark:bg-[#C2410C] px-3.5 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#B49A67] px-3.5 py-2 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A] disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
               {t('action.syncNow')}
@@ -293,58 +309,58 @@ export function SettingsView({
         </div>
 
         {settings.cloudSyncPausedAfterWipe && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <div className="rounded-xl border border-[#B49A67]/45 bg-[#392A24]/70 px-3 py-2 text-xs text-[#D6BD8A]">
             Automatic background cloud sync is paused following your recent cloud wipe so local data is not silently re-uploaded. Click &ldquo;{t('action.syncNow')}&rdquo; when you want to resume cloud synchronization.
           </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="rounded-xl border border-stone-100 dark:border-slate-800 p-3">
-            <span className="text-stone-500">Outbox Queue</span>
-            <p className="mt-1 font-mono font-semibold tabular-nums">
+          <div className="rounded-xl border border-[#B49A67]/20 bg-[#0B1120]/70 p-3">
+            <span className="text-[#AEB9C9]">Outbox Queue</span>
+            <p className="mt-1 font-mono font-semibold tabular-nums text-[#F4EFE6]">
               {pendingOps.length} pending operations
             </p>
           </div>
-          <div className="rounded-xl border border-stone-100 dark:border-slate-800 p-3">
-            <span className="text-stone-500">Server Cursor</span>
-            <p className="mt-1 font-mono font-semibold tabular-nums">
+          <div className="rounded-xl border border-[#B49A67]/20 bg-[#0B1120]/70 p-3">
+            <span className="text-[#AEB9C9]">Server Cursor</span>
+            <p className="mt-1 font-mono font-semibold tabular-nums text-[#F4EFE6]">
               seq #{settings.lastSyncedSeq}
             </p>
           </div>
-          <div className="rounded-xl border border-stone-100 dark:border-slate-800 p-3">
-            <span className="text-stone-500">Last Synced</span>
-            <p className="mt-1 font-mono font-semibold">
+          <div className="rounded-xl border border-[#B49A67]/20 bg-[#0B1120]/70 p-3">
+            <span className="text-[#AEB9C9]">Last Synced</span>
+            <p className="mt-1 font-mono font-semibold text-[#F4EFE6]">
               {settings.lastSyncedAt ? new Date(settings.lastSyncedAt).toLocaleString() : 'Never'}
             </p>
           </div>
         </div>
 
         {syncMsg && (
-          <p className="rounded-lg bg-stone-100 dark:bg-slate-800 px-3 py-2 text-xs font-mono">
+          <p className="rounded-lg bg-[#0B1120] border border-[#B49A67]/25 px-3 py-2 text-xs font-mono text-[#D6BD8A]">
             {syncMsg}
           </p>
         )}
 
         {!supabaseConfigured ? (
-          <div className="rounded-xl border border-dashed border-stone-300 dark:border-slate-700 p-4 text-xs text-stone-600 dark:text-slate-300 space-y-1">
-            <p className="font-semibold flex items-center gap-1.5">
-              <HardDrive className="h-4 w-4 text-[#C2410C]" />
+          <div className="rounded-xl border border-dashed border-[#B49A67]/35 bg-[#0B1120]/50 p-4 text-xs text-[#AEB9C9] space-y-1">
+            <p className="font-semibold flex items-center gap-1.5 text-[#F4EFE6]">
+              <HardDrive className="h-4 w-4 text-[#B49A67]" />
               Running in Local-First Offline Mode
             </p>
             <p>
-              To enable multi-device Supabase cloud sync, configure <code className="font-mono">VITE_SUPABASE_URL</code> and{' '}
-              <code className="font-mono">VITE_SUPABASE_ANON_KEY</code>.
+              To enable multi-device Supabase cloud sync, configure <code className="font-mono text-[#D6BD8A]">VITE_SUPABASE_URL</code> and{' '}
+              <code className="font-mono text-[#D6BD8A]">VITE_SUPABASE_ANON_KEY</code>.
             </p>
           </div>
         ) : settings.userEmail ? (
-          <div className="flex items-center justify-between rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 text-xs">
-            <span className="font-medium">
-              Signed in as <strong>{settings.userEmail}</strong>
+          <div className="flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-3 text-xs">
+            <span className="font-medium text-[#ECE6D8]">
+              Signed in as <strong className="text-[#D6BD8A]">{settings.userEmail}</strong>
             </span>
             <button
               type="button"
               onClick={handleSignOut}
-              className="inline-flex items-center gap-1 rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 font-semibold"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#B49A67]/35 px-3 py-1.5 font-semibold text-[#D6BD8A]"
             >
               <LogOut className="h-3.5 w-3.5" />
               Sign Out
@@ -357,61 +373,61 @@ export function SettingsView({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+              className="archive-input rounded-xl border px-3 py-2 text-xs"
             />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              className="rounded-xl border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs"
+              className="archive-input rounded-xl border px-3 py-2 text-xs"
             />
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => handleAuth('signin')}
-                className="flex-1 rounded-xl bg-[#C2410C] px-3 py-2 text-xs font-semibold text-white"
+                className="flex-1 rounded-xl bg-[#B49A67] px-3 py-2 text-xs font-semibold text-[#0B1120]"
               >
                 Sign In
               </button>
               <button
                 type="button"
                 onClick={() => handleAuth('signup')}
-                className="flex-1 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
+                className="flex-1 rounded-xl border border-[#B49A67]/35 px-3 py-2 text-xs font-semibold text-[#D6BD8A]"
               >
                 Sign Up
               </button>
             </div>
           </div>
         )}
-        {authMsg && <p className="text-xs text-[#C2410C]">{authMsg}</p>}
+        {authMsg && <p className="text-xs text-[#D6BD8A]">{authMsg}</p>}
       </section>
 
       {/* Devices Management */}
-      <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
-        <h2 className="font-editorial text-lg font-semibold flex items-center gap-2">
-          <Laptop className="h-5 w-5 text-[#C2410C]" />
+      <section className="archive-panel rounded-2xl p-5 space-y-3">
+        <h2 className="font-archive-display text-base font-semibold flex items-center gap-2 text-[#F4EFE6]">
+          <Laptop className="h-5 w-5 text-[#B49A67]" />
           {t('settings.devices')} ({devices.length})
         </h2>
-        <div className="divide-y divide-stone-100 dark:divide-slate-800">
+        <div className="divide-y divide-[#B49A67]/20">
           {devices.map((d) => (
             <div key={d.id} className="flex items-center justify-between py-2.5 text-xs">
               <div>
-                <p className="font-semibold">
+                <p className="font-semibold text-[#F4EFE6]">
                   {d.deviceName} {d.isCurrent ? '(This Device)' : ''}
                 </p>
-                <p className="text-stone-500 font-mono">
+                <p className="text-[#AEB9C9] font-mono">
                   {d.platform} · seq #{d.lastSyncedSeq} · {new Date(d.lastSeenAt).toLocaleString()}
                 </p>
               </div>
               {d.revokedAt ? (
-                <span className="font-mono text-red-600">Revoked</span>
+                <span className="font-mono text-red-400">Revoked</span>
               ) : (
                 !d.isCurrent && (
                   <button
                     type="button"
                     onClick={() => revokeDevice(d.id)}
-                    className="rounded-lg border border-red-300 px-2.5 py-1 text-red-600 font-semibold"
+                    className="rounded-lg border border-red-400/50 px-2.5 py-1 text-red-300 font-semibold"
                   >
                     Revoke
                   </button>
@@ -423,9 +439,9 @@ export function SettingsView({
       </section>
 
       {/* Backups & Portability */}
-      <section className="rounded-2xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
-        <h2 className="font-editorial text-lg font-semibold flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-emerald-700" />
+      <section className="archive-panel rounded-2xl p-5 space-y-4">
+        <h2 className="font-archive-display text-base font-semibold flex items-center gap-2 text-[#F4EFE6]">
+          <ShieldCheck className="h-5 w-5 text-emerald-400" />
           {t('settings.backups')}
         </h2>
 
@@ -433,7 +449,7 @@ export function SettingsView({
           <button
             type="button"
             onClick={handleQuickBackup}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-stone-900 dark:bg-[#C2410C] px-3.5 py-2 text-xs font-semibold text-white"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#B49A67] px-3.5 py-2 text-xs font-semibold text-[#0B1120] hover:bg-[#D6BD8A]"
           >
             <Download className="h-3.5 w-3.5" />
             Export Full JSON
@@ -445,7 +461,7 @@ export function SettingsView({
               const { filename, csv } = await exportCollectionCsv();
               triggerFileDownload(filename, csv, 'text/csv;charset=utf-8');
             }}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-2 text-xs font-semibold text-[#ECE6D8]"
           >
             CSV: Physical Collection
           </button>
@@ -456,12 +472,12 @@ export function SettingsView({
               const { filename, csv } = await exportJournalCsv();
               triggerFileDownload(filename, csv, 'text/csv;charset=utf-8');
             }}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-2 text-xs font-semibold text-[#ECE6D8]"
           >
             CSV: Journal &amp; Quotes
           </button>
 
-          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-[#C2410C] px-3 py-2 text-xs font-semibold text-[#C2410C]">
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-[#B49A67]/60 bg-[#392A24]/70 px-3 py-2 text-xs font-semibold text-[#D6BD8A]">
             <Upload className="h-3.5 w-3.5" />
             Import / Restore JSON
             <input type="file" accept="application/json" onChange={handleImportFile} className="hidden" />
@@ -478,22 +494,22 @@ export function SettingsView({
                   setBackupMsg(err instanceof Error ? err.message : 'Cloud snapshot failed');
                 }
               }}
-              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-2 text-xs font-semibold"
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-2 text-xs font-semibold text-[#ECE6D8]"
             >
               Cloud Snapshot
             </button>
           )}
         </div>
 
-        {backupMsg && <p className="text-xs text-emerald-700 dark:text-emerald-400">{backupMsg}</p>}
+        {backupMsg && <p className="text-xs text-emerald-300">{backupMsg}</p>}
 
         {/* Validated Import Preview & Duplicate Check */}
         {importPreview && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50/70 dark:bg-amber-950/30 p-4 space-y-3 text-xs">
-            <p className="font-semibold">
+          <div className="rounded-xl border border-[#B49A67]/45 bg-[#392A24]/60 p-4 space-y-3 text-xs">
+            <p className="font-semibold text-[#F4EFE6]">
               Import Preview ({importPreview.payload.exportedAt})
             </p>
-            <p className="font-mono">
+            <p className="font-mono text-[#AEB9C9]">
               Works: {importPreview.counts.works} ({importPreview.newWorkCount} new,{' '}
               {importPreview.duplicateWorkCount} existing UUIDs) · Duplicate ISBNs:{' '}
               {importPreview.duplicateIsbnCount} · Cycles: {importPreview.counts.reading_cycles}
@@ -506,7 +522,7 @@ export function SettingsView({
                   setBackupMsg(`Merged ${res.importedRecords} new records safely.`);
                   setImportPreview(null);
                 }}
-                className="rounded-lg bg-stone-900 px-3 py-1.5 font-semibold text-white"
+                className="rounded-lg bg-[#141E30] border border-[#B49A67]/40 px-3 py-1.5 font-semibold text-[#F4EFE6]"
               >
                 Merge (Keep Existing)
               </button>
@@ -517,7 +533,7 @@ export function SettingsView({
                   setBackupMsg(`Restored & updated ${res.importedRecords} records.`);
                   setImportPreview(null);
                 }}
-                className="rounded-lg bg-[#C2410C] px-3 py-1.5 font-semibold text-white"
+                className="rounded-lg bg-[#B49A67] px-3 py-1.5 font-semibold text-[#0B1120]"
               >
                 Merge (Overwrite Duplicates)
               </button>
@@ -528,14 +544,14 @@ export function SettingsView({
                   setBackupMsg(`Full restore replaced local DB (${res.importedRecords} records).`);
                   setImportPreview(null);
                 }}
-                className="rounded-lg border border-red-400 px-3 py-1.5 font-semibold text-red-700"
+                className="rounded-lg border border-red-400/60 px-3 py-1.5 font-semibold text-red-300"
               >
                 Replace All Local Data
               </button>
               <button
                 type="button"
                 onClick={() => setImportPreview(null)}
-                className="rounded-lg border border-stone-300 px-3 py-1.5"
+                className="rounded-lg border border-[#B49A67]/30 px-3 py-1.5 text-[#AEB9C9]"
               >
                 Cancel
               </button>
@@ -545,10 +561,10 @@ export function SettingsView({
 
         {/* Backup Records History */}
         {backupRecords.length > 0 && (
-          <div className="space-y-1 border-t border-stone-100 dark:border-slate-800 pt-3">
-            <p className="text-xs font-semibold text-stone-500">Recent Backup Records</p>
+          <div className="space-y-1 border-t border-[#B49A67]/20 pt-3">
+            <p className="text-xs font-semibold text-[#AEB9C9]">Recent Backup Records</p>
             {backupRecords.slice(0, 5).map((r) => (
-              <div key={r.id} className="flex justify-between text-[11px] font-mono text-stone-600 dark:text-slate-400">
+              <div key={r.id} className="flex justify-between text-[11px] font-mono text-[#AEB9C9]">
                 <span className="truncate pr-2">{r.filename}</span>
                 <span className="shrink-0">{Math.round(r.byteSize / 1024)} KB</span>
               </div>
@@ -558,21 +574,21 @@ export function SettingsView({
       </section>
 
       {/* Configurable Book Tracker Data Deletion */}
-      <section className="rounded-2xl border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 p-5 space-y-4">
+      <section className="archive-panel rounded-2xl border-red-500/40 p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h2 className="font-editorial text-lg font-semibold flex items-center gap-2 text-red-700 dark:text-red-400">
+            <h2 className="font-archive-display text-base font-semibold flex items-center gap-2 text-red-300">
               <Trash2 className="h-5 w-5" />
               {t('settings.dataManagement')}
             </h2>
-            <p className="text-xs text-stone-600 dark:text-slate-400">
+            <p className="text-xs text-[#AEB9C9]">
               Permanently erase Book Tracker data on this device, in your Supabase cloud account, or both. Anime Tracker, 3D Viewer, Music Lab, MAL authentication, and AniVerse themes remain completely untouched.
             </p>
           </div>
           <button
             type="button"
             onClick={handleQuickBackup}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-stone-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold hover:bg-stone-50 dark:hover:bg-slate-800 shrink-0"
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[#B49A67]/35 bg-[#0B1120]/70 px-3 py-1.5 text-xs font-semibold text-[#D6BD8A] shrink-0"
           >
             <Download className="h-3.5 w-3.5" />
             Download Backup First
@@ -609,18 +625,18 @@ export function SettingsView({
               }}
               className={`rounded-xl border p-3 text-left transition-colors ${
                 deleteScope === opt.id
-                  ? 'border-red-500 bg-red-50/70 dark:bg-red-950/30'
-                  : 'border-stone-200 dark:border-slate-800 hover:border-stone-300 dark:hover:border-slate-700'
+                  ? 'border-red-400 bg-red-950/40'
+                  : 'border-[#B49A67]/25 bg-[#0B1120]/60 hover:border-[#B49A67]/50'
               }`}
             >
-              <p className="font-semibold text-stone-900 dark:text-slate-100">{opt.title}</p>
-              <p className="mt-1 text-[11px] text-stone-500 dark:text-slate-400">{opt.desc}</p>
+              <p className="font-semibold text-[#F4EFE6]">{opt.title}</p>
+              <p className="mt-1 text-[11px] text-[#AEB9C9]">{opt.desc}</p>
             </button>
           ))}
         </div>
 
         {scopeNeedsCloud && !cloudReadyForDelete && (
-          <p className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <p className="rounded-lg border border-[#B49A67]/40 bg-[#392A24]/60 px-3 py-2 text-xs text-[#D6BD8A]">
             {!supabaseConfigured
               ? 'Cloud sync is not configured in this environment, so cloud deletion is unavailable.'
               : 'Sign in above to enable Cloud Book Tracker deletion.'}
@@ -640,17 +656,17 @@ export function SettingsView({
             </button>
           </div>
         ) : (
-          <div className="rounded-xl border border-red-300 bg-red-50/80 dark:bg-red-950/40 p-4 space-y-3 text-xs">
-            <p className="font-semibold text-red-800 dark:text-red-300 flex items-center gap-1.5">
+          <div className="rounded-xl border border-red-400/50 bg-red-950/40 p-4 space-y-3 text-xs">
+            <p className="font-semibold text-red-200 flex items-center gap-1.5">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               Confirm Permanent Deletion ({deleteScope.replace('_', ' ')})
             </p>
-            <label className="flex items-start gap-2 cursor-pointer text-stone-700 dark:text-slate-200">
+            <label className="flex items-start gap-2 cursor-pointer text-[#ECE6D8]">
               <input
                 type="checkbox"
                 checked={confirmChecked}
                 onChange={(e) => setConfirmChecked(e.target.checked)}
-                className="mt-0.5 accent-red-600"
+                className="mt-0.5 accent-red-500"
               />
               <span>
                 I understand this permanently deletes my selected Book Tracker records and cannot be undone without a JSON backup.
@@ -663,7 +679,7 @@ export function SettingsView({
                   setConfirmStepOpen(false);
                   setConfirmChecked(false);
                 }}
-                className="rounded-lg border border-stone-300 dark:border-slate-700 px-3 py-1.5 font-medium"
+                className="rounded-lg border border-[#B49A67]/30 px-3 py-1.5 font-medium text-[#AEB9C9]"
               >
                 Cancel
               </button>
@@ -683,8 +699,8 @@ export function SettingsView({
           <div
             className={`rounded-xl border p-3 text-xs space-y-1 ${
               deleteFeedback.ok
-                ? 'border-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200'
-                : 'border-amber-300 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                ? 'border-emerald-400/40 bg-emerald-950/40 text-emerald-200'
+                : 'border-[#B49A67]/40 bg-[#392A24]/60 text-[#D6BD8A]'
             }`}
           >
             <p className="font-semibold">{deleteFeedback.message}</p>
@@ -700,7 +716,7 @@ export function SettingsView({
               </p>
             )}
             {deleteFeedback.errors.length > 0 && (
-              <ul className="list-disc pl-4 text-red-700 dark:text-red-300">
+              <ul className="list-disc pl-4 text-red-300">
                 {deleteFeedback.errors.map((er, i) => (
                   <li key={i}>{er}</li>
                 ))}
