@@ -1,3 +1,4 @@
+import { Compass, Sparkles } from 'lucide-react';
 import { useI18n } from '../i18n/useI18n';
 import type {
   CurrencyCode,
@@ -31,14 +32,29 @@ export function StatisticsView({
 
   return (
     <div className="space-y-6">
-      <div className="archive-walnut-panel rounded-2xl p-5">
-        <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
-          Celestial Charting Wing
-        </p>
-        <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
-          {t('nav.stats')}
-        </h2>
-      </div>
+      {/* Domed Royal Observatory Dome Header with Celestial Astrolabe Ring */}
+      <section className="archive-walnut-panel relative overflow-hidden rounded-3xl p-5 sm:p-6">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full border border-[#7797C9]/30 flex items-center justify-center"
+        >
+          <div className="h-28 w-28 rounded-full border border-[#B49A67]/40 flex items-center justify-center">
+            <Compass className="h-8 w-8 text-[#7797C9]/55" />
+          </div>
+        </div>
+        <div className="relative z-10 space-y-1">
+          <p className="font-archive-display text-[11px] uppercase tracking-[0.2em] text-[#B49A67] flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-[#7797C9]" />
+            Domed Royal Observatory · Celestial Astrolabe
+          </p>
+          <h2 className="font-archive-display text-xl sm:text-2xl font-bold text-[#F4EFE6]">
+            {t('nav.stats')}
+          </h2>
+          <p className="text-xs text-[#AEB9C9]">
+            Constellation ledger of your completed volumes, reading cycles, languages, and physical editions.
+          </p>
+        </div>
+      </section>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="archive-panel rounded-2xl p-4">
@@ -73,7 +89,7 @@ export function StatisticsView({
         </div>
       </div>
 
-      {/* Monthly Books Finished Bar Chart */}
+      {/* Monthly Books Finished Observatory Chart */}
       <section className="archive-panel rounded-2xl p-5 space-y-4">
         <h3 className="font-archive-display text-base font-semibold text-[#F4EFE6]">
           Monthly Volumes Completed (Last 12 Months)

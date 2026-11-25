@@ -99,16 +99,22 @@ export function CurrentlyReadingView({
 
   return (
     <div className="space-y-5">
-      <div className="archive-walnut-panel rounded-2xl p-5 flex items-center justify-between gap-3">
+      <section className="archive-walnut-panel relative overflow-hidden rounded-3xl p-5 sm:p-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
-            Reading Lectern
+            Candlelit Reading Desks · Active Volumes
           </p>
           <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
             Currently Reading ({reading.length})
           </h2>
+          <p className="text-xs text-[#AEB9C9] mt-0.5">
+            Open folios resting on the walnut reading lecterns.
+          </p>
         </div>
-      </div>
+        <span className="archive-brass-plaque rounded px-2.5 py-0.5 font-mono text-xs font-bold">
+          {reading.length} on lectern
+        </span>
+      </section>
 
       {reading.length === 0 ? (
         <div className="archive-panel rounded-2xl border-dashed p-10 text-center text-sm text-[#AEB9C9]">
@@ -486,17 +492,22 @@ export function WantToReadView({
 
   return (
     <div className="space-y-6">
-      {/* Embedded Online Book Discovery & Wishlist Adder */}
+      {/* Acquisitions Counter — Brass Desk & Online Book Discovery */}
       <section className="archive-walnut-panel rounded-3xl p-5 sm:p-6 space-y-4">
-        <div className="space-y-1">
-          <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
-            Acquisitions Room · Online Catalog Desk
-          </p>
-          <h2 className="font-archive-display text-lg sm:text-xl font-bold flex items-center gap-2 text-[#F4EFE6]">
-            <Search className="h-4 w-4 text-[#D6BD8A]" />
-            {t('wishlist.discoverTitle')}
-          </h2>
-          <p className="text-xs text-[#AEB9C9]">{t('wishlist.discoverSubtitle')}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
+              Acquisitions Wing · Brass Counter &amp; Catalogue Desk
+            </p>
+            <h2 className="font-archive-display text-lg sm:text-xl font-bold flex items-center gap-2 text-[#F4EFE6]">
+              <Search className="h-4 w-4 text-[#D6BD8A]" />
+              {t('wishlist.discoverTitle')}
+            </h2>
+            <p className="text-xs text-[#AEB9C9]">{t('wishlist.discoverSubtitle')}</p>
+          </div>
+          <span className="archive-brass-plaque rounded px-2.5 py-0.5 font-mono text-xs font-bold shrink-0">
+            {wishlist.length} reserved
+          </span>
         </div>
 
         <form onSubmit={handleDiscoverSearch} className="flex flex-col sm:flex-row gap-2">
@@ -809,12 +820,17 @@ export function WantToReadView({
         )}
       </section>
 
-      {/* Saved Wishlist Books */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-archive-display text-lg sm:text-xl font-bold text-[#F4EFE6]">
-            {t('nav.wishlist')} Ledger ({wishlist.length})
-          </h2>
+      {/* Standing Walnut Acquisitions Display Shelf */}
+      <section className="archive-bookcase-frame rounded-3xl p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#B49A67]/25 pb-3">
+          <div>
+            <p className="font-archive-display text-[10px] uppercase tracking-[0.18em] text-[#B49A67]">
+              Standing Acquisitions Display
+            </p>
+            <h2 className="font-archive-display text-lg sm:text-xl font-bold text-[#F4EFE6]">
+              {t('nav.wishlist')} Ledger ({wishlist.length})
+            </h2>
+          </div>
           {acquireNotice && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/40 bg-emerald-950/60 px-3 py-1 text-xs text-emerald-200">
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -825,72 +841,75 @@ export function WantToReadView({
 
         {wishlist.length === 0 ? (
           <div className="archive-panel rounded-2xl border-dashed p-10 text-center text-sm text-[#AEB9C9]">
-            Your acquisitions ledger is empty. Search above to discover volumes online or add items via + Add Book.
+            Your acquisitions display is clear. Search at the brass desk above to reserve volumes online or add items via + Add Book.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {wishlist.map((b) => (
-              <div
-                key={b.work.id}
-                className="archive-panel flex gap-3.5 rounded-2xl p-4"
-              >
-                <button
-                  type="button"
-                  onClick={() => onOpenBook(b.work.id)}
-                  className="w-16 shrink-0 text-left"
+          <div className="space-y-0">
+            <div className="archive-shelf-alcove rounded-t-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {wishlist.map((b) => (
+                <div
+                  key={b.work.id}
+                  className="archive-panel flex gap-3.5 rounded-2xl p-4"
                 >
-                  <CoverImage
-                    title={b.work.title}
-                    author={b.work.authors[0]}
-                    edition={b.primaryEdition}
-                  />
-                </button>
-                <div className="flex-1 min-w-0 flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-editorial font-semibold text-base text-[#F4EFE6] line-clamp-2">
-                      {b.work.title}
-                    </h3>
-                    <p className="text-xs text-[#AEB9C9] truncate">
-                      {b.work.authors.join(', ') || 'Unknown Author'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mt-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleMoveToOwned(b)}
-                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg bg-[#B49A67] px-2.5 text-[11px] font-semibold text-[#0B1120] hover:bg-[#D6BD8A]"
-                      title="Mark this volume as owned and move it into your Library"
-                    >
-                      <Library className="h-3 w-3" />
-                      {t('wishlist.acquireOwned')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        b.activeCycle
-                          ? updateCycleStatus(b.activeCycle.id, 'currently_reading')
-                          : startReadingCycle({
-                              workId: b.work.id,
-                              editionId: b.primaryEdition.id,
-                              status: 'currently_reading',
-                            })
-                      }
-                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#7797C9]/45 bg-[#141E30] px-2.5 text-[11px] font-semibold text-[#7797C9] hover:text-[#F4EFE6]"
-                    >
-                      <Play className="h-3 w-3" />
-                      Read
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenBook(b.work.id)}
-                      className="min-h-[34px] rounded-lg border border-[#B49A67]/30 px-2.5 text-[11px] font-medium text-[#AEB9C9] hover:text-[#F4EFE6]"
-                    >
-                      Folio
-                    </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenBook(b.work.id)}
+                    className="w-16 shrink-0 text-left"
+                  >
+                    <CoverImage
+                      title={b.work.title}
+                      author={b.work.authors[0]}
+                      edition={b.primaryEdition}
+                    />
+                  </button>
+                  <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-editorial font-semibold text-base text-[#F4EFE6] line-clamp-2">
+                        {b.work.title}
+                      </h3>
+                      <p className="text-xs text-[#AEB9C9] truncate">
+                        {b.work.authors.join(', ') || 'Unknown Author'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveToOwned(b)}
+                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg bg-[#B49A67] px-2.5 text-[11px] font-semibold text-[#0B1120] hover:bg-[#D6BD8A]"
+                        title="Mark this volume as owned and move it into your Library"
+                      >
+                        <Library className="h-3 w-3" />
+                        {t('wishlist.acquireOwned')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          b.activeCycle
+                            ? updateCycleStatus(b.activeCycle.id, 'currently_reading')
+                            : startReadingCycle({
+                                workId: b.work.id,
+                                editionId: b.primaryEdition.id,
+                                status: 'currently_reading',
+                              })
+                        }
+                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#7797C9]/45 bg-[#141E30] px-2.5 text-[11px] font-semibold text-[#7797C9] hover:text-[#F4EFE6]"
+                      >
+                        <Play className="h-3 w-3" />
+                        Read
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenBook(b.work.id)}
+                        className="min-h-[34px] rounded-lg border border-[#B49A67]/30 px-2.5 text-[11px] font-medium text-[#AEB9C9] hover:text-[#F4EFE6]"
+                      >
+                        Folio
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="archive-shelf-ledge rounded-b-md" />
           </div>
         )}
       </section>
@@ -921,14 +940,19 @@ export function ReadingHistoryView({
 
   return (
     <div className="space-y-6">
-      <div className="archive-walnut-panel rounded-2xl p-5">
-        <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
-          Archive Chronicles
-        </p>
-        <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
-          Reading History &amp; Re-Reads ({allCycles.length} cycles)
-        </h2>
-      </div>
+      <section className="archive-walnut-panel rounded-3xl p-5 sm:p-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-archive-display text-[11px] uppercase tracking-[0.18em] text-[#B49A67]">
+            Upper Mezzanine Gallery · Archive Chronicles
+          </p>
+          <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
+            Reading History &amp; Re-Reads ({allCycles.length} cycles)
+          </h2>
+        </div>
+        <span className="archive-brass-plaque rounded px-2.5 py-0.5 font-mono text-xs font-bold">
+          {allCycles.length} cycles
+        </span>
+      </section>
 
       <section className="space-y-2.5">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[#AEB9C9]">

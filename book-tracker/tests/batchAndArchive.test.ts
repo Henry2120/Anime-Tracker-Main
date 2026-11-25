@@ -364,6 +364,7 @@ describe('Batch Barcode Scanner & Midnight Archive Spine Engine', () => {
     });
 
     expect(spineA1).toEqual(spineA2);
+    expect(spineA1.ribShadow).toBeTruthy();
     expect(spineA1.heightPx).toBeGreaterThan(spineBunko.heightPx);
     expect(spineA1.widthPx).toBeGreaterThan(spineBunko.widthPx);
     expect(spineA1.heightPx).toBeGreaterThanOrEqual(168);

@@ -1,5 +1,5 @@
 /* ============================================================================
-   THE MIDNIGHT ARCHIVE — Scoped Visual System for AniVerse Book Tracker
+   THE MIDNIGHT ARCHIVE — 2.5D Spatial Architectural System
    Deep moonlit navy, carved dark walnut, antique gold filigree, aged parchment
    ============================================================================ */
 
@@ -55,7 +55,7 @@
 .midnight-archive-shell select.archive-input {
   background-color: #0B1120 !important;
   color: #F4EFE6 !important;
-  border-color: rgba(180, 154, 103, 0.34) !important;
+  border-color: rgba(180, 154, 103, 0.36) !important;
 }
 
 .midnight-archive-shell .archive-modal .bg-white,
@@ -78,25 +78,40 @@
   color: #AEB9C9 !important;
 }
 
-/* Layered architectural surfaces */
+/* Layered spatial backdrops */
 .archive-backdrop {
   background:
-    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(119, 151, 201, 0.22), transparent 68%),
-    radial-gradient(circle at 18% 24%, rgba(119, 107, 156, 0.14), transparent 46%),
-    radial-gradient(circle at 84% 72%, rgba(180, 154, 103, 0.10), transparent 48%),
-    linear-gradient(180deg, rgba(11, 17, 32, 0.94) 0%, rgba(16, 24, 39, 0.92) 60%, rgba(9, 14, 26, 0.96) 100%);
+    radial-gradient(ellipse 92% 56% at 50% -6%, rgba(119, 151, 201, 0.24), transparent 68%),
+    radial-gradient(circle at 14% 26%, rgba(119, 107, 156, 0.16), transparent 46%),
+    radial-gradient(circle at 86% 74%, rgba(180, 154, 103, 0.12), transparent 50%),
+    linear-gradient(180deg, rgba(11, 17, 32, 0.95) 0%, rgba(16, 24, 39, 0.94) 55%, rgba(8, 12, 23, 0.98) 100%);
 }
 
 .archive-backdrop-embedded {
   background:
-    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(119, 151, 201, 0.19), transparent 68%),
-    radial-gradient(circle at 18% 24%, rgba(119, 107, 156, 0.12), transparent 46%),
-    radial-gradient(circle at 84% 72%, rgba(180, 154, 103, 0.09), transparent 48%),
-    linear-gradient(180deg, rgba(11, 17, 32, 0.78) 0%, rgba(16, 24, 39, 0.74) 60%, rgba(9, 14, 26, 0.84) 100%);
+    radial-gradient(ellipse 92% 56% at 50% -6%, rgba(119, 151, 201, 0.2), transparent 68%),
+    radial-gradient(circle at 14% 26%, rgba(119, 107, 156, 0.13), transparent 46%),
+    radial-gradient(circle at 86% 74%, rgba(180, 154, 103, 0.1), transparent 50%),
+    linear-gradient(180deg, rgba(11, 17, 32, 0.8) 0%, rgba(16, 24, 39, 0.78) 55%, rgba(8, 12, 23, 0.88) 100%);
 }
 
+/* Warm candlelight boost overlay triggered by hanging lantern control */
+.archive-lantern-warm .archive-warm-veil {
+  opacity: 1;
+}
+
+.archive-warm-veil {
+  opacity: 0.22;
+  background:
+    radial-gradient(circle at 22% 35%, rgba(214, 165, 92, 0.22), transparent 48%),
+    radial-gradient(circle at 78% 35%, rgba(214, 165, 92, 0.22), transparent 48%),
+    radial-gradient(circle at 50% 82%, rgba(180, 130, 62, 0.18), transparent 52%);
+  transition: opacity 420ms ease;
+}
+
+/* Architectural 2.5D surfaces */
 .archive-panel {
-  background: linear-gradient(165deg, rgba(20, 29, 48, 0.93) 0%, rgba(11, 17, 32, 0.96) 100%);
+  background: linear-gradient(165deg, rgba(20, 29, 48, 0.92) 0%, rgba(11, 17, 32, 0.96) 100%);
   border: 1px solid rgba(180, 154, 103, 0.28);
   box-shadow:
     0 18px 42px -18px rgba(4, 7, 16, 0.85),
@@ -107,115 +122,281 @@
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.015) 0px,
-      rgba(255, 255, 255, 0.015) 2px,
+      rgba(255, 255, 255, 0.016) 0px,
+      rgba(255, 255, 255, 0.016) 2px,
       transparent 2px,
       transparent 9px
     ),
-    linear-gradient(180deg, #392A24 0%, #2B1F1A 55%, #1E1511 100%);
-  border: 1px solid rgba(180, 154, 103, 0.34);
+    linear-gradient(180deg, #392A24 0%, #2A1D17 55%, #1D130F 100%);
+  border: 1px solid rgba(180, 154, 103, 0.36);
   box-shadow:
-    0 20px 44px -18px rgba(3, 5, 12, 0.9),
-    inset 0 1px 0 rgba(214, 189, 138, 0.18);
+    0 22px 46px -18px rgba(3, 5, 12, 0.92),
+    inset 0 1px 0 rgba(214, 189, 138, 0.2);
+}
+
+.archive-stone-arch {
+  background:
+    linear-gradient(180deg, rgba(24, 34, 56, 0.96) 0%, rgba(14, 21, 37, 0.97) 65%, rgba(29, 20, 15, 0.95) 100%);
+  border: 1px solid rgba(180, 154, 103, 0.34);
+  border-radius: 999px 999px 1.25rem 1.25rem / 150px 150px 1.25rem 1.25rem;
+  box-shadow:
+    0 24px 48px -18px rgba(2, 5, 14, 0.92),
+    inset 0 2px 18px rgba(119, 151, 201, 0.12),
+    inset 0 1px 0 rgba(214, 189, 138, 0.26);
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms ease, box-shadow 240ms ease;
+}
+
+.archive-stone-arch:hover,
+.archive-stone-arch:focus-visible {
+  transform: translateY(-4px) scale(1.012);
+  border-color: rgba(214, 189, 138, 0.72);
+  box-shadow:
+    0 28px 54px -16px rgba(2, 5, 14, 0.96),
+    0 0 26px rgba(180, 154, 103, 0.18),
+    inset 0 2px 22px rgba(119, 151, 201, 0.2),
+    inset 0 1px 0 rgba(214, 189, 138, 0.42);
 }
 
 .archive-parchment-sheet {
   background:
-    radial-gradient(circle at 15% 18%, rgba(255, 248, 228, 0.42), transparent 52%),
-    radial-gradient(circle at 86% 82%, rgba(145, 114, 68, 0.18), transparent 48%),
+    radial-gradient(circle at 15% 18%, rgba(255, 248, 228, 0.44), transparent 52%),
+    radial-gradient(circle at 86% 82%, rgba(145, 114, 68, 0.2), transparent 48%),
     linear-gradient(165deg, #E5D8B9 0%, #D8C9A7 55%, #C9B58C 100%);
-  border: 1px solid rgba(138, 108, 60, 0.55);
+  border: 1px solid rgba(138, 108, 60, 0.56);
   color: #241B12;
   box-shadow:
-    0 16px 32px -14px rgba(4, 7, 16, 0.72),
+    0 16px 32px -14px rgba(4, 7, 16, 0.75),
     inset 0 0 28px rgba(102, 74, 34, 0.16);
 }
 
-.archive-gothic-portal {
-  position: relative;
-  border-radius: 999px 999px 1rem 1rem / 120px 120px 1rem 1rem;
-  border: 1px solid rgba(180, 154, 103, 0.36);
-  background:
-    radial-gradient(circle at 50% 18%, rgba(119, 151, 201, 0.18), transparent 55%),
-    linear-gradient(180deg, rgba(18, 27, 46, 0.95) 0%, rgba(28, 20, 16, 0.94) 100%);
+.archive-brass-plaque {
+  background: linear-gradient(180deg, #C7AC76 0%, #9E814D 52%, #7D6234 100%);
+  border: 1px solid rgba(244, 232, 198, 0.45);
+  color: #161008;
   box-shadow:
-    0 18px 34px -16px rgba(3, 6, 14, 0.88),
-    inset 0 1px 0 rgba(214, 189, 138, 0.24);
-  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+    0 4px 10px -2px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 248, 224, 0.55);
 }
 
-.archive-gothic-portal:hover {
-  transform: translateY(-4px);
-  border-color: rgba(214, 189, 138, 0.72);
+/* Bookcase framing & heavy walnut shelf ledge */
+.archive-bookcase-frame {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.08) 0px,
+      rgba(0, 0, 0, 0.08) 1px,
+      transparent 1px,
+      transparent 14px
+    ),
+    linear-gradient(180deg, #2D1F19 0%, #1F1511 60%, #160E0B 100%);
+  border: 2px solid rgba(180, 154, 103, 0.36);
   box-shadow:
-    0 24px 44px -14px rgba(4, 8, 20, 0.95),
-    0 0 24px rgba(180, 154, 103, 0.16),
-    inset 0 1px 0 rgba(214, 189, 138, 0.35);
+    inset 0 18px 34px -10px rgba(0, 0, 0, 0.72),
+    0 26px 56px -18px rgba(2, 4, 10, 0.94);
+}
+
+.archive-shelf-alcove {
+  background: linear-gradient(180deg, rgba(9, 13, 24, 0.72) 0%, rgba(16, 11, 8, 0.42) 100%);
+  box-shadow: inset 0 12px 24px -8px rgba(0, 0, 0, 0.78);
 }
 
 .archive-shelf-ledge {
-  height: 14px;
-  background: linear-gradient(180deg, #4B362C 0%, #34241D 55%, #1D130E 100%);
-  border-top: 1px solid rgba(214, 189, 138, 0.28);
+  height: 16px;
+  background: linear-gradient(180deg, #563E33 0%, #392A24 45%, #1E140F 100%);
+  border-top: 1px solid rgba(214, 189, 138, 0.34);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.65);
   box-shadow:
-    0 10px 18px -6px rgba(2, 4, 10, 0.92),
-    inset 0 2px 3px rgba(255, 232, 186, 0.08);
+    0 12px 20px -6px rgba(2, 4, 10, 0.95),
+    inset 0 2px 3px rgba(255, 232, 186, 0.1);
 }
 
-/* Book spine 2.5D depth & lift */
+/* Book spine 2.5D depth, ribbing, and pull-out animation */
 .archive-spine-item {
+  position: relative;
+  transform-origin: bottom center;
   box-shadow:
-    inset 3px 0 6px rgba(255, 255, 255, 0.14),
-    inset -4px 0 8px rgba(0, 0, 0, 0.45),
-    3px 6px 12px rgba(4, 7, 15, 0.72);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease;
+    inset 3px 0 6px rgba(255, 255, 255, 0.16),
+    inset -5px 0 9px rgba(0, 0, 0, 0.52),
+    3px 6px 12px rgba(4, 7, 15, 0.75);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease, filter 200ms ease;
 }
 
 .archive-spine-item:hover,
 .archive-spine-item:focus-visible {
   transform: translateY(-10px) scale(1.03);
   box-shadow:
-    inset 3px 0 7px rgba(255, 255, 255, 0.2),
-    inset -4px 0 8px rgba(0, 0, 0, 0.45),
-    0 14px 24px -6px rgba(0, 0, 0, 0.85),
-    0 0 14px rgba(180, 154, 103, 0.28);
+    inset 3px 0 8px rgba(255, 255, 255, 0.22),
+    inset -5px 0 9px rgba(0, 0, 0, 0.5),
+    0 16px 26px -6px rgba(0, 0, 0, 0.88),
+    0 0 16px rgba(180, 154, 103, 0.34);
 }
 
-/* Subtle magical motion */
+.archive-spine-pulling {
+  transform: translateY(-22px) scale(1.09) rotate(-2deg) !important;
+  box-shadow:
+    0 24px 36px -6px rgba(0, 0, 0, 0.94),
+    0 0 24px rgba(214, 189, 138, 0.52) !important;
+  z-index: 20;
+}
+
+/* Open Ancient Folio gutter seam & ribbon tabs */
+.archive-folio-spread {
+  animation: archiveFolioOpen 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archive-folio-closing {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+  transition: opacity 170ms ease, transform 170ms ease;
+}
+
+.archive-folio-gutter {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.36) 48%,
+    rgba(180, 154, 103, 0.18) 50%,
+    rgba(0, 0, 0, 0.36) 52%,
+    transparent 100%
+  );
+}
+
+.animate-folio-page-turn {
+  animation: archivePageTurn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Cohesive room-to-room spatial camera transitions */
+@keyframes archiveEnterWing {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes archiveZoomShelf {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes archiveStepBack {
+  from {
+    opacity: 0;
+    transform: scale(1.035);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes archiveFolioOpen {
+  from {
+    opacity: 0;
+    transform: scale(0.93) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes archivePageTurn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes archiveFloat {
-  0%, 100% { transform: translateY(0px) rotate(-1deg); }
-  50% { transform: translateY(-8px) rotate(1.2deg); }
+  0%, 100% { transform: translateY(0px) rotate(-1.2deg); }
+  50% { transform: translateY(-9px) rotate(1.4deg); }
+}
+
+@keyframes archiveLanternSway {
+  0%, 100% { transform: rotate(-1.4deg); }
+  50% { transform: rotate(1.4deg); }
+}
+
+@keyframes archiveCandleFlicker {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  45% { opacity: 1; transform: scale(1.06); }
+  75% { opacity: 0.78; transform: scale(0.97); }
 }
 
 @keyframes archiveMoteDrift {
-  0% { transform: translateY(0px) translateX(0px); opacity: 0.18; }
-  50% { transform: translateY(-22px) translateX(8px); opacity: 0.55; }
-  100% { transform: translateY(-42px) translateX(-4px); opacity: 0.12; }
+  0% { transform: translateY(0px) translateX(0px); opacity: 0.16; }
+  50% { transform: translateY(-20px) translateX(7px); opacity: 0.52; }
+  100% { transform: translateY(-40px) translateX(-4px); opacity: 0.12; }
 }
 
-@keyframes archiveRoomEnter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+.archive-transition-enter-wing {
+  animation: archiveEnterWing 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archive-transition-zoom-shelf {
+  animation: archiveZoomShelf 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archive-transition-step-back {
+  animation: archiveStepBack 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .animate-archive-float {
-  animation: archiveFloat 6.5s ease-in-out infinite;
+  animation: archiveFloat 6.8s ease-in-out infinite;
+}
+
+.animate-archive-lantern {
+  transform-origin: top center;
+  animation: archiveLanternSway 5.5s ease-in-out infinite;
+}
+
+.animate-archive-candle {
+  animation: archiveCandleFlicker 3.2s ease-in-out infinite;
 }
 
 .animate-archive-mote {
-  animation: archiveMoteDrift 9s ease-in-out infinite;
+  animation: archiveMoteDrift 10s ease-in-out infinite;
 }
 
-.animate-archive-room {
-  animation: archiveRoomEnter 240ms ease-out;
+/* Desktop subtle parallax driven by --archive-px / --archive-py */
+.archive-parallax-far {
+  transform: translate3d(calc(var(--archive-px, 0px) * 0.4), calc(var(--archive-py, 0px) * 0.4), 0);
+  transition: transform 240ms ease-out;
+}
+
+.archive-parallax-mid {
+  transform: translate3d(calc(var(--archive-px, 0px) * 0.9), calc(var(--archive-py, 0px) * 0.9), 0);
+  transition: transform 200ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animate-archive-float,
+  .animate-archive-lantern,
+  .animate-archive-candle,
   .animate-archive-mote,
-  .animate-archive-room,
-  .archive-gothic-portal,
-  .archive-spine-item {
+  .archive-transition-enter-wing,
+  .archive-transition-zoom-shelf,
+  .archive-transition-step-back,
+  .archive-folio-spread,
+  .animate-folio-page-turn,
+  .archive-stone-arch,
+  .archive-spine-item,
+  .archive-parallax-far,
+  .archive-parallax-mid {
     animation: none !important;
     transition: none !important;
     transform: none !important;

@@ -1,0 +1,803 @@
+# AniVerse Book Tracker — The Midnight Archive: Immersive Environment and Interaction Overhaul
+
+I want you to continue developing the existing AniVerse Book Tracker in:
+
+https://github.com/Henry2120/Anime-Tracker-Main
+
+The previous update introduced the Midnight Archive concept, including:
+- Dark magical library styling.
+- The Grand Hall.
+- Room navigation.
+- Visual bookshelves.
+- Book spine representations.
+- Redesigned book details.
+- Batch barcode scanning.
+
+I want to take this significantly further.
+
+**The current implementation still feels too much like a conventional web application with a magical theme. I do not want that.**
+
+My goal is to create an immersive, explorable magical library where the surrounding environment IS the user interface.
+
+I want the user to feel as though they are inside an enormous ancient library. Almost everything should be associated with books, libraries, archives, manuscripts, reading, or collecting.
+
+Instead of presenting ordinary navigation menus, cards, and buttons, make the user interact with the actual environment.
+
+This is a major visual and interaction redesign, but it must preserve the existing Book Tracker functionality and data architecture.
+
+---
+
+# PART 1 — THE CORE EXPERIENCE
+
+## 1. Design philosophy
+
+The application should feel like an original magical library from a fantasy world.
+
+Its identity:
+
+**THE MIDNIGHT ARCHIVE**
+
+Imagine an enormous ancient library hidden inside a mysterious gothic building.
+
+It contains:
+- Multiple floors.
+- Enormous wooden bookshelves.
+- Narrow library corridors.
+- Gothic stone arches.
+- Spiral staircases.
+- Reading rooms.
+- An acquisitions department.
+- An archive office.
+- Ancient catalogues.
+- Rare-book collections.
+- Reading desks.
+- Floating books.
+- Magical objects.
+- Moonlit windows.
+- Hidden corners and small environmental details.
+
+The visual inspiration is dark academia, gothic architecture, mysterious fantasy libraries, and magical archives.
+
+Do not copy copyrighted Harry Potter characters, logos, Hogwarts branding, or exact copyrighted designs. Create an original environment.
+
+### Visual palette
+
+Use:
+- Midnight navy.
+- Deep blue-black.
+- Dark walnut.
+- Antique gold.
+- Muted silver.
+- Deep violet.
+- Moonlit blue.
+- Aged parchment.
+- Subtle warm candlelight.
+
+The atmosphere should be mysterious, elegant, and magical.
+
+It should not become excessively bright, colorful, cartoonish, or childish.
+
+## 2. This is NOT a conventional main menu
+
+This is the most important requirement.
+
+Do not simply create a Grand Hall with several rectangular navigation cards or large buttons representing different application sections.
+
+Do not create another dashboard with a fantasy background.
+
+Do not make every room look like the same page with a different background.
+
+Instead, create a continuous visual environment in which the different application functions are represented by physical library locations and objects.
+
+For example:
+
+- A bookshelf is how I access a collection.
+- A catalogue desk is how I search for books.
+- An acquisitions counter is how I manage my Wishlist.
+- A reading desk is where I write journal entries.
+- An archive cabinet is where I manage data and settings.
+- A book itself is how I access its details.
+
+The environment should provide natural, discoverable interactions.
+
+The user should be able to understand what an object does from its appearance, without needing a conventional navigation menu.
+
+Small tooltips or labels can appear when hovering over or selecting objects.
+
+Keep essential accessibility and keyboard navigation support.
+
+---
+
+# PART 2 — A CONNECTED LIBRARY ENVIRONMENT
+
+## 3. Use a coherent 2.5D environment
+
+Use a carefully designed interactive 2.5D approach.
+
+The library should have a convincing sense of depth and space through:
+- Layered backgrounds.
+- Perspective.
+- Architectural foreground and background elements.
+- Detailed furniture.
+- Shadows.
+- Lighting.
+- Parallax where appropriate.
+- Animated environmental elements.
+- Smooth transitions.
+- Interactive objects.
+
+Possible implementation technologies include CSS transforms, SVG, Canvas, and React components.
+
+Choose the approach that best fits the existing project.
+
+Do not introduce a full video-game engine.
+
+I explicitly do not want:
+- WASD movement.
+- Character movement.
+- First-person controls.
+- Complex camera controls.
+- Game-like physics.
+- Complicated navigation mechanics.
+
+The user should navigate by clicking or tapping physical-looking locations and objects.
+
+The result should feel immersive without becoming difficult to use.
+
+## 4. The Grand Hall — actual library entrance
+
+The Grand Hall should be the central architectural space of the Midnight Archive.
+
+It should look like a real enormous library interior.
+
+Visual elements:
+- Very tall bookshelves.
+- A high vaulted ceiling.
+- Large gothic windows.
+- Moonlight entering through the windows.
+- A central reading or catalogue area.
+- A visible upper-level gallery.
+- Staircases leading to other areas.
+- Floating books.
+- Hanging lanterns.
+- Ancient decorative details.
+- Distant corridors and doorways.
+
+The Grand Hall must not look like a dashboard.
+
+There should be no large collection of ordinary rectangular menu cards.
+
+Instead, users should discover the different rooms by interacting with visible doorways, staircases, signs, and architectural areas.
+
+For example:
+- Walking up to or selecting a doorway visually transitions into the Grand Stacks.
+- Selecting a different corridor enters the Acquisitions Room.
+- Selecting the study area opens the Scholar's Study.
+- Selecting an archive door enters the Archive Office.
+
+The Grand Hall should also contain a physical-looking catalogue or search desk.
+
+Users should be able to search for a book directly from this desk without having to navigate through several menus.
+
+## 5. The Grand Stacks — interactive bookshelves
+
+This must be one of the most visually impressive parts of the application.
+
+I want to see actual bookshelves rather than a conventional book grid.
+
+The environment should contain multiple bookshelves with:
+- Dark wooden frames.
+- Multiple shelves.
+- Individual book spines.
+- Decorative bookends.
+- Small brass shelf labels.
+- Occasional floating books.
+- Subtle magical lighting.
+- Different shelf arrangements.
+
+### Interaction
+
+When selecting a bookshelf:
+1. Smoothly transition the viewpoint toward that bookshelf.
+2. Bring the selected bookshelf into focus.
+3. Show its actual registered books.
+4. Allow the user to browse its books.
+5. Allow selection of an individual book.
+6. Open that book's details through an appropriate visual transition.
+
+I want the transition to communicate that the user has moved closer to a physical bookshelf.
+
+Do not simply replace one page with another instantly.
+
+### Real collection integration
+
+Every displayed book must correspond to real Book Tracker data.
+
+Use the existing:
+- Shelf.
+- ShelfItem.
+- Work.
+- Edition.
+- PhysicalCopy.
+
+Do not create decorative book objects disconnected from the actual database.
+
+For books with covers:
+- Display their correct covers where appropriate.
+
+For books without covers:
+- Display attractive leather-bound spines.
+- Give each book a consistent fallback appearance.
+- Use subtle variation in spine color, texture, and ornamentation.
+- Avoid randomly changing a book's appearance between visits.
+
+### Interactive book objects
+
+When hovering over a book:
+- Give it a subtle visual highlight.
+- Optionally move it slightly forward from the shelf.
+- Show its title and author in a small floating label.
+
+When clicking or tapping:
+- Animate the book being selected or pulled from the shelf.
+- Transition to its detail view.
+
+Do not require hovering for essential functionality on mobile.
+
+### Shelf organization
+
+Preserve the ability to:
+- Create shelves.
+- Rename shelves.
+- Assign books.
+- Remove books from shelves.
+- Search collections.
+- Filter books.
+- Switch between shelf and conventional Catalog View.
+
+The user should still be able to manage the library efficiently.
+
+---
+
+# PART 3 — MAKE EVERY ROOM FEEL REAL
+
+## 6. The Acquisitions Room — Wishlist and online discovery
+
+Do not present Wishlist as a standard web page.
+
+Create an actual acquisitions room.
+
+Visual elements:
+- An antique acquisitions counter.
+- Stacks of newly arrived books.
+- A catalogue ledger.
+- Shelves for desired books.
+- A search terminal or magical catalogue.
+- A book display area.
+
+### Interactions
+
+The catalogue ledger or search terminal should open the online book discovery interface.
+
+Users should be able to:
+- Search by title.
+- Search by author.
+- Search by ISBN.
+- Browse online metadata results.
+- Inspect book covers.
+- Edit metadata.
+- Add books directly to Wishlist.
+
+The existing Wishlist collection should be physically represented by shelves or book displays in the room.
+
+Selecting a desired book should open its details.
+
+Preserve the existing online metadata search implementation and do not create an unrelated second search engine.
+
+Online discovery must remain integrated into Wishlist.
+
+The Wishlist must remain usable offline.
+
+## 7. The Scholar's Study — reviews and reading journal
+
+Create a private study area.
+
+Visual elements:
+- A large antique writing desk.
+- An open journal.
+- Quill and ink.
+- Parchment.
+- A desk lamp or magical candle.
+- Books scattered across the desk.
+- Shelves of reference books.
+- Moonlight entering through a nearby window.
+
+### Interactions
+
+The journal should be represented by an actual interactive book or ledger.
+
+When selected:
+- Open an animated journal or manuscript interface.
+- Display existing journal entries.
+- Allow the user to create an entry.
+- Allow editing and deleting entries.
+- Allow reviews to be associated with their books.
+
+Preserve all existing journal and review functionality.
+
+Do not reintroduce page-progress tracking, reading timers, or book loans.
+
+## 8. The Archive Office — settings, backup and synchronization
+
+Create an archive administration room.
+
+Visual elements:
+- Filing cabinets.
+- Archive shelves.
+- Ancient ledgers.
+- Document drawers.
+- A large administration desk.
+- Storage boxes.
+- Brass labels and archival equipment.
+
+### Interactions
+
+Different objects can represent different settings areas.
+
+Examples:
+- A filing cabinet opens data management.
+- A ledger opens backup and restore.
+- A cloud-shaped magical artefact represents cloud synchronization.
+- A key or security cabinet represents account/device management.
+
+These are visual metaphors, but the underlying controls must be real and functional.
+
+Preserve:
+- Local backup export/import.
+- Supabase synchronization.
+- Device management.
+- Conflict resolution.
+- Configurable local/cloud/both data deletion.
+- Other existing Book Tracker settings.
+
+Do not hide important destructive actions behind ambiguous decorative objects.
+
+Always explain data deletion scope and require explicit confirmation.
+
+---
+
+# PART 4 — BOOKS SHOULD FEEL LIKE PHYSICAL OBJECTS
+
+## 9. Individual book presentation
+
+I want opening a book to feel like interacting with a real physical book.
+
+When a user selects a book from a shelf:
+- Animate it being selected or pulled forward.
+- Transition to a detailed presentation.
+- Display its actual cover.
+- Present its information using an open-book, antique folio, or archive-record layout.
+
+Show available information:
+- Title.
+- Author.
+- ISBN.
+- Publisher.
+- Publication date.
+- Edition.
+- Language.
+- Physical copy information.
+- Reviews.
+- Journal entries.
+
+The presentation should be elegant and readable.
+
+Use parchment-inspired surfaces, subtle page textures, refined typography, and decorative details.
+
+Do not make the interface so decorative that users cannot read or edit the information comfortably.
+
+### Interaction details
+
+Where appropriate:
+- Pages can turn between detail sections.
+- Tabs can look like bookmarks.
+- Buttons can look like small brass controls or physical labels.
+- The close action can animate the book closing.
+- Returning to the library should visually return to the selected shelf.
+
+Keep all existing editing and physical-copy management functionality.
+
+---
+
+# PART 5 — SMOOTH TRANSITIONS BETWEEN EVERYTHING
+
+## 10. This is a major priority
+
+I want the application to feel like one continuous building.
+
+The user should not feel that they are navigating between unrelated web pages.
+
+Examples:
+
+### Grand Hall to Grand Stacks
+The viewpoint moves toward the selected bookshelf, which grows in prominence until its books can be explored.
+
+### Grand Stacks to an individual book
+The selected book moves forward from the shelf, enlarges, and opens into its detail presentation.
+
+### Grand Stacks back to Grand Hall
+The view smoothly moves away from the bookshelf and restores the wider hall.
+
+### Grand Hall to Acquisitions Room
+The environment transitions through an appropriate doorway or corridor.
+
+### Acquisitions Room to Wishlist book
+The selected book is brought forward from the display and opens.
+
+### Scholar's Study to Journal
+The camera or view transitions toward the writing desk, and the journal opens.
+
+### Archive Office to Backup
+The selected ledger or archive cabinet opens into the backup interface.
+
+These are examples of the intended visual language. Implement them in a way that feels cohesive and natural.
+
+### Transition requirements
+
+- Use smooth transitions rather than abrupt content replacement.
+- Preserve the selected room and shelf context when returning.
+- Avoid unnecessary loading screens.
+- Avoid transitions that delay ordinary operations.
+- Make transitions responsive and lightweight.
+- Support reduced-motion settings.
+- Ensure browser back navigation works sensibly.
+- Ensure transitions work on both desktop and mobile.
+
+Use a consistent transition system with reusable components or utilities.
+
+Do not implement unrelated animations independently in every component.
+
+The same visual language should be used throughout the application.
+
+---
+
+# PART 6 — INTERACT WITH THE SURROUNDING ENVIRONMENT
+
+## 11. Make the environment interactive
+
+This is what I particularly want to improve.
+
+I want users to be able to interact with more than just navigation buttons.
+
+Add meaningful environmental interactions.
+
+Examples:
+
+| Environment object | Interaction |
+|---|---|
+| Bookshelf | Open a collection |
+| Individual book | Open book details |
+| Catalogue desk | Search the library |
+| Acquisitions ledger | Open online book discovery |
+| Reading journal | Open journal entries |
+| Filing cabinet | Open data management |
+| Archive ledger | Open backup and restore |
+| Magical globe | Display collection statistics |
+| Wall clock | Display the current local time |
+| Library sign | Display room information |
+| Floating book | Reveal a featured book or recently added item |
+| Lantern | Toggle an appropriate visual lighting effect |
+| Staircase | Navigate between library floors or areas |
+
+You do not need to implement every example if it would be purely decorative or add unnecessary complexity.
+
+Prioritize interactions that genuinely help users manage and explore their books.
+
+### Environmental feedback
+
+When users interact with objects:
+- Highlight the object.
+- Display a short descriptive label.
+- Use subtle sound-free visual feedback by default.
+- Animate the interaction.
+- Provide a clear way to return.
+
+Do not make the user guess what is clickable.
+
+Use subtle hover states, small labels, contextual hints, and appropriate visual affordances.
+
+For touch devices, use tapping and clear selection states.
+
+### Important distinction
+
+I want meaningful interactions, not random decorative gimmicks.
+
+Every interactive object should either:
+1. Perform a useful Book Tracker action.
+2. Navigate to a relevant library area.
+3. Display relevant information about the library or collection.
+
+Do not add interactions that exist only to look impressive.
+
+---
+
+# PART 7 — ENVIRONMENTAL ATMOSPHERE
+
+## 12. Lighting and animation
+
+Make the Midnight Archive feel alive.
+
+Use subtle, continuous environmental effects:
+- Floating dust illuminated by moonlight.
+- Slowly drifting magical particles.
+- Occasional floating books.
+- Very subtle movement in hanging lanterns.
+- Gentle candle flickering.
+- Light rays through gothic windows.
+- Subtle glowing details on selected objects.
+- Occasional magical highlights on book spines.
+
+Use restrained animation.
+
+The library should feel mysterious, not chaotic.
+
+### Lighting
+
+Use a combination of:
+- Moonlight as the main environmental lighting.
+- Cool blue light around windows and distant architecture.
+- Warm candlelight around reading desks.
+- Subtle gold illumination around important interactive objects.
+
+The contrast between cool moonlight and warm candlelight is important.
+
+### Sound
+
+Do not autoplay background music or sound effects.
+
+If ambient sound is ever introduced, make it optional and provide an obvious mute control.
+
+The experience should work perfectly without sound.
+
+---
+
+# PART 8 — RESPONSIVENESS AND PERFORMANCE
+
+## 13. Desktop and mobile
+
+The library must work on both computers and phones.
+
+On desktop:
+- Use a larger architectural composition.
+- Display multiple shelves and environmental details.
+- Use subtle parallax and hover interactions.
+
+On mobile:
+- Recompose the environment instead of simply shrinking the desktop version.
+- Preserve the magical library identity.
+- Make interactive objects easy to tap.
+- Use clear room navigation.
+- Avoid horizontal overflow.
+- Keep book details readable.
+- Ensure the scanner remains accessible.
+
+### Performance requirements
+
+- Do not render excessive animated particles.
+- Avoid unnecessary React re-renders.
+- Avoid heavy image assets.
+- Lazy-load room-specific content where appropriate.
+- Use CSS transforms for lightweight transitions where possible.
+- Avoid unnecessary canvas rendering.
+- Do not duplicate atmospheric background components.
+- Respect `prefers-reduced-motion`.
+- Ensure the application remains usable on lower-powered devices.
+
+Do not sacrifice performance for visual effects.
+
+---
+
+# PART 9 — PRESERVE THE EXISTING FUNCTIONALITY
+
+## 14. Important architectural boundaries
+
+The existing Book Tracker already has substantial functionality.
+
+This is a visual and interaction redesign, not a replacement of the application.
+
+Preserve:
+- Works.
+- Editions.
+- Physical copies.
+- ISBN and EAN identifiers.
+- Shelves and shelf assignments.
+- Library search.
+- Wishlist.
+- Online book discovery.
+- Reviews.
+- Reading journal.
+- Metadata editing.
+- Cover images and local cover blobs.
+- Batch barcode scanning.
+- Local backup and restore.
+- Supabase cloud synchronization.
+- Conflict resolution.
+- Offline-first operation.
+
+Continue supporting the previously requested batch scanner features:
+- Continuous camera scanning.
+- Multiple barcodes in one photograph.
+- Bulk ISBN/EAN entry.
+- Duplicate detection.
+- Individual metadata lookup.
+- Review before registration.
+- Manual metadata entry when lookup fails.
+
+Preserve Vietnamese `893` EAN-13 support, including the regression test barcode:
+
+`8935082600287`
+
+Do not regress the previously requested improvements to Vietnamese metadata lookup and cover assignment.
+
+Also preserve the earlier requirements:
+- Remove Pages Today, Reading Streak, and Books This Year from the Dashboard.
+- Integrate online discovery directly into Wishlist.
+- Provide local-only, cloud-only, and both-scope data deletion.
+- Completely remove page progress, reading timer, and book loans, including their obsolete data structures.
+- Preserve reviews and journal entries.
+- Synchronize the shared AniVerse theme and atmosphere.
+
+Do not modify unrelated Anime Tracker, Music Lab, or 3D Viewer features.
+
+Do not clear or replace existing user data.
+
+---
+
+# PART 10 — IMPLEMENTATION STRATEGY
+
+## 15. Inspect before changing
+
+Before modifying the code:
+1. Inspect the current Midnight Archive implementation.
+2. Inspect the existing Grand Hall and room navigation.
+3. Inspect the current bookshelf rendering.
+4. Inspect the book detail interface.
+5. Identify existing shared styles and transition utilities.
+6. Identify how each room is mounted and how state is preserved.
+7. Identify the actual data services and database structures.
+
+Keep the good work already completed.
+
+Do not discard the existing Midnight Archive implementation and start from zero unless a specific architectural problem makes that necessary.
+
+## 16. Build the experience incrementally
+
+Implement in this order:
+
+**Stage 1 — Grand Hall environment**
+- Make the Grand Hall look like an actual enormous library.
+- Remove the plain main-menu appearance.
+- Add architectural depth and environmental detail.
+- Make visible doorways and objects interactive.
+
+**Stage 2 — Connected rooms**
+- Make each room visually distinct.
+- Add transitions between rooms.
+- Preserve room context and navigation state.
+- Ensure every room feels like part of the same building.
+
+**Stage 3 — Grand Stacks**
+- Improve physical bookshelf appearance.
+- Make books more visually realistic.
+- Add selection and pull-forward interactions.
+- Connect everything to actual collection data.
+
+**Stage 4 — Physical book interaction**
+- Animate selection and opening.
+- Redesign the book detail presentation.
+- Add transitions back to the selected bookshelf.
+
+**Stage 5 — Environmental interactions**
+- Add the catalogue desk, archive objects, journal, globe, and other useful interactive objects.
+- Ensure each interaction performs a real action.
+
+**Stage 6 — Polish**
+- Refine lighting, textures, animation, responsive layouts, and accessibility.
+- Verify performance and functionality.
+
+Do not stop after creating another attractive screenshot. Every interaction must actually work.
+
+---
+
+# PART 11 — ACCEPTANCE TESTS
+
+## 17. Visual and interaction tests
+
+The implementation is not complete unless:
+
+1. The Grand Hall looks like an enormous magical library.
+2. The main navigation is integrated into the environment rather than displayed as a collection of ordinary menu cards.
+3. The different rooms have distinct architecture and visual identities.
+4. Clicking a doorway or room entrance transitions into the corresponding location.
+5. Bookshelves display real collection data.
+6. Clicking a bookshelf moves into its collection view.
+7. Clicking a book animates its selection.
+8. Book details open in a physical-book-inspired presentation.
+9. Returning from book details restores the previous shelf context.
+10. The catalogue desk opens real search functionality.
+11. The Acquisitions Room opens the actual Wishlist.
+12. The Scholar's Study opens the real journal.
+13. The Archive Office opens real settings and data management.
+14. Environmental objects have meaningful interactions.
+15. Hover and tap feedback make interactive objects discoverable.
+16. Desktop and mobile experiences are both usable.
+17. Transitions are smooth and consistent.
+18. Reduced-motion settings are respected.
+19. No essential feature depends on hover.
+20. The environment does not introduce excessive performance costs.
+
+## 18. Functional regression tests
+
+Verify that:
+- Existing books are preserved.
+- Existing covers are preserved.
+- Shelves and shelf assignments are preserved.
+- Wishlist entries are preserved.
+- Journal entries and reviews are preserved.
+- Search still works.
+- Batch scanning still works.
+- Backup and restore still work.
+- Supabase synchronization still works.
+- Offline functionality still works.
+- Data deletion remains correctly scoped.
+- No reading progress, timer, or loan functionality has been reintroduced.
+- The Anime Tracker, Music Lab, and 3D Viewer are unaffected.
+
+Run the available TypeScript checks, tests, and production build. Fix errors introduced by the changes.
+
+Do not claim successful testing unless it was actually performed.
+
+---
+
+# PART 12 — FINAL REPORT
+
+After completing the implementation, provide:
+
+1. A summary of the new immersive environment.
+2. Which rooms and environmental interactions are functional.
+3. How room-to-room transitions work.
+4. How bookshelves and physical book interactions work.
+5. Which components and files were changed.
+6. Any new dependencies or assets introduced.
+7. Build and test results.
+8. Any remaining limitations.
+
+If an interaction is only decorative, explicitly identify it rather than claiming it is functional.
+
+---
+
+# FINAL CREATIVE DIRECTION
+
+I want the final result to feel like this:
+
+You open AniVerse Book Tracker.
+
+Instead of seeing a conventional dashboard, you find yourself inside an enormous, mysterious library at midnight.
+
+Moonlight streams through tall gothic windows. Ancient bookshelves reach toward the ceiling. A few books float quietly through the air. Lanterns illuminate the wooden floors. You can see doorways leading into different sections of the building.
+
+You click a nearby bookshelf. The view smoothly moves toward it. You see its actual collection of books.
+
+You select one. It slides out from the shelf, opens, and reveals its information.
+
+You return to the library and enter another room. There, you find an acquisitions desk where you can search for new books and manage your Wishlist.
+
+You enter a quiet study and open your journal.
+
+You enter the archive office and manage backups, synchronization, and settings.
+
+Everything feels like one connected world.
+
+**The application should not look like a website pretending to be a library. It should feel like an actual interactive library whose objects and rooms provide access to the application's functionality.**
+
+That is the experience I want you to build.
