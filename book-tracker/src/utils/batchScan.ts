@@ -2,6 +2,7 @@ import type { EnrichedBookRecord } from '../hooks/useLibraryData';
 import type {
   BookFormat,
   BookIdentifierType,
+  BookshelfPosition,
   CurrencyCode,
   MetadataCandidate,
   OwnershipStatus,
@@ -45,6 +46,7 @@ export interface BatchDraftMetadata {
   purchasePrice: string;
   currency: CurrencyCode;
   shelfIds: string[];
+  shelfPosition: BookshelfPosition;
   notes: string;
 }
 
@@ -238,7 +240,10 @@ export function shouldSuppressConsecutiveFrame(
   return false;
 }
 
-export function createEmptyBatchDraft(defaultCurrency: CurrencyCode): BatchDraftMetadata {
+export function createEmptyBatchDraft(
+  defaultCurrency: CurrencyCode,
+  defaultShelfPosition: BookshelfPosition = 'middle'
+): BatchDraftMetadata {
   return {
     title: '',
     originalTitle: '',
@@ -262,6 +267,7 @@ export function createEmptyBatchDraft(defaultCurrency: CurrencyCode): BatchDraft
     purchasePrice: '',
     currency: defaultCurrency,
     shelfIds: [],
+    shelfPosition: defaultShelfPosition,
     notes: '',
   };
 }
@@ -309,6 +315,7 @@ export function createBatchQueueItem(params: {
   formatLabel?: string | null;
   source: BatchSourceKind;
   defaultCurrency: CurrencyCode;
+  defaultShelfPosition?: BookshelfPosition;
   existingQueue: BatchQueueItem[];
   existingBooks: EnrichedBookRecord[];
 }): BatchQueueItem {
@@ -336,7 +343,10 @@ export function createBatchQueueItem(params: {
       selectedCandidate: null,
       providerStatuses: [],
       lookupError: null,
-      draft: createEmptyBatchDraft(params.defaultCurrency),
+      draft: createEmptyBatchDraft(
+        params.defaultCurrency,
+        params.defaultShelfPosition ?? 'middle'
+      ),
       coverFile: null,
       coverPreviewUrl: null,
       duplicateInBatch: false,
@@ -378,7 +388,10 @@ export function createBatchQueueItem(params: {
     selectedCandidate: null,
     providerStatuses: [],
     lookupError: null,
-    draft: createEmptyBatchDraft(params.defaultCurrency),
+    draft: createEmptyBatchDraft(
+      params.defaultCurrency,
+      params.defaultShelfPosition ?? 'middle'
+    ),
     coverFile: null,
     coverPreviewUrl: null,
     duplicateInBatch,

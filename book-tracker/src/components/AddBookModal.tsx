@@ -20,7 +20,7 @@ import {
 import type { EnrichedBookRecord } from '../hooks/useLibraryData';
 import { useI18n } from '../i18n/useI18n';
 import { sanitizeCoverUrl, saveLocalCoverBlob } from '../services/covers';
-import { createBookBundle } from '../services/libraryService';
+import { assignBookToShelfPosition, createBookBundle } from '../services/libraryService';
 import { BatchScannerWorkspace } from './BatchScannerWorkspace';
 import {
   buildStructuredContributors,
@@ -48,8 +48,10 @@ import type {
   AcquisitionMethod,
   BookFormat,
   BookIdentifierType,
+  BookshelfPosition,
   CopyCondition,
   CurrencyCode,
+  Edition,
   FieldProvenanceEntry,
   MetadataCandidate,
   OwnershipStatus,
@@ -59,6 +61,7 @@ import type {
   VerificationStatus,
   Work,
 } from '../types/domain';
+import { BOOKSHELF_META, BOOKSHELF_POSITIONS } from '../utils/bookshelfPlacement';
 import { CURRENCY_OPTIONS } from '../utils/currency';
 import { formatBookIdentifier, parseBookIdentifier } from '../utils/isbn';
 import {
@@ -75,6 +78,14 @@ import {
   type ScanLookupUiState,
 } from '../utils/scanFlow';
 
+export interface RegisteredBookPlacementEvent {
+  workId: string;
+  title: string;
+  author: string;
+  edition: Edition;
+  targetShelf: BookshelfPosition;
+}
+
 interface AddBookModalProps {
   open: boolean;
   onClose: () => void;
@@ -84,8 +95,12 @@ interface AddBookModalProps {
   defaultCurrency: CurrencyCode;
   aiCoverAssistOptIn: boolean;
   initialMode?: 'single' | 'batch';
-  onCreated?: (workId: string) => void;
-  onCreatedBatch?: (workIds: string[]) => void;
+  defaultShelfPosition?: BookshelfPosition;
+  onCreated?: (workId: string, placement?: RegisteredBookPlacementEvent) => void;
+  onCreatedBatch?: (
+    workIds: string[],
+    placements?: RegisteredBookPlacementEvent[]
+  ) => void;
 }
 
 export function AddBookModal({
@@ -97,6 +112,7 @@ export function AddBookModal({
   defaultCurrency,
   aiCoverAssistOptIn,
   initialMode = 'single',
+  defaultShelfPosition = 'middle',
   onCreated,
   onCreatedBatch,
 }: AddBookModalProps) {
@@ -202,6 +218,8 @@ export function AddBookModal({
 
   const [initialReadingStatus, setInitialReadingStatus] = useState<ReadingStatus | ''>('want_to_read');
   const [selectedShelves, setSelectedShelves] = useState<string[]>([]);
+  const [targetShelfPosition, setTargetShelfPosition] =
+    useState<BookshelfPosition>(defaultShelfPosition);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -270,6 +288,7 @@ export function AddBookModal({
     setCopyNotes('');
     setInitialReadingStatus('want_to_read');
     setSelectedShelves([]);
+    setTargetShelfPosition(defaultShelfPosition);
     setSaving(false);
     setErrorMsg(null);
   };
@@ -277,10 +296,11 @@ export function AddBookModal({
   useEffect(() => {
     if (open) {
       setModalMode(initialMode);
+      setTargetShelfPosition(defaultShelfPosition);
     } else {
       resetDraftState();
     }
-  }, [open, initialMode]);
+  }, [open, initialMode, defaultShelfPosition]);
 
   const markUserEdited = (
     field: Exclude<keyof ManualDraftFields, 'fieldProvenance'>,
@@ -746,13 +766,22 @@ export function AddBookModal({
               purchasePrice: purchasePrice ? Number(purchasePrice) : null,
               currency,
               seller: seller.trim() || undefined,
-              shelfLocation: shelfLocation.trim() || undefined,
+              shelfLocation: shelfLocation.trim() || targetShelfPosition,
+              shelfPosition: targetShelfPosition,
               notes: copyNotes.trim() || undefined,
             }
           : undefined,
         initialReadingStatus: initialReadingStatus || undefined,
         shelfIds: selectedShelves,
       });
+
+      if (!trackCopy) {
+        await assignBookToShelfPosition({
+          workId: bundle.work.id,
+          editionId: bundle.edition.id,
+          position: targetShelfPosition,
+        });
+      }
 
       if (coverFile) {
         await saveLocalCoverBlob(bundle.edition.id, coverFile);
@@ -765,7 +794,14 @@ export function AddBookModal({
         });
       }
 
-      onCreated?.(bundle.work.id);
+      const placement: RegisteredBookPlacementEvent = {
+        workId: bundle.work.id,
+        title: bundle.edition.title || bundle.work.title,
+        author: bundle.work.authors[0] || '',
+        edition: bundle.edition,
+        targetShelf: targetShelfPosition,
+      };
+      onCreated?.(bundle.work.id, placement);
       resetDraftState();
       onClose();
     } catch (err) {
@@ -859,6 +895,7 @@ export function AddBookModal({
               existingBooks={existingBooks}
               shelves={shelves}
               defaultCurrency={defaultCurrency}
+              defaultShelfPosition={defaultShelfPosition}
               onRegisteredBatch={onCreatedBatch}
               onClose={onClose}
             />
@@ -1683,6 +1720,43 @@ export function AddBookModal({
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Physical Bookshelf Destination in Library Room */}
+              <div className="rounded-xl border border-[#B49A67]/40 bg-[#101827] p-4 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[#D6BD8A]">
+                    Place on Library Bookshelf
+                  </span>
+                  <span className="text-[11px] text-[#AEB9C9]">
+                    Book floats onto this shelf after saving
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {BOOKSHELF_POSITIONS.map((pos) => {
+                    const meta = BOOKSHELF_META[pos];
+                    const active = targetShelfPosition === pos;
+                    return (
+                      <button
+                        key={pos}
+                        type="button"
+                        onClick={() => setTargetShelfPosition(pos)}
+                        className={`min-h-[46px] rounded-xl border px-3 py-2 text-left transition-colors ${
+                          active
+                            ? 'border-[#D6BD8A] bg-[#392A24] text-[#F4EFE6] shadow-[0_0_16px_rgba(214,189,138,0.22)]'
+                            : 'border-[#B49A67]/25 bg-[#0B1120] text-[#AEB9C9] hover:border-[#B49A67]/60'
+                        }`}
+                      >
+                        <div className="text-xs font-semibold text-[#D6BD8A] truncate">
+                          {meta.label}
+                        </div>
+                        <div className="text-[10px] text-[#AEB9C9] truncate">
+                          {meta.subtitle}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Initial Reading Status & Custom Shelves */}

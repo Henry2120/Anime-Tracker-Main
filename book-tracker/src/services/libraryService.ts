@@ -2,6 +2,7 @@ import { createUuid, db } from '../db/dexie';
 import type {
   AcquisitionMethod,
   BookFormat,
+  BookshelfPosition,
   ContributorCredit,
   CopyCondition,
   CurrencyCode,
@@ -22,6 +23,7 @@ import type {
   SyncOperation,
   Work,
 } from '../types/domain';
+import { normalizeBookshelfPosition } from '../utils/bookshelfPlacement';
 import { parseBookIdentifier } from '../utils/isbn';
 import { getLocalDateString } from '../utils/statsCalculator';
 
@@ -111,6 +113,7 @@ export interface CreateBookBundleInput {
     currency?: CurrencyCode;
     seller?: string;
     shelfLocation?: string;
+    shelfPosition?: BookshelfPosition;
     copyLabel?: string;
     notes?: string;
   };
@@ -264,7 +267,11 @@ export async function createBookBundle(input: CreateBookBundleInput): Promise<{
           purchasePrice: input.copy.purchasePrice ?? null,
           currency: input.copy.currency ?? 'VND',
           seller: input.copy.seller?.trim() || undefined,
-          shelfLocation: input.copy.shelfLocation?.trim() || undefined,
+          shelfLocation:
+            input.copy.shelfLocation?.trim() ||
+            input.copy.shelfPosition ||
+            undefined,
+          shelfPosition: input.copy.shelfPosition,
           copyLabel: input.copy.copyLabel?.trim() || undefined,
           notes: input.copy.notes?.trim() || undefined,
           createdAt: ts,
@@ -513,7 +520,13 @@ export async function restoreSoftDeletedEntity(
 }
 
 export async function saveShelf(
-  input: { id?: string; name: string; description?: string; color?: string }
+  input: {
+    id?: string;
+    name: string;
+    description?: string;
+    color?: string;
+    position?: BookshelfPosition;
+  }
 ): Promise<Shelf> {
   const ts = nowIso();
   return db.transaction('rw', [db.shelves, db.sync_operations], async () => {
@@ -525,6 +538,7 @@ export async function saveShelf(
           name: input.name.trim(),
           description: input.description?.trim(),
           color: input.color ?? existing.color,
+          position: input.position ?? existing.position,
           updatedAt: ts,
           version: existing.version + 1,
         }
@@ -534,6 +548,7 @@ export async function saveShelf(
           description: input.description?.trim(),
           color: input.color ?? '#C2410C',
           sortOrder: count,
+          position: input.position,
           createdAt: ts,
           updatedAt: ts,
           deletedAt: null,
@@ -545,11 +560,164 @@ export async function saveShelf(
       row.id,
       'upsert',
       row as unknown as Record<string, unknown>,
-      ['name', 'description', 'color'],
+      ['name', 'description', 'color', 'position'],
       existing?.version ?? 0
     );
     return row;
   });
+}
+
+const WING_SHELF_TITLES: Record<BookshelfPosition, string> = {
+  left: 'Left Bookshelf',
+  middle: 'Middle Bookshelf',
+  right: 'Right Bookshelf',
+};
+
+/**
+ * Moves or assigns a physical copy (or a 0-copy Work via a wing Shelf) to a physical
+ * library bookshelf ('left' | 'middle' | 'right') and persists to IndexedDB + sync queue.
+ */
+export async function assignBookToShelfPosition(params: {
+  workId: string;
+  editionId?: string | null;
+  copyId?: string;
+  position: BookshelfPosition;
+}): Promise<void> {
+  const ts = nowIso();
+  await db.transaction(
+    'rw',
+    [db.physical_copies, db.shelves, db.shelf_items, db.sync_operations],
+    async () => {
+      const workCopies = await db.physical_copies
+        .where('workId')
+        .equals(params.workId)
+        .filter((c) => !c.deletedAt)
+        .toArray();
+
+      const targetCopy = params.copyId
+        ? workCopies.find((c) => c.id === params.copyId)
+        : workCopies.find(
+            (c) =>
+              c.ownershipStatus !== 'sold' &&
+              c.ownershipStatus !== 'given_away' &&
+              c.ownershipStatus !== 'lost'
+          ) ?? workCopies[0];
+
+      if (targetCopy) {
+        const shouldReplaceLocation =
+          !targetCopy.shelfLocation ||
+          Boolean(normalizeBookshelfPosition(targetCopy.shelfLocation));
+        const updated: PhysicalCopy = {
+          ...targetCopy,
+          shelfPosition: params.position,
+          shelfLocation: shouldReplaceLocation
+            ? params.position
+            : targetCopy.shelfLocation,
+          updatedAt: ts,
+          version: targetCopy.version + 1,
+        };
+        await db.physical_copies.put(updated);
+        await enqueueSyncOp(
+          'physical_copies',
+          updated.id,
+          'upsert',
+          updated as unknown as Record<string, unknown>,
+          ['shelfPosition', 'shelfLocation'],
+          targetCopy.version
+        );
+        return;
+      }
+
+      // If the work currently has 0 physical copies, assign via a canonical wing shelf
+      const activeShelves = await db.shelves
+        .filter((s) => !s.deletedAt)
+        .toArray();
+      let targetShelf = activeShelves.find(
+        (s) =>
+          s.position === params.position ||
+          normalizeBookshelfPosition(s.name) === params.position
+      );
+      if (!targetShelf) {
+        targetShelf = {
+          id: createUuid(),
+          name: WING_SHELF_TITLES[params.position],
+          color: '#B49A67',
+          sortOrder: activeShelves.length,
+          position: params.position,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          version: 1,
+        };
+        await db.shelves.put(targetShelf);
+        await enqueueSyncOp(
+          'shelves',
+          targetShelf.id,
+          'upsert',
+          targetShelf as unknown as Record<string, unknown>,
+          ['name', 'color', 'position'],
+          0
+        );
+      }
+
+      // Remove existing wing shelf items for this work so moving shelves is clean
+      const wingShelfIds = new Set(
+        activeShelves
+          .filter((s) => s.position || normalizeBookshelfPosition(s.name))
+          .map((s) => s.id)
+      );
+      const existingItems = await db.shelf_items
+        .where('workId')
+        .equals(params.workId)
+        .filter((si) => !si.deletedAt && wingShelfIds.has(si.shelfId))
+        .toArray();
+
+      let alreadyOnTarget = false;
+      for (const item of existingItems) {
+        if (item.shelfId === targetShelf.id) {
+          alreadyOnTarget = true;
+          continue;
+        }
+        const deletedItem: ShelfItem = {
+          ...item,
+          deletedAt: ts,
+          updatedAt: ts,
+          version: item.version + 1,
+        };
+        await db.shelf_items.put(deletedItem);
+        await enqueueSyncOp(
+          'shelf_items',
+          deletedItem.id,
+          'delete',
+          deletedItem as unknown as Record<string, unknown>,
+          ['deletedAt'],
+          item.version
+        );
+      }
+
+      if (!alreadyOnTarget) {
+        const newItem: ShelfItem = {
+          id: createUuid(),
+          shelfId: targetShelf.id,
+          workId: params.workId,
+          editionId: params.editionId ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          version: 1,
+        };
+        await db.shelf_items.put(newItem);
+        await enqueueSyncOp(
+          'shelf_items',
+          newItem.id,
+          'upsert',
+          newItem as unknown as Record<string, unknown>,
+          Object.keys(newItem),
+          0
+        );
+      }
+    }
+  );
 }
 
 export async function deleteShelf(shelfId: string): Promise<void> {

@@ -231,6 +231,8 @@ export interface EditionIsbn extends BaseEntity {
   isPrimary: boolean;
 }
 
+export type BookshelfPosition = 'left' | 'middle' | 'right';
+
 export interface PhysicalCopy extends BaseEntity {
   editionId: string;
   workId: string;
@@ -243,6 +245,7 @@ export interface PhysicalCopy extends BaseEntity {
   currency: CurrencyCode;
   seller?: string;
   shelfLocation?: string;
+  shelfPosition?: BookshelfPosition;
   copyLabel?: string;
   notes?: string;
 }
@@ -252,6 +255,7 @@ export interface Shelf extends BaseEntity {
   description?: string;
   color: string;
   sortOrder: number;
+  position?: BookshelfPosition;
 }
 
 export interface ShelfItem extends BaseEntity {

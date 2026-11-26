@@ -21,6 +21,7 @@ import { useI18n } from '../i18n/useI18n';
 import { saveLocalCoverBlob } from '../services/covers';
 import { computeLocalDiscoveryRelations } from '../services/discoveryService';
 import {
+  assignBookToShelfPosition,
   deleteReviewOnly,
   saveJournalEntry,
   savePhysicalCopy,
@@ -37,6 +38,7 @@ import {
 import type {
   AcquisitionMethod,
   BookFormat,
+  BookshelfPosition,
   CopyCondition,
   CurrencyCode,
   Edition,
@@ -46,6 +48,12 @@ import type {
   Shelf,
   Work,
 } from '../types/domain';
+import {
+  BOOKSHELF_META,
+  BOOKSHELF_POSITIONS,
+  getBookShelfPositions,
+  getCopyBookshelfPosition,
+} from '../utils/bookshelfPlacement';
 import { CURRENCY_OPTIONS, formatCurrency } from '../utils/currency';
 import { CoverImage } from './CoverImage';
 
@@ -88,6 +96,7 @@ export function BookDetailModal({
   const [copyCurrency, setCopyCurrency] = useState<CurrencyCode>(defaultCurrency);
   const [copySeller, setCopySeller] = useState('');
   const [copyLocation, setCopyLocation] = useState('');
+  const [copyShelfPos, setCopyShelfPos] = useState<BookshelfPosition>('middle');
   const [copyDate, setCopyDate] = useState('');
   const [copyNotes, setCopyNotes] = useState('');
 
@@ -122,6 +131,7 @@ export function BookDetailModal({
     setClosing(false);
     setCopyEditionId(book.primaryEdition.id);
     setCopyCurrency(defaultCurrency);
+    setCopyShelfPos(getBookShelfPositions(book, shelves)[0] ?? 'middle');
     setMetaTitle(book.work.title);
     setMetaAuthors(book.work.authors.join(', '));
     setMetaIllustrators(
@@ -202,7 +212,8 @@ export function BookDetailModal({
       purchasePrice: copyPrice ? Number(copyPrice) : null,
       currency: copyCurrency,
       seller: copySeller || undefined,
-      shelfLocation: copyLocation || undefined,
+      shelfLocation: copyLocation || copyShelfPos,
+      shelfPosition: copyShelfPos,
       notes: copyNotes || undefined,
     });
     setShowAddCopy(false);
@@ -503,11 +514,44 @@ export function BookDetailModal({
               )}
             </div>
 
+            {/* Physical Library Wing Placement (Left / Middle / Right Bookshelf) */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-archive-display uppercase tracking-widest text-[#B49A67]">
+                Library Bookshelf Wing
+              </p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {BOOKSHELF_POSITIONS.map((pos) => {
+                  const placedPositions = getBookShelfPositions(book, shelves);
+                  const active = placedPositions.includes(pos);
+                  return (
+                    <button
+                      key={pos}
+                      type="button"
+                      onClick={() =>
+                        assignBookToShelfPosition({
+                          workId: book.work.id,
+                          editionId: activeEdition.id,
+                          position: pos,
+                        })
+                      }
+                      className={`min-h-[34px] rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                        active
+                          ? 'border-[#D6BD8A] bg-[#392A24] text-[#D6BD8A]'
+                          : 'border-[#B49A67]/25 bg-[#0B1120]/70 text-[#AEB9C9] hover:border-[#B49A67]/60'
+                      }`}
+                    >
+                      {BOOKSHELF_META[pos].shortLabel.replace(' Shelf', '')}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Shelf Placement Ribbons */}
             {shelves.length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-[10px] font-archive-display uppercase tracking-widest text-[#B49A67]">
-                  Shelf Assignments
+                  Custom Shelves
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {shelves.map((s) => {
@@ -805,10 +849,22 @@ export function BookDetailModal({
                         placeholder="Seller / Shop"
                         className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                       />
+                      <select
+                        value={copyShelfPos}
+                        onChange={(e) => setCopyShelfPos(e.target.value as BookshelfPosition)}
+                        aria-label="Copy Library Bookshelf"
+                        className="archive-input rounded-lg border px-2.5 py-2 text-xs"
+                      >
+                        {BOOKSHELF_POSITIONS.map((pos) => (
+                          <option key={pos} value={pos}>
+                            {BOOKSHELF_META[pos].label}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         value={copyLocation}
                         onChange={(e) => setCopyLocation(e.target.value)}
-                        placeholder="Shelf Location"
+                        placeholder="Shelf Location (optional)"
                         className="archive-input rounded-lg border px-2.5 py-2 text-xs"
                       />
                       <input
@@ -864,7 +920,11 @@ export function BookDetailModal({
                               <p className="text-[#AEB9C9]">
                                 {ed?.editionName || ed?.publishers.join(', ') || ed?.title}
                                 {c.seller ? ` · Seller: ${c.seller}` : ''}
-                                {c.shelfLocation ? ` · Shelf: ${c.shelfLocation}` : ''}
+                                {getCopyBookshelfPosition(c)
+                                  ? ` · ${BOOKSHELF_META[getCopyBookshelfPosition(c)!].label}`
+                                  : c.shelfLocation
+                                    ? ` · Shelf: ${c.shelfLocation}`
+                                    : ''}
                                 {c.purchaseDate ? ` · ${c.purchaseDate}` : ''}
                               </p>
                               {c.notes && <p className="text-[#F4EFE6]/85">{c.notes}</p>}

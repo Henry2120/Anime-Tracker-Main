@@ -383,6 +383,270 @@
   transition: transform 200ms ease-out;
 }
 
+/* ============================================================================
+   FIRST-PERSON MIDNIGHT ARCHIVE ROOM (Genuine 2.5D Perspective Room)
+   ============================================================================ */
+.archive-room-stage {
+  perspective: 980px;
+  perspective-origin: 50% 44%;
+  overflow: hidden;
+  background: radial-gradient(ellipse 85% 65% at 50% 34%, #15213B 0%, #090E1B 70%, #050811 100%);
+}
+
+.archive-room-camera {
+  transform-style: preserve-3d;
+  transition: transform 460ms cubic-bezier(0.22, 1, 0.36, 1), filter 380ms ease;
+  will-change: transform;
+}
+
+.archive-room-camera-room {
+  transform: translate3d(0, 0, 0) scale(1) rotateY(0deg);
+}
+
+.archive-room-camera-computer {
+  transform: translate3d(0, -17%, 220px) scale(1.24);
+  filter: brightness(0.76);
+}
+
+.archive-room-camera-shelf_left {
+  transform: translate3d(25%, 2%, 170px) scale(1.18) rotateY(-18deg);
+  filter: brightness(0.76);
+}
+
+.archive-room-camera-shelf_middle {
+  transform: translate3d(0, 9%, 210px) scale(1.22);
+  filter: brightness(0.76);
+}
+
+.archive-room-camera-shelf_right {
+  transform: translate3d(-25%, 2%, 170px) scale(1.18) rotateY(18deg);
+  filter: brightness(0.76);
+}
+
+/* Vaulted Upper Ceiling & Side Architectural Walls */
+.archive-ceiling-vault {
+  background:
+    radial-gradient(ellipse 68% 95% at 50% 100%, transparent 48%, rgba(8, 11, 20, 0.88) 100%),
+    linear-gradient(180deg, #060912 0%, #101727 72%, rgba(16, 23, 39, 0) 100%);
+}
+
+.archive-back-wall {
+  background:
+    radial-gradient(ellipse 52% 62% at 50% 24%, rgba(119, 151, 201, 0.16), transparent 72%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.012) 0px,
+      rgba(255, 255, 255, 0.012) 1px,
+      transparent 1px,
+      transparent 64px
+    ),
+    linear-gradient(180deg, #0B1222 0%, #111A2E 52%, #1A1412 100%);
+}
+
+/* Perspective Herringbone Timber Floor & Runner Rug */
+.archive-floor-plane {
+  transform-origin: bottom center;
+  transform: perspective(640px) rotateX(62deg);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(180, 154, 103, 0.055) 0px,
+      rgba(180, 154, 103, 0.055) 1px,
+      transparent 1px,
+      transparent 48px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.24) 0px,
+      rgba(0, 0, 0, 0.24) 2px,
+      transparent 2px,
+      transparent 34px
+    ),
+    radial-gradient(ellipse 65% 75% at 50% 15%, rgba(214, 189, 138, 0.12), transparent 72%),
+    linear-gradient(180deg, #120C0A 0%, #241812 58%, #312118 100%);
+  border-top: 2px solid rgba(180, 154, 103, 0.24);
+}
+
+.archive-floor-runner {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(180, 154, 103, 0.35) 0%,
+      rgba(180, 154, 103, 0.35) 4%,
+      #131C31 4%,
+      #19233D 50%,
+      #131C31 96%,
+      rgba(180, 154, 103, 0.35) 96%,
+      rgba(180, 154, 103, 0.35) 100%
+    );
+  box-shadow: 0 0 28px rgba(0, 0, 0, 0.72);
+}
+
+/* Physical 2.5D Room Bookcases (Not Cards) */
+.archive-room-bookcase {
+  transform-style: preserve-3d;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.12) 0px,
+      rgba(0, 0, 0, 0.12) 1px,
+      transparent 1px,
+      transparent 18px
+    ),
+    linear-gradient(180deg, #2D1F18 0%, #201510 55%, #130C09 100%);
+  border: 2px solid rgba(154, 124, 72, 0.42);
+  box-shadow:
+    inset 0 20px 38px -10px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(232, 206, 152, 0.2),
+    0 24px 60px -12px rgba(2, 4, 10, 0.96);
+  transition: border-color 240ms ease, box-shadow 260ms ease, filter 240ms ease;
+}
+
+.archive-room-bookcase:hover,
+.archive-room-bookcase:focus-visible {
+  border-color: rgba(214, 189, 138, 0.88);
+  box-shadow:
+    inset 0 20px 38px -10px rgba(0, 0, 0, 0.72),
+    inset 0 0 34px rgba(214, 189, 138, 0.16),
+    0 0 40px rgba(214, 189, 138, 0.24),
+    0 26px 64px -10px rgba(2, 4, 10, 0.98);
+  filter: brightness(1.09);
+}
+
+.archive-room-bookcase-left {
+  transform-origin: left center;
+  transform: rotateY(22deg) translateZ(14px);
+}
+
+.archive-room-bookcase-middle {
+  transform: translateX(-50%) translateZ(-70px);
+}
+
+.archive-room-bookcase-right {
+  transform-origin: right center;
+  transform: rotateY(-22deg) translateZ(14px);
+}
+
+@media (min-width: 768px) {
+  .archive-room-bookcase-left {
+    transform: rotateY(33deg) translateZ(20px);
+  }
+
+  .archive-room-bookcase-right {
+    transform: rotateY(-33deg) translateZ(20px);
+  }
+}
+
+.archive-shelf-wing-target-glow {
+  border-color: rgba(214, 189, 138, 0.98) !important;
+  box-shadow:
+    0 0 46px rgba(214, 189, 138, 0.58),
+    0 22px 48px -10px rgba(0, 0, 0, 0.92),
+    inset 0 0 30px rgba(214, 189, 138, 0.28) !important;
+}
+
+/* Foreground Substantial Walnut Desk & Physical Objects */
+.archive-desk-surface {
+  background:
+    radial-gradient(ellipse 46% 70% at 18% 36%, var(--desk-lamp-glow, rgba(242, 198, 121, 0.22)), transparent 72%),
+    radial-gradient(ellipse 42% 60% at 50% 30%, rgba(119, 151, 201, 0.14), transparent 72%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.016) 0px,
+      rgba(255, 255, 255, 0.016) 2px,
+      transparent 2px,
+      transparent 22px
+    ),
+    linear-gradient(180deg, #4E372B 0%, #37251D 48%, #261812 100%);
+  border-top: 2px solid rgba(214, 189, 138, 0.44);
+  box-shadow:
+    0 -20px 52px rgba(2, 4, 11, 0.86),
+    inset 0 2px 8px rgba(255, 234, 190, 0.16);
+}
+
+.archive-desk-front-lip {
+  background: linear-gradient(180deg, #3D2A20 0%, #261913 55%, #160E0A 100%);
+  border-top: 1px solid rgba(214, 189, 138, 0.35);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.82);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.88);
+}
+
+.archive-desk-apron {
+  background: linear-gradient(180deg, #18100C 0%, #0C0806 100%);
+}
+
+.archive-desk-blotter {
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, 0.03), transparent 72%),
+    linear-gradient(180deg, #1A2233 0%, #101624 100%);
+  border: 1px solid rgba(180, 154, 103, 0.38);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.65),
+    inset 0 0 0 3px rgba(180, 154, 103, 0.1);
+}
+
+/* Physical Computer Monitor & Keyboard on Desk */
+.archive-physical-monitor {
+  background: linear-gradient(180deg, #2A211C 0%, #1A1411 100%);
+  border: 2px solid rgba(180, 154, 103, 0.54);
+  box-shadow:
+    0 18px 34px -8px rgba(0, 0, 0, 0.92),
+    0 0 30px rgba(119, 151, 201, 0.22),
+    inset 0 1px 0 rgba(244, 232, 198, 0.25);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease,
+    box-shadow 240ms ease;
+}
+
+.archive-physical-monitor:hover,
+.archive-physical-monitor:focus-visible {
+  transform: translateY(-3px) scale(1.018);
+  border-color: rgba(214, 189, 138, 0.94);
+  box-shadow:
+    0 22px 42px -8px rgba(0, 0, 0, 0.96),
+    0 0 38px rgba(214, 189, 138, 0.3),
+    0 0 26px rgba(119, 151, 201, 0.38);
+}
+
+.archive-physical-screen {
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 25%, rgba(119, 151, 201, 0.26), transparent 72%),
+    linear-gradient(180deg, #0E172A 0%, #070C17 100%);
+  box-shadow: inset 0 0 18px rgba(119, 151, 201, 0.18);
+}
+
+.archive-physical-keyboard {
+  transform: perspective(260px) rotateX(34deg);
+  transform-origin: center bottom;
+  background: linear-gradient(180deg, #281E19 0%, #17110E 100%);
+  border: 1px solid rgba(180, 154, 103, 0.42);
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.78);
+}
+
+/* Smooth delayed entrance for Shelf / Computer focus overlays after room camera glides */
+@keyframes archiveOverlayReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.archive-overlay-reveal {
+  animation: archiveOverlayReveal 280ms cubic-bezier(0.22, 1, 0.36, 1) 110ms both;
+}
+
+/* Floating Newly Registered Book Flight Overlay (compositor-only transform/opacity) */
+.archive-floating-book {
+  transition: transform 1050ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 320ms ease,
+    filter 420ms ease;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-archive-float,
   .animate-archive-lantern,
@@ -391,14 +655,20 @@
   .archive-transition-enter-wing,
   .archive-transition-zoom-shelf,
   .archive-transition-step-back,
+  .archive-overlay-reveal,
   .archive-folio-spread,
   .animate-folio-page-turn,
   .archive-stone-arch,
   .archive-spine-item,
   .archive-parallax-far,
-  .archive-parallax-mid {
+  .archive-parallax-mid,
+  .archive-room-camera,
+  .archive-room-bookcase,
+  .archive-physical-monitor,
+  .archive-floating-book {
     animation: none !important;
     transition: none !important;
     transform: none !important;
   }
 }
+

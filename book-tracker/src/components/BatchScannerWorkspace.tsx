@@ -36,10 +36,14 @@ import {
 } from '../services/scannerAndOcr';
 import type {
   BookFormat,
+  BookshelfPosition,
   CurrencyCode,
+  Edition,
   OwnershipStatus,
   Shelf,
 } from '../types/domain';
+import { BOOKSHELF_META, BOOKSHELF_POSITIONS } from '../utils/bookshelfPlacement';
+import type { RegisteredBookPlacementEvent } from './AddBookModal';
 import {
   applyBatchLookupFailure,
   applyBatchLookupSuccess,
@@ -62,8 +66,12 @@ interface BatchScannerWorkspaceProps {
   existingBooks: EnrichedBookRecord[];
   shelves: Shelf[];
   defaultCurrency: CurrencyCode;
+  defaultShelfPosition?: BookshelfPosition;
   active: boolean;
-  onRegisteredBatch?: (createdWorkIds: string[]) => void;
+  onRegisteredBatch?: (
+    createdWorkIds: string[],
+    placements?: RegisteredBookPlacementEvent[]
+  ) => void;
   onClose?: () => void;
 }
 
@@ -104,12 +112,15 @@ export function BatchScannerWorkspace({
   existingBooks,
   shelves,
   defaultCurrency,
+  defaultShelfPosition = 'middle',
   active,
   onRegisteredBatch,
   onClose,
 }: BatchScannerWorkspaceProps) {
   const [step, setStep] = useState<BatchStep>('capture');
   const [inputMethod, setInputMethod] = useState<BatchInputMethod>('camera');
+  const [batchShelfTarget, setBatchShelfTarget] =
+    useState<BookshelfPosition>(defaultShelfPosition);
   const [queue, setQueue] = useState<BatchQueueItem[]>([]);
   const queueRef = useRef<BatchQueueItem[]>([]);
   queueRef.current = queue;
@@ -263,6 +274,7 @@ export function BatchScannerWorkspace({
           formatLabel: entry.formatLabel,
           source: entry.source,
           defaultCurrency,
+          defaultShelfPosition: batchShelfTarget,
           existingQueue: runningQueue,
           existingBooks,
         });
@@ -488,6 +500,7 @@ export function BatchScannerWorkspace({
       formatLabel: 'Manual Fix',
       source: 'bulk_text',
       defaultCurrency,
+      defaultShelfPosition: batchShelfTarget,
       existingQueue: queueRef.current.filter((it) => it.id !== id),
       existingBooks,
     });
@@ -546,6 +559,7 @@ export function BatchScannerWorkspace({
     let failedCount = 0;
     let skippedCount = 0;
     const savedWorkIds: string[] = [];
+    const placements: RegisteredBookPlacementEvent[] = [];
 
     for (const item of targetItems) {
       if (!canRegisterBatchItem(item)) {
@@ -570,10 +584,37 @@ export function BatchScannerWorkspace({
             acquisitionMethod: 'purchased',
             purchasePrice: item.draft.purchasePrice ? Number(item.draft.purchasePrice) : null,
             currency: item.draft.currency,
+            shelfLocation: item.draft.shelfPosition,
+            shelfPosition: item.draft.shelfPosition,
             notes: item.draft.notes.trim() || undefined,
           });
           savedCount++;
           savedWorkIds.push(copy.workId);
+          const matchedBook = existingBooks.find((b) => b.work.id === copy.workId);
+          const matchedEdition: Edition =
+            matchedBook?.primaryEdition ?? {
+              id: copy.editionId,
+              workId: copy.workId,
+              title: item.duplicateInCollection.title,
+              translators: [],
+              publishers: [],
+              language: item.draft.language || 'vi',
+              format: item.draft.format,
+              metadataSource: 'manual',
+              metadataVerified: true,
+              userVerifiedFields: [],
+              createdAt: copy.createdAt,
+              updatedAt: copy.updatedAt,
+              deletedAt: null,
+              version: 1,
+            };
+          placements.push({
+            workId: copy.workId,
+            title: item.duplicateInCollection.title,
+            author: item.duplicateInCollection.authors[0] || '',
+            edition: matchedEdition,
+            targetShelf: item.draft.shelfPosition,
+          });
           setQueue((prev) =>
             prev.map((it) =>
               it.id === item.id
@@ -663,6 +704,8 @@ export function BatchScannerWorkspace({
             acquisitionMethod: 'purchased',
             purchasePrice: item.draft.purchasePrice ? Number(item.draft.purchasePrice) : null,
             currency: item.draft.currency,
+            shelfLocation: item.draft.shelfPosition,
+            shelfPosition: item.draft.shelfPosition,
             notes: item.draft.notes.trim() || undefined,
           },
           initialReadingStatus: 'want_to_read',
@@ -682,6 +725,13 @@ export function BatchScannerWorkspace({
 
         savedCount++;
         savedWorkIds.push(bundle.work.id);
+        placements.push({
+          workId: bundle.work.id,
+          title: bundle.edition.title || bundle.work.title,
+          author: bundle.work.authors[0] || '',
+          edition: bundle.edition,
+          targetShelf: item.draft.shelfPosition,
+        });
         setQueue((prev) =>
           prev.map((it) =>
             it.id === item.id
@@ -709,7 +759,7 @@ export function BatchScannerWorkspace({
     setBatchSaving(false);
     setBatchSaveSummary({ savedCount, failedCount, skippedCount });
     if (savedWorkIds.length > 0) {
-      onRegisteredBatch?.(savedWorkIds);
+      onRegisteredBatch?.(savedWorkIds, placements);
     }
   };
 
@@ -1107,67 +1157,96 @@ export function BatchScannerWorkspace({
         /* Step 2: Batch Review & Registration */
         <div className="space-y-4">
           {/* Batch Review Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#B49A67]/30 bg-[#101827]/90 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStep('capture')}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-[#B49A67]/40 px-3 text-xs font-semibold text-[#ECE6D8] hover:bg-[#0B1120]"
-              >
-                <Camera className="h-3.5 w-3.5" />
-                Return to Scanner
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setQueue((prev) => {
-                    const allChecked = prev
-                      .filter((it) => it.savingState !== 'saved')
-                      .every((it) => it.selected);
-                    return prev.map((it) =>
-                      it.savingState === 'saved' ? it : { ...it, selected: !allChecked }
-                    );
-                  })
-                }
-                className="min-h-[38px] rounded-lg border border-[#B49A67]/30 px-2.5 text-xs text-[#AEB9C9]"
-              >
-                Toggle All
-              </button>
-              {selectedItems.length > 0 && (
+          <div className="space-y-2.5 rounded-xl border border-[#B49A67]/30 bg-[#101827]/90 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('capture')}
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-[#B49A67]/40 px-3 text-xs font-semibold text-[#ECE6D8] hover:bg-[#0B1120]"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  Return to Scanner
+                </button>
                 <button
                   type="button"
                   onClick={() =>
-                    setQueue((prev) =>
-                      prev.filter((it) => !(it.selected && it.savingState !== 'saved'))
-                    )
+                    setQueue((prev) => {
+                      const allChecked = prev
+                        .filter((it) => it.savingState !== 'saved')
+                        .every((it) => it.selected);
+                      return prev.map((it) =>
+                        it.savingState === 'saved' ? it : { ...it, selected: !allChecked }
+                      );
+                    })
                   }
-                  className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 text-xs font-semibold text-rose-300"
+                  className="min-h-[38px] rounded-lg border border-[#B49A67]/30 px-2.5 text-xs text-[#AEB9C9]"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Remove Selected ({selectedItems.length})
+                  Toggle All
                 </button>
-              )}
+                {selectedItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQueue((prev) =>
+                        prev.filter((it) => !(it.selected && it.savingState !== 'saved'))
+                      )
+                    }
+                    className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-rose-500/40 px-2.5 text-xs font-semibold text-rose-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove Selected ({selectedItems.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={batchSaving || selectedItems.filter(canRegisterBatchItem).length === 0}
+                  onClick={() => void registerItems(selectedItems)}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#B49A67] px-3.5 text-xs font-semibold text-[#B49A67] hover:bg-[#B49A67]/15 disabled:opacity-40"
+                >
+                  {batchSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  Add Selected to Library ({selectedItems.filter(canRegisterBatchItem).length})
+                </button>
+                <button
+                  type="button"
+                  disabled={batchSaving || allValidItems.length === 0}
+                  onClick={() => void registerItems(allValidItems)}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#B49A67] px-4 text-xs font-semibold text-[#0B1120] hover:bg-[#C6AD7B] disabled:opacity-40"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Add All Valid to Library ({allValidItems.length})
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={batchSaving || selectedItems.filter(canRegisterBatchItem).length === 0}
-                onClick={() => void registerItems(selectedItems)}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#B49A67] px-3.5 text-xs font-semibold text-[#B49A67] hover:bg-[#B49A67]/15 disabled:opacity-40"
-              >
-                {batchSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                Add Selected to Library ({selectedItems.filter(canRegisterBatchItem).length})
-              </button>
-              <button
-                type="button"
-                disabled={batchSaving || allValidItems.length === 0}
-                onClick={() => void registerItems(allValidItems)}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#B49A67] px-4 text-xs font-semibold text-[#0B1120] hover:bg-[#C6AD7B] disabled:opacity-40"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Add All Valid to Library ({allValidItems.length})
-              </button>
+            <div className="flex flex-wrap items-center gap-2 border-t border-[#B49A67]/15 pt-2 text-[11px]">
+              <span className="text-[#AEB9C9]">Destination Library Bookshelf (apply to queue):</span>
+              {BOOKSHELF_POSITIONS.map((pos) => (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => {
+                    setBatchShelfTarget(pos);
+                    setQueue((prev) =>
+                      prev.map((it) =>
+                        it.savingState === 'saved'
+                          ? it
+                          : { ...it, draft: { ...it.draft, shelfPosition: pos } }
+                      )
+                    );
+                  }}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold transition-colors ${
+                    batchShelfTarget === pos
+                      ? 'border-[#D6BD8A] bg-[#392A24] text-[#D6BD8A]'
+                      : 'border-[#B49A67]/25 bg-[#0B1120] text-[#AEB9C9] hover:border-[#B49A67]/60'
+                  }`}
+                >
+                  {BOOKSHELF_META[pos].label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1376,6 +1455,27 @@ export function BatchScannerWorkspace({
                           Skip Duplicate
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {item.isValid && item.duplicateAction !== 'skip' && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="text-[#AEB9C9]">Bookshelf placement:</span>
+                      {BOOKSHELF_POSITIONS.map((pos) => (
+                        <button
+                          key={pos}
+                          type="button"
+                          disabled={item.savingState === 'saved'}
+                          onClick={() => updateItemDraft(item.id, { shelfPosition: pos })}
+                          className={`rounded border px-2 py-0.5 font-medium ${
+                            item.draft.shelfPosition === pos
+                              ? 'border-[#D6BD8A] bg-[#392A24] text-[#D6BD8A]'
+                              : 'border-[#B49A67]/25 bg-[#0B1120] text-[#AEB9C9]'
+                          }`}
+                        >
+                          {BOOKSHELF_META[pos].shortLabel}
+                        </button>
+                      ))}
                     </div>
                   )}
 
