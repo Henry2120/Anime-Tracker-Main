@@ -111,6 +111,7 @@ describe('First-Person Library Physical Bookshelf Placement', () => {
       format: 'paperback',
       condition: 'like_new',
       acquisitionMethod: 'gift',
+      currency: 'USD',
       shelfPosition: 'right',
       shelfLocation: 'right',
     });

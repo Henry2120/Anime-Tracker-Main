@@ -362,7 +362,6 @@ describe('Cover URL safety, sequential fallback order, orphan cleanup & candidat
     const assets = await db.cover_assets
       .where('editionId')
       .equals(edition.id)
-      .filter((a) => !a.deletedAt)
       .toArray();
     expect(assets).toHaveLength(1);
 

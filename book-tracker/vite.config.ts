@@ -5,6 +5,15 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   base: '/book-tracker/',
+  resolve: {
+    dedupe: [
+      'react',
+      'react-dom',
+      'three',
+      '@react-three/fiber',
+      '@react-three/drei',
+    ],
+  },
   plugins: [
     react(),
     tailwindcss(),

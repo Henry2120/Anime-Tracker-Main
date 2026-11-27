@@ -812,7 +812,7 @@ export function AddBookModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#060913]/80 backdrop-blur-xs p-0 sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#060913]/80 p-0 sm:p-4">
       <div
         className={`archive-modal flex max-h-[94vh] w-full ${
           modalMode === 'batch' ? 'max-w-4xl' : 'max-w-3xl'

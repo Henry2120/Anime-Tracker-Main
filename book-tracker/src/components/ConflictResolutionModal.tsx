@@ -48,7 +48,7 @@ export function ConflictResolutionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
       <div className="archive-modal archive-panel flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#B49A67]/40 bg-[#0B1120] text-[#F4EFE6] shadow-2xl">
         <div className="archive-walnut-panel flex items-center justify-between border-b border-[#B49A67]/30 px-5 py-4">
           <div className="flex items-center gap-2">

@@ -63,6 +63,7 @@ interface BookDetailModalProps {
   allEditions: Edition[];
   shelves: Shelf[];
   defaultCurrency: CurrencyCode;
+  inspecting3DBook?: boolean;
   onClose: () => void;
   onSelectWork?: (workId: string) => void;
   onDeletedWork?: (workId: string, title: string) => void;
@@ -76,6 +77,7 @@ export function BookDetailModal({
   allEditions,
   shelves,
   defaultCurrency,
+  inspecting3DBook = false,
   onClose,
   onSelectWork,
   onDeletedWork,
@@ -300,7 +302,9 @@ export function BookDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-xs p-0 sm:p-4"
+      className={`fixed inset-0 z-50 flex items-end sm:items-center ${
+        inspecting3DBook ? 'justify-center lg:justify-end bg-black/52 lg:pr-8' : 'justify-center bg-black/72'
+      } p-0 sm:p-4`}
       onClick={(e) => {
         if (e.target === e.currentTarget) triggerFolioClose();
       }}
@@ -310,7 +314,9 @@ export function BookDetailModal({
         role="dialog"
         aria-modal="true"
         aria-label={`Open Folio: ${book.work.title}`}
-        className={`archive-modal archive-walnut-panel flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl border-2 border-[#B49A67]/50 text-[#F4EFE6] shadow-[0_28px_72px_rgba(0,0,0,0.92)] ${
+        className={`archive-modal archive-walnut-panel flex max-h-[92vh] w-full ${
+          inspecting3DBook ? 'max-w-4xl lg:max-w-[760px]' : 'max-w-5xl'
+        } flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl border-2 border-[#B49A67]/50 text-[#F4EFE6] shadow-[0_28px_72px_rgba(0,0,0,0.92)] ${
           closing ? 'archive-folio-closing' : 'archive-folio-spread'
         }`}
       >

@@ -139,7 +139,7 @@ export function ArchiveComputerModal({
 
   return (
     <div
-      className="archive-transition-zoom-shelf mx-auto flex w-full max-w-6xl flex-col overflow-hidden rounded-3xl border-2 border-[#B49A67]/55 bg-[#0A101D] shadow-[0_32px_90px_rgba(0,0,0,0.94)]"
+      className="archive-transition-zoom-shelf mx-auto flex w-full max-w-[960px] flex-col overflow-hidden rounded-[22px] border-[5px] border-[#241812] bg-[#0A101D] ring-1 ring-[#D6BD8A]/55 shadow-[0_28px_80px_rgba(0,0,0,0.92)]"
       role="region"
       aria-label="Midnight Archive Desk Computer"
     >
@@ -256,7 +256,7 @@ export function ArchiveComputerModal({
       </nav>
 
       {/* Monitor Screen Content Area */}
-      <div className="min-h-[60vh] max-h-[calc(100vh-200px)] overflow-y-auto bg-[#0B1120] p-4 sm:p-6">
+      <div className="min-h-[54vh] max-h-[calc(100vh-225px)] overflow-y-auto bg-[#0B1120] p-4 sm:p-5">
         {activeTab === 'library' && (
           <LibraryView
             books={books}

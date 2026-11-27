@@ -2,6 +2,7 @@ import type { BookFormat } from '../types/domain';
 
 export interface DeterministicSpineStyle {
   leatherBg: string;
+  leatherHex: string;
   accentBand: string;
   foilColor: string;
   ribShadow: string;
@@ -12,6 +13,7 @@ export interface DeterministicSpineStyle {
 
 interface SpinePalette {
   leatherBg: string;
+  leatherHex: string;
   accentBand: string;
   foilColor: string;
   ribShadow: string;
@@ -20,36 +22,42 @@ interface SpinePalette {
 const LEATHER_PALETTES: SpinePalette[] = [
   {
     leatherBg: 'linear-gradient(135deg, #542029 0%, #3A131A 60%, #260B10 100%)',
+    leatherHex: '#4f1e27',
     accentBand: '#B49A67',
     foilColor: '#EAD8AC',
     ribShadow: 'rgba(18, 4, 7, 0.72)',
   },
   {
     leatherBg: 'linear-gradient(135deg, #1E324F 0%, #142238 60%, #0C1524 100%)',
+    leatherHex: '#203657',
     accentBand: '#9BB5DC',
     foilColor: '#E5ECF7',
     ribShadow: 'rgba(5, 10, 20, 0.72)',
   },
   {
     leatherBg: 'linear-gradient(135deg, #213B30 0%, #162820 60%, #0D1914 100%)',
+    leatherHex: '#224034',
     accentBand: '#B49A67',
     foilColor: '#EFE0B9',
     ribShadow: 'rgba(6, 15, 11, 0.72)',
   },
   {
     leatherBg: 'linear-gradient(135deg, #3D2746 0%, #2A1931 60%, #1A0F20 100%)',
+    leatherHex: '#41294b',
     accentBand: '#9D8EC4',
     foilColor: '#EBE4F7',
     ribShadow: 'rgba(14, 7, 19, 0.72)',
   },
   {
     leatherBg: 'linear-gradient(135deg, #4E3122 0%, #372116 60%, #24140D 100%)',
+    leatherHex: '#523424',
     accentBand: '#C9AE79',
     foilColor: '#F3E5C2',
     ribShadow: 'rgba(20, 10, 5, 0.72)',
   },
   {
     leatherBg: 'linear-gradient(135deg, #273042 0%, #1A212E 60%, #10151F 100%)',
+    leatherHex: '#293448',
     accentBand: '#AEB9C9',
     foilColor: '#E8EDF5',
     ribShadow: 'rgba(8, 12, 19, 0.72)',
@@ -103,6 +111,7 @@ export function getDeterministicBookSpineStyle(params: {
 
   return {
     leatherBg: palette.leatherBg,
+    leatherHex: palette.leatherHex,
     accentBand: palette.accentBand,
     foilColor: palette.foilColor,
     ribShadow: palette.ribShadow,

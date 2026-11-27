@@ -11,7 +11,6 @@ import {
   AddBookModal,
   type RegisteredBookPlacementEvent,
 } from './components/AddBookModal';
-import { ArchiveAtmosphere } from './components/ArchiveAtmosphere';
 import {
   ArchiveComputerModal,
   type ComputerTab,
@@ -24,6 +23,8 @@ import {
 } from './components/FirstPersonLibraryRoom';
 import { PhysicalBookshelfView } from './components/PhysicalBookshelfView';
 import { PWAInstallPrompt } from './components/PWAInstallBanner';
+import type { EnrichedBookRecord } from './hooks/useLibraryData';
+import type { Selected3DBookState } from './scene/MidnightArchive3DCanvas';
 import { db } from './db/dexie';
 import { useLibrarySnapshot } from './hooks/useLibraryData';
 import { I18nProvider, useI18n } from './i18n/useI18n';
@@ -95,6 +96,9 @@ function AppShell({
 }) {
   const { t } = useI18n();
   const [viewpoint, setViewpoint] = useState<RoomCameraViewpoint>('room');
+  const [inspectShelf, setInspectShelf] = useState<BookshelfPosition>('middle');
+  const [selected3DBook, setSelected3DBook] = useState<Selected3DBookState | null>(null);
+  const [fallbackShelfPos, setFallbackShelfPos] = useState<BookshelfPosition | null>(null);
   const [computerTab, setComputerTab] = useState<ComputerTab>('library');
   const [libraryViewMode, setLibraryViewMode] = useState<'shelves' | 'catalog'>('shelves');
   const [selectedShelfKey, setSelectedShelfKey] =
@@ -157,11 +161,16 @@ function AppShell({
 
       if (!state || !state.archiveViewpoint) {
         setSelectedWorkId(null);
+        setSelected3DBook(null);
+        setFallbackShelfPos(null);
         setViewpoint('room');
         return;
       }
 
       setSelectedWorkId(state.archiveWorkId ?? null);
+      if (!state.archiveWorkId) {
+        setSelected3DBook(null);
+      }
       setViewpoint(state.archiveViewpoint);
       if (state.archiveComputerTab) {
         setComputerTab(state.archiveComputerTab);
@@ -203,10 +212,15 @@ function AppShell({
   const navigateViewpoint = useCallback(
     (
       nextViewpoint: RoomCameraViewpoint,
-      options?: { computerTab?: ComputerTab }
+      options?: { computerTab?: ComputerTab; shelf?: BookshelfPosition }
     ) => {
       const nextTab = options?.computerTab ?? computerTab;
       if (options?.computerTab) setComputerTab(options.computerTab);
+      if (options?.shelf) setInspectShelf(options.shelf);
+      if (nextViewpoint !== 'inspect_book') {
+        setSelected3DBook(null);
+      }
+      setFallbackShelfPos(null);
       setViewpoint(nextViewpoint);
       pushArchiveHistory({
         viewpoint: nextViewpoint,
@@ -232,7 +246,9 @@ function AppShell({
   const selectedBook =
     snapshot.books.find((b) => b.work.id === selectedWorkId) ?? null;
 
-  const activeShelfPos = viewpointToShelfPosition(viewpoint);
+  const activeShelfPos =
+    viewpointToShelfPosition(viewpoint) ??
+    (viewpoint === 'inspect_book' ? inspectShelf : null);
 
   const openAddBook = (
     mode: 'single' | 'batch' = 'single',
@@ -243,7 +259,29 @@ function AppShell({
     setAddOpen(true);
   };
 
+  const handleSelectBookshelf = (pos: BookshelfPosition) => {
+    setInspectShelf(pos);
+    navigateViewpoint(shelfPositionToViewpoint(pos), { shelf: pos });
+  };
+
+  const handleInspect3DBook = (
+    book: EnrichedBookRecord,
+    shelf: BookshelfPosition,
+    worldPos: [number, number, number]
+  ) => {
+    setInspectShelf(shelf);
+    setSelected3DBook({ book, shelf, worldPos });
+    setSelectedWorkId(book.work.id);
+    setViewpoint('inspect_book');
+    pushArchiveHistory({
+      viewpoint: 'inspect_book',
+      computerTab,
+      workId: book.work.id,
+    });
+  };
+
   const handleOpenBook = (workId: string) => {
+    setSelected3DBook(null);
     setSelectedWorkId(workId);
     pushArchiveHistory({
       viewpoint,
@@ -253,7 +291,12 @@ function AppShell({
   };
 
   const handleCloseBook = () => {
+    const was3DInspect = viewpoint === 'inspect_book';
     setSelectedWorkId(null);
+    setSelected3DBook(null);
+    if (was3DInspect) {
+      setViewpoint(shelfPositionToViewpoint(inspectShelf));
+    }
   };
 
   const handleTriggerSync = async () => {
@@ -279,6 +322,8 @@ function AppShell({
     if (!placement) return;
     setAddOpen(false);
     setSelectedWorkId(null);
+    setSelected3DBook(null);
+    setFallbackShelfPos(null);
     setViewpoint('room');
     setFloatingPlacement(placement);
   };
@@ -291,6 +336,8 @@ function AppShell({
     const latest = placements[placements.length - 1];
     setAddOpen(false);
     setSelectedWorkId(null);
+    setSelected3DBook(null);
+    setFallbackShelfPos(null);
     setViewpoint('room');
     setFloatingPlacement(latest);
   };
@@ -298,9 +345,11 @@ function AppShell({
   const viewpointLabel =
     viewpoint === 'computer'
       ? 'Desk Workstation'
-      : activeShelfPos
-        ? BOOKSHELF_META[activeShelfPos].label
-        : 'The Midnight Archive';
+      : viewpoint === 'inspect_book' && selectedBook
+        ? selectedBook.work.title
+        : activeShelfPos
+          ? BOOKSHELF_META[activeShelfPos].label
+          : 'The Midnight Archive';
 
   return (
     <div
@@ -308,10 +357,8 @@ function AppShell({
         embedded ? 'archive-backdrop-embedded' : 'archive-backdrop'
       } text-[#F4EFE6]`}
     >
-      <ArchiveAtmosphere lanternWarmth={lanternWarmth} />
-
-      {/* Minimal Ambient Top Utility Strip (No Dashboard Navigation Tabs) */}
-      <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 border-b border-[#B49A67]/20 bg-[#0B1120]/82 backdrop-blur-md px-3 sm:px-5 lg:px-8">
+      {/* Minimal Ambient Top Utility Strip (Solid Dark Background, No Blur Over WebGL) */}
+      <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 border-b border-[#B49A67]/20 bg-[#0B1120]/96 px-3 sm:px-5 lg:px-8">
         <div className="flex items-center gap-2.5 min-w-0">
           {worldSwitcher && (
             <div className="shrink-0 flex items-center gap-2">
@@ -424,83 +471,91 @@ function AppShell({
           </div>
         )}
 
-        {/* Background First-Person Architectural Room */}
+        {/* Real Three.js / R3F First-Person 3D Midnight Archive Room */}
         <FirstPersonLibraryRoom
           books={snapshot.books}
           shelves={snapshot.shelves}
           viewpoint={viewpoint}
+          inspectShelf={inspectShelf}
+          selected3DBook={selected3DBook}
           lanternWarmth={lanternWarmth}
           onToggleLantern={() => setLanternWarmth((v) => !v)}
-          onSelectBookshelf={(pos) =>
-            navigateViewpoint(shelfPositionToViewpoint(pos))
-          }
+          onSelectBookshelf={handleSelectBookshelf}
+          onReturnToLibrary={() => navigateViewpoint('room')}
           onOpenComputer={() => navigateViewpoint('computer')}
+          onQuickAddBook={(mode, shelf) => openAddBook(mode, shelf)}
+          onInspect3DBook={handleInspect3DBook}
+          onOpenBookFolio={handleOpenBook}
           floatingPlacement={floatingPlacement}
           onCompleteFloatingPlacement={handleCompleteFloatingPlacement}
           onInspectShelfAfterPlacement={(pos) => {
             setFloatingPlacement(null);
-            navigateViewpoint(shelfPositionToViewpoint(pos));
+            handleSelectBookshelf(pos);
           }}
+          useFallbackShelfModal={(pos) => setFallbackShelfPos(pos)}
         />
 
-        {/* Focused Bookshelf Overlay (Left / Middle / Right) */}
-        {activeShelfPos && (
-          <div className="archive-overlay-reveal fixed inset-0 top-[52px] z-30 overflow-y-auto bg-[#060912]/80 backdrop-blur-xs p-3 sm:p-6">
+        {/* Lightweight 2D Bookshelf Modal ONLY When WebGL Is Unavailable / Context Lost */}
+        {fallbackShelfPos && (
+          <div className="fixed inset-0 top-[52px] z-30 overflow-y-auto bg-[#060912]/88 p-3 sm:p-6">
             <PhysicalBookshelfView
-              position={activeShelfPos}
+              position={fallbackShelfPos}
               books={snapshot.books}
               shelves={snapshot.shelves}
-              onReturnToLibrary={() => navigateViewpoint('room')}
-              onSwitchShelf={(pos) =>
-                navigateViewpoint(shelfPositionToViewpoint(pos))
-              }
-              onOpenComputer={() => navigateViewpoint('computer')}
+              onReturnToLibrary={() => setFallbackShelfPos(null)}
+              onSwitchShelf={(pos) => setFallbackShelfPos(pos)}
+              onOpenComputer={() => {
+                setFallbackShelfPos(null);
+                navigateViewpoint('computer');
+              }}
               onAddBookToShelf={(pos) => openAddBook('single', pos)}
               onOpenBook={handleOpenBook}
             />
           </div>
         )}
 
-        {/* Focused Desk Computer Monitor Overlay */}
+        {/* Desk Computer Monitor Screen Framing (Surrounded by Live 3D Desk & Library) */}
         {viewpoint === 'computer' && (
-          <div className="archive-overlay-reveal fixed inset-0 top-[52px] z-30 overflow-y-auto bg-[#060912]/82 backdrop-blur-xs p-2.5 sm:p-5 flex items-start justify-center">
-            <ArchiveComputerModal
-              open
-              activeTab={computerTab}
-              onChangeTab={(tab) => {
-                setComputerTab(tab);
-                pushArchiveHistory({
-                  viewpoint: 'computer',
-                  computerTab: tab,
-                  workId: null,
-                });
-              }}
-              libraryViewMode={libraryViewMode}
-              onChangeLibraryViewMode={setLibraryViewMode}
-              selectedShelfKey={selectedShelfKey}
-              onChangeShelfKey={setSelectedShelfKey}
-              books={snapshot.books}
-              works={snapshot.works}
-              editions={snapshot.editions}
-              copies={snapshot.physicalCopies}
-              cycles={snapshot.cycles}
-              shelves={snapshot.shelves}
-              reviews={snapshot.reviews}
-              journalEntries={snapshot.journalEntries}
-              settings={settings}
-              pendingOps={snapshot.pendingOps}
-              unresolvedConflicts={snapshot.unresolvedConflicts}
-              devices={snapshot.devices}
-              backupRecords={snapshot.backupRecords}
-              isOnline={isOnline}
-              syncing={syncing}
-              onTriggerSync={handleTriggerSync}
-              onToggleLocale={toggleLocale}
-              onOpenConflicts={() => setConflictsOpen(true)}
-              onOpenBook={handleOpenBook}
-              onOpenAddBook={(mode) => openAddBook(mode)}
-              onCloseToLibrary={() => navigateViewpoint('room')}
-            />
+          <div className="pointer-events-none fixed inset-0 top-[52px] z-30 flex items-center justify-center overflow-y-auto p-2 sm:p-5 md:p-8">
+            <div className="pointer-events-auto w-full flex justify-center">
+              <ArchiveComputerModal
+                open
+                activeTab={computerTab}
+                onChangeTab={(tab) => {
+                  setComputerTab(tab);
+                  pushArchiveHistory({
+                    viewpoint: 'computer',
+                    computerTab: tab,
+                    workId: null,
+                  });
+                }}
+                libraryViewMode={libraryViewMode}
+                onChangeLibraryViewMode={setLibraryViewMode}
+                selectedShelfKey={selectedShelfKey}
+                onChangeShelfKey={setSelectedShelfKey}
+                books={snapshot.books}
+                works={snapshot.works}
+                editions={snapshot.editions}
+                copies={snapshot.physicalCopies}
+                cycles={snapshot.cycles}
+                shelves={snapshot.shelves}
+                reviews={snapshot.reviews}
+                journalEntries={snapshot.journalEntries}
+                settings={settings}
+                pendingOps={snapshot.pendingOps}
+                unresolvedConflicts={snapshot.unresolvedConflicts}
+                devices={snapshot.devices}
+                backupRecords={snapshot.backupRecords}
+                isOnline={isOnline}
+                syncing={syncing}
+                onTriggerSync={handleTriggerSync}
+                onToggleLocale={toggleLocale}
+                onOpenConflicts={() => setConflictsOpen(true)}
+                onOpenBook={handleOpenBook}
+                onOpenAddBook={(mode) => openAddBook(mode)}
+                onCloseToLibrary={() => navigateViewpoint('room')}
+              />
+            </div>
           </div>
         )}
       </main>
@@ -527,6 +582,7 @@ function AppShell({
         allEditions={snapshot.editions}
         shelves={snapshot.shelves}
         defaultCurrency={settings.defaultCurrency}
+        inspecting3DBook={viewpoint === 'inspect_book' && selected3DBook !== null}
         onClose={handleCloseBook}
         onSelectWork={handleOpenBook}
         onDeletedWork={(workId, title) => setUndoToast({ workId, title })}

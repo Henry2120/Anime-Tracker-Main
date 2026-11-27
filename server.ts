@@ -4,6 +4,7 @@ import crypto from "crypto";
 import path from "path";
 import dotenv from "dotenv";
 import fs from "fs";
+import http from "http";
 import { DatabaseSync } from "node:sqlite";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -3091,9 +3092,87 @@ async function startServer() {
     return res.redirect(302, `/?${params.toString()}`);
   });
 
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== "production") {
+    const disableHmr = process.env.DISABLE_HMR === "true";
+
+    if (disableHmr) {
+      // Prevent Vite's injected /@vite/client from logging "[vite] connecting..." and
+      // opening a WebSocket to an unreachable HMR port (24678) in preview environments,
+      // while preserving style injection and HMR context APIs expected by Vite-transformed modules.
+      app.get("/@vite/client", (_req, res) => {
+        res.type("application/javascript").send(`
+const sheetsMap = new Map();
+if (typeof document !== "undefined") {
+  document.querySelectorAll("style[data-vite-dev-id]").forEach((el) => {
+    sheetsMap.set(el.getAttribute("data-vite-dev-id"), el);
+  });
+}
+const cspNonce = typeof document !== "undefined"
+  ? document.querySelector("meta[property=csp-nonce]")?.nonce
+  : undefined;
+let lastInsertedStyle;
+export function updateStyle(id, content) {
+  if (typeof document === "undefined") return;
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement("style");
+    style.setAttribute("type", "text/css");
+    style.setAttribute("data-vite-dev-id", id);
+    style.textContent = content;
+    if (cspNonce) style.setAttribute("nonce", cspNonce);
+    if (!lastInsertedStyle) {
+      document.head.appendChild(style);
+      setTimeout(() => { lastInsertedStyle = undefined; }, 0);
+    } else {
+      lastInsertedStyle.insertAdjacentElement("afterend", style);
+    }
+    lastInsertedStyle = style;
+  } else {
+    style.textContent = content;
+  }
+  sheetsMap.set(id, style);
+}
+export function removeStyle(id) {
+  if (typeof document === "undefined") return;
+  const style = sheetsMap.get(id);
+  if (style) {
+    document.head.removeChild(style);
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    decline() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url, queryToInject) {
+  if (url[0] !== "." && url[0] !== "/") return url;
+  const pathname = url.replace(/[?#].*$/, "");
+  const { search, hash } = new URL(url, "http://vite.dev");
+  return \`\${pathname}?\${queryToInject}\${search ? "&" + search.slice(1) : ""}\${hash || ""}\`;
+}
+export class ErrorOverlay extends (globalThis.HTMLElement || class {}) {}
+`);
+      });
+    }
+
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: disableHmr ? false : undefined,
+        hmr: disableHmr ? false : { server: httpServer },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -3105,7 +3184,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
