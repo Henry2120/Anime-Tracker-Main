@@ -141,7 +141,7 @@ export function ArchiveComputerModal({
     <div
       className="archive-transition-zoom-shelf mx-auto flex w-full max-w-[960px] flex-col overflow-hidden rounded-[22px] border-[5px] border-[#241812] bg-[#0A101D] ring-1 ring-[#D6BD8A]/55 shadow-[0_28px_80px_rgba(0,0,0,0.92)]"
       role="region"
-      aria-label="Midnight Archive Desk Computer"
+      aria-label="Book Tracker Desk Workstation"
     >
       {/* Monitor Top Bezel & Workstation Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-[#B49A67]/30 bg-[#1B130F] px-3.5 sm:px-5 py-2.5">
@@ -158,7 +158,7 @@ export function ArchiveComputerModal({
           <div className="flex items-center gap-2 min-w-0">
             <Monitor className="h-4 w-4 text-[#7797C9] shrink-0" />
             <span className="font-archive-display text-xs sm:text-sm font-bold text-[#F4EFE6] truncate">
-              Archive Workstation Terminal
+              Library Workstation
             </span>
           </div>
         </div>

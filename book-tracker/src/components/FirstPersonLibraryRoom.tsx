@@ -25,6 +25,12 @@ import type { RegisteredBookPlacementEvent } from './AddBookModal';
 import type { SceneCameraViewpoint } from '../scene/LibraryCameraRig';
 import type { Selected3DBookState } from '../scene/MidnightArchive3DCanvas';
 import {
+  DEFAULT_CUSTOM_THEME,
+  type AppTheme,
+  type CustomThemeConfig,
+  type RainIntensityLevel,
+} from '../../../src/types/theme';
+import {
   loadQualityPreference,
   probeWebGLCapabilities,
   resolveQualitySettings,
@@ -49,6 +55,9 @@ interface FirstPersonLibraryRoomProps {
   inspectShelf: BookshelfPosition;
   selected3DBook: Selected3DBookState | null;
   lanternWarmth: boolean;
+  activeTheme?: AppTheme;
+  customThemeConfig?: CustomThemeConfig;
+  rainIntensity?: RainIntensityLevel;
   onToggleLantern: () => void;
   onSelectBookshelf: (position: BookshelfPosition) => void;
   onReturnToLibrary: () => void;
@@ -73,6 +82,9 @@ export function FirstPersonLibraryRoom({
   inspectShelf,
   selected3DBook,
   lanternWarmth,
+  activeTheme = 'dark',
+  customThemeConfig = DEFAULT_CUSTOM_THEME,
+  rainIntensity = 0,
   onToggleLantern,
   onSelectBookshelf,
   onReturnToLibrary,
@@ -206,7 +218,7 @@ export function FirstPersonLibraryRoom({
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#080d18] text-[#AEB9C9]">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#B49A67]/25 border-t-[#D6BD8A]" />
               <span className="font-archive-display text-xs tracking-wider text-[#D6BD8A]">
-                Entering The Midnight Archive...
+                Loading Library Room...
               </span>
             </div>
           }
@@ -218,6 +230,9 @@ export function FirstPersonLibraryRoom({
             inspectShelf={inspectShelf}
             selected3DBook={selected3DBook}
             lanternWarmth={lanternWarmth}
+            activeTheme={activeTheme}
+            customThemeConfig={customThemeConfig}
+            rainIntensity={rainIntensity}
             quality={quality}
             floatingPlacement={floatingPlacement}
             onSelectBookshelf={onSelectBookshelf}

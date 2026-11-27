@@ -31,11 +31,8 @@
   font-family: var(--font-archive-serif);
 }
 
-/* Protect Midnight Archive surfaces & contrast from root [data-theme] .bg-white / h1 overrides */
-.midnight-archive-shell h1,
-.midnight-archive-shell h2,
-.midnight-archive-shell h3,
-.midnight-archive-shell h4 {
+/* Protect Book Tracker surfaces & contrast from root [data-theme] .bg-white / h1 overrides, while letting shared AppearanceSelector / CustomThemeEditorModal keep its own colors */
+.midnight-archive-shell :is(h1, h2, h3, h4):not(.aniverse-appearance-control *) {
   color: #F4EFE6 !important;
 }
 

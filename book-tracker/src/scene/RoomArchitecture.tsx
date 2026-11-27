@@ -7,9 +7,11 @@ import {
   BOOKCASE_TRANSFORMS,
 } from './bookcaseLayout';
 import type { ArchiveMaterialLibrary } from './proceduralMaterials';
+import type { SceneAtmosphereProfile } from './themeAtmosphere';
 
 interface RoomArchitectureProps {
   materials: ArchiveMaterialLibrary;
+  atmosphere: SceneAtmosphereProfile;
   lanternWarmth: boolean;
   shadowsEnabled: boolean;
   activeViewpoint: 'room' | 'computer' | 'shelf_left' | 'shelf_middle' | 'shelf_right' | 'inspect_book';
@@ -24,6 +26,7 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const NOOP_RAYCAST = () => null;
 
 function createTransformedBox(
   w: number,
@@ -120,7 +123,7 @@ function BookcaseInteractiveCrown({
 
       {/* Subtle Warm Hover / Target Highlight Rim */}
       {(hovered || highlighted) && (
-        <mesh position={[0, height / 2, depth / 2 + 0.03]}>
+        <mesh position={[0, height / 2, depth / 2 + 0.03]} raycast={NOOP_RAYCAST}>
           <planeGeometry args={[width + 0.02, height]} />
           <meshBasicMaterial
             color="#d6bd8a"
@@ -155,6 +158,7 @@ function BookcaseInteractiveCrown({
 
 export function RoomArchitecture({
   materials,
+  atmosphere,
   lanternWarmth,
   shadowsEnabled,
   activeViewpoint,
@@ -163,26 +167,26 @@ export function RoomArchitecture({
   onOpenComputer,
   onToggleLantern,
 }: RoomArchitectureProps) {
-  const [monitorHovered, setMonitorHovered] = useState(false);
+  const [laptopHovered, setLaptopHovered] = useState(false);
   const [lampHovered, setLampHovered] = useState(false);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (monitorHovered || lampHovered) {
+    if (laptopHovered || lampHovered) {
       document.body.style.cursor = 'pointer';
       return () => {
         document.body.style.cursor = 'auto';
       };
     }
-  }, [monitorHovered, lampHovered]);
+  }, [laptopHovered, lampHovered]);
 
-  // Shared unit primitives + batched architectural meshes (cuts draw calls from ~90 down to ~22!)
   const {
     mergedWalnutGeo,
     mergedWalnutDarkGeo,
     mergedWainscotGeo,
     mergedBrassDarkGeo,
     mergedBrassBrightGeo,
+    lampBaseGeo,
     lampNeckGeo,
     unitBoxGeo,
     deskGreenBookMat,
@@ -219,7 +223,7 @@ export function RoomArchitecture({
       }
     }
 
-    // 2. Room ceiling beams & gothic window mullions + wainscoting
+    // 2. Room ceiling beams, wainscoting, and WIDE triple-bay mullioned library window
     for (const bz of [-2.8, -0.8, 1.2]) {
       walnutParts.push(createTransformedBox(9.4, 0.22, 0.22, 0, 4.32, bz));
     }
@@ -230,53 +234,97 @@ export function RoomArchitecture({
       createTransformedBox(0.05, 1.04, 9.4, 4.51, 0.52, -0.4)
     );
 
+    // Wide architectural window casing, deep sill, vertical pilasters & muntins (3.9m wide x 2.18m high)
+    walnutParts.push(
+      createTransformedBox(4.18, 0.068, 0.16, 0, 1.88, -4.36), // Molded window sill
+      createTransformedBox(4.14, 0.09, 0.12, 0, 4.09, -4.38), // Upper window header cornice
+      createTransformedBox(0.11, 2.26, 0.12, -2.01, 2.98, -4.38), // Left jamb
+      createTransformedBox(0.11, 2.26, 0.12, 2.01, 2.98, -4.38) // Right jamb
+    );
     walnutDarkParts.push(
-      createTransformedBox(1.82, 2.35, 0.04, 0, 2.95, -4.41),
-      createTransformedBox(0.05, 2.14, 0.03, 0, 2.95, -4.355),
-      createTransformedBox(0.035, 2.14, 0.03, -0.42, 2.95, -4.355),
-      createTransformedBox(0.035, 2.14, 0.03, 0.42, 2.95, -4.355),
-      createTransformedBox(1.58, 0.04, 0.03, 0, 3.3, -4.355)
+      // Main bay dividers & delicate lattice mullions
+      createTransformedBox(0.065, 2.16, 0.075, -0.66, 2.98, -4.375),
+      createTransformedBox(0.065, 2.16, 0.075, 0.66, 2.98, -4.375),
+      createTransformedBox(0.03, 2.16, 0.04, -1.32, 2.98, -4.375),
+      createTransformedBox(0.03, 2.16, 0.04, 0, 2.98, -4.375),
+      createTransformedBox(0.03, 2.16, 0.04, 1.32, 2.98, -4.375),
+      createTransformedBox(3.92, 0.042, 0.045, 0, 3.55, -4.375),
+      createTransformedBox(3.92, 0.034, 0.04, 0, 2.75, -4.375)
     );
 
-    // 3. Foreground wooden desk structural parts (desk group offset z = 0.86)
+    // 3. Detailed Executive Walnut Desk (centered at z = 0.86, tabletop top surface y = 0.776)
     const dz = 0.86;
     walnutParts.push(
-      createTransformedBox(1.92, 0.052, 0.8, 0, 0.75, dz),
-      createTransformedBox(0.36, 0.34, 0.68, -0.71, 0.53, dz),
-      createTransformedBox(0.36, 0.34, 0.68, 0.71, 0.53, dz)
+      // Main beveled tabletop slab (y: 0.736..0.776) + stepped top edge apron
+      createTransformedBox(1.94, 0.036, 0.82, 0, 0.758, dz),
+      createTransformedBox(1.88, 0.022, 0.76, 0, 0.732, dz),
+      // Twin drawer pedestals with carved front drawer faces
+      createTransformedBox(0.38, 0.36, 0.66, -0.71, 0.51, dz),
+      createTransformedBox(0.38, 0.36, 0.66, 0.71, 0.51, dz),
+      // Left & right raised drawer fronts (facing the seated user at +z)
+      createTransformedBox(0.33, 0.135, 0.02, -0.71, 0.59, dz + 0.335),
+      createTransformedBox(0.33, 0.145, 0.02, -0.71, 0.43, dz + 0.335),
+      createTransformedBox(0.33, 0.135, 0.02, 0.71, 0.59, dz + 0.335),
+      createTransformedBox(0.33, 0.145, 0.02, 0.71, 0.43, dz + 0.335),
+      // Center pencil drawer face & recessed knee-hole rail
+      createTransformedBox(0.96, 0.082, 0.02, 0, 0.665, dz + 0.32),
+      // Side panel stretchers
+      createTransformedBox(0.036, 0.045, 0.62, -0.87, 0.14, dz),
+      createTransformedBox(0.036, 0.045, 0.62, 0.87, 0.14, dz)
     );
+
     walnutDarkParts.push(
-      createTransformedBox(1.74, 0.09, 0.68, 0, 0.68, dz),
-      createTransformedBox(0.055, 0.72, 0.055, -0.86, 0.36, dz - 0.32),
-      createTransformedBox(0.055, 0.72, 0.055, 0.86, 0.36, dz - 0.32),
-      createTransformedBox(0.055, 0.72, 0.055, -0.86, 0.36, dz + 0.32),
-      createTransformedBox(0.055, 0.72, 0.055, 0.86, 0.36, dz + 0.32),
-      // Keyboard frame
-      createTransformedBox(0.38, 0.016, 0.135, 0, 0.785, dz + 0.12, 0, 0.08)
+      // Under-tabletop shadow molding & modesty back panel
+      createTransformedBox(1.80, 0.088, 0.64, 0, 0.675, dz),
+      createTransformedBox(1.66, 0.36, 0.025, 0, 0.51, dz - 0.31),
+      // Four sturdy tapered corner legs + pedestal inner stiles
+      createTransformedBox(0.062, 0.72, 0.062, -0.87, 0.36, dz - 0.31),
+      createTransformedBox(0.062, 0.72, 0.062, 0.87, 0.36, dz - 0.31),
+      createTransformedBox(0.062, 0.72, 0.062, -0.87, 0.36, dz + 0.31),
+      createTransformedBox(0.062, 0.72, 0.062, 0.87, 0.36, dz + 0.31),
+      createTransformedBox(0.048, 0.72, 0.048, -0.53, 0.36, dz + 0.31),
+      createTransformedBox(0.048, 0.72, 0.048, 0.53, 0.36, dz + 0.31)
     );
 
-    // Brass dark ferrules & desktop edge molding
+    // Brass dark edge trim & protective leg ferrules
     brassDarkParts.push(
-      createTransformedBox(1.92, 0.012, 0.008, 0, 0.728, dz + 0.402),
-      createTransformedBox(0.06, 0.05, 0.06, -0.86, 0.025, dz - 0.32),
-      createTransformedBox(0.06, 0.05, 0.06, 0.86, 0.025, dz - 0.32),
-      createTransformedBox(0.06, 0.05, 0.06, -0.86, 0.025, dz + 0.32),
-      createTransformedBox(0.06, 0.05, 0.06, 0.86, 0.025, dz + 0.32)
+      createTransformedBox(1.94, 0.01, 0.008, 0, 0.742, dz + 0.412),
+      createTransformedBox(0.068, 0.055, 0.068, -0.87, 0.0275, dz - 0.31),
+      createTransformedBox(0.068, 0.055, 0.068, 0.87, 0.0275, dz - 0.31),
+      createTransformedBox(0.068, 0.055, 0.068, -0.87, 0.0275, dz + 0.31),
+      createTransformedBox(0.068, 0.055, 0.068, 0.87, 0.0275, dz + 0.31),
+      createTransformedBox(0.054, 0.05, 0.054, -0.53, 0.025, dz + 0.31),
+      createTransformedBox(0.054, 0.05, 0.054, 0.53, 0.025, dz + 0.31)
     );
 
-    // Bright brass drawer pulls & hanging brass pen
+    // Bright brass drawer pulls & center knob
     brassBrightParts.push(
-      createTransformedBox(0.12, 0.018, 0.018, -0.71, 0.6, dz + 0.345),
-      createTransformedBox(0.12, 0.018, 0.018, -0.71, 0.44, dz + 0.345),
-      createTransformedBox(0.12, 0.018, 0.018, 0.71, 0.6, dz + 0.345),
-      createTransformedBox(0.12, 0.018, 0.018, 0.71, 0.44, dz + 0.345)
+      createTransformedBox(0.11, 0.016, 0.018, -0.71, 0.59, dz + 0.352),
+      createTransformedBox(0.11, 0.016, 0.018, -0.71, 0.43, dz + 0.352),
+      createTransformedBox(0.11, 0.016, 0.018, 0.71, 0.59, dz + 0.352),
+      createTransformedBox(0.11, 0.016, 0.018, 0.71, 0.43, dz + 0.352),
+      createTransformedBox(0.075, 0.014, 0.016, 0, 0.665, dz + 0.336)
     );
 
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0.02, 0),
-      new THREE.Vector3(0, 0.23, -0.02),
-      new THREE.Vector3(0.03, 0.34, 0.02),
-      new THREE.Vector3(0.08, 0.32, 0.07),
+    // Classic stepped LatheGeometry brass banker lamp base
+    const baseProfile = [
+      new THREE.Vector2(0.001, 0.0),
+      new THREE.Vector2(0.095, 0.0),
+      new THREE.Vector2(0.095, 0.01),
+      new THREE.Vector2(0.082, 0.014),
+      new THREE.Vector2(0.078, 0.022),
+      new THREE.Vector2(0.056, 0.026),
+      new THREE.Vector2(0.044, 0.036),
+      new THREE.Vector2(0.022, 0.042),
+      new THREE.Vector2(0.016, 0.054),
+      new THREE.Vector2(0.001, 0.056),
+    ];
+
+    const lampCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.05, 0),
+      new THREE.Vector3(0, 0.24, -0.022),
+      new THREE.Vector3(0.032, 0.355, 0.018),
+      new THREE.Vector3(0.085, 0.335, 0.074),
     ]);
 
     return {
@@ -285,7 +333,8 @@ export function RoomArchitecture({
       mergedWainscotGeo: createMergedGroupGeometry(wainscotParts),
       mergedBrassDarkGeo: createMergedGroupGeometry(brassDarkParts),
       mergedBrassBrightGeo: createMergedGroupGeometry(brassBrightParts),
-      lampNeckGeo: new THREE.TubeGeometry(curve, 14, 0.009, 7, false),
+      lampBaseGeo: new THREE.LatheGeometry(baseProfile, 18),
+      lampNeckGeo: new THREE.TubeGeometry(lampCurve, 16, 0.01, 8, false),
       unitBoxGeo: new THREE.BoxGeometry(1, 1, 1),
       deskGreenBookMat: new THREE.MeshStandardMaterial({ color: '#1f3b32', roughness: 0.72 }),
       deskCrimsonBookMat: new THREE.MeshStandardMaterial({ color: '#4e242a', roughness: 0.7 }),
@@ -299,6 +348,7 @@ export function RoomArchitecture({
       mergedWainscotGeo.dispose();
       mergedBrassDarkGeo.dispose();
       mergedBrassBrightGeo.dispose();
+      lampBaseGeo.dispose();
       lampNeckGeo.dispose();
       unitBoxGeo.dispose();
       deskGreenBookMat.dispose();
@@ -310,6 +360,7 @@ export function RoomArchitecture({
     mergedWainscotGeo,
     mergedBrassDarkGeo,
     mergedBrassBrightGeo,
+    lampBaseGeo,
     lampNeckGeo,
     unitBoxGeo,
     deskGreenBookMat,
@@ -391,22 +442,33 @@ export function RoomArchitecture({
         <planeGeometry args={[10.5, 9.6]} />
       </mesh>
 
-      {/* Gothic Moonlit Window Pane & Light Shaft */}
-      <mesh position={[0, 2.95, -4.372]} material={materials.moonGlassMat}>
-        <planeGeometry args={[1.56, 2.12]} />
+      {/* Wide Exterior Sky Backdrop, Reflective Window Glass & Theme-Driven Light Shaft */}
+      <mesh
+        position={[0, 2.98, -4.42]}
+        material={materials.windowExteriorMat}
+        raycast={NOOP_RAYCAST}
+      >
+        <planeGeometry args={[3.92, 2.16]} />
       </mesh>
-      <mesh position={[0, 2.1, -2.55]} rotation={[-0.42, 0, 0]}>
-        <planeGeometry args={[1.85, 4.2]} />
+      <mesh
+        position={[0, 2.98, -4.362]}
+        material={materials.moonGlassMat}
+        raycast={NOOP_RAYCAST}
+      >
+        <planeGeometry args={[3.92, 2.16]} />
+      </mesh>
+      <mesh position={[0, 2.15, -2.55]} rotation={[-0.42, 0, 0]} raycast={NOOP_RAYCAST}>
+        <planeGeometry args={[3.5, 4.4]} />
         <meshBasicMaterial
-          color="#8bb1eb"
+          color={atmosphere.shaftColor}
           transparent
-          opacity={0.042}
+          opacity={atmosphere.shaftOpacity}
           depthWrite={false}
           side={THREE.DoubleSide}
         />
       </mesh>
 
-      {/* Hanging Brass Archive Chandelier / Lantern */}
+      {/* Hanging Brass Chandelier / Lantern */}
       <group position={[0, 3.35, -0.8]}>
         <mesh position={[0, 0.5, 0]} material={materials.brassDarkMat}>
           <cylinderGeometry args={[0.012, 0.012, 1.0, 8]} />
@@ -419,7 +481,7 @@ export function RoomArchitecture({
           <meshStandardMaterial
             color={lanternWarmth ? '#f2c16b' : '#85aae6'}
             emissive={lanternWarmth ? '#e59d3c' : '#5884cf'}
-            emissiveIntensity={0.9}
+            emissiveIntensity={0.85}
             roughness={0.3}
           />
         </mesh>
@@ -440,110 +502,117 @@ export function RoomArchitecture({
         />
       ))}
 
-      {/* Desk Accessories, Physical Computer Workstation & Banker Lamp */}
+      {/* Desk Accessories, Slim Metallic Laptop & Classic Banker Lamp */}
       <group position={[0, 0, 0.86]}>
-        {/* Leather Blotter & Parchment */}
+        {/* Leather Blotter & Parchment Note + Brass Pen */}
         <mesh
           geometry={unitBoxGeo}
-          position={[0, 0.779, 0.08]}
-          scale={[0.84, 0.006, 0.44]}
+          position={[0, 0.779, 0.04]}
+          scale={[0.88, 0.006, 0.48]}
           material={materials.blotterMat}
           receiveShadow={shadowsEnabled}
         />
         <mesh
           geometry={unitBoxGeo}
-          position={[-0.31, 0.785, 0.14]}
-          rotation={[0, 0.16, 0]}
-          scale={[0.15, 0.003, 0.21]}
+          position={[-0.33, 0.785, 0.12]}
+          rotation={[0, 0.18, 0]}
+          scale={[0.14, 0.003, 0.20]}
           material={materials.parchmentMat}
         />
         <mesh
-          position={[-0.22, 0.79, 0.16]}
+          position={[-0.23, 0.79, 0.15]}
           rotation={[Math.PI / 2, 0, -0.35]}
           material={materials.brassMat}
         >
-          <cylinderGeometry args={[0.004, 0.003, 0.14, 8]} />
+          <cylinderGeometry args={[0.004, 0.003, 0.135, 8]} />
         </mesh>
 
-        {/* PHYSICAL COMPUTER MONITOR & KEYBOARD (Clickable Workstation) */}
+        {/* SLIM METALLIC LAPTOP WORKSTATION (Clickable) */}
         <group
-          position={[0, 0.776, -0.18]}
+          position={[0, 0.782, -0.02]}
           onClick={(e) => {
             e.stopPropagation();
             onOpenComputer();
           }}
           onPointerOver={(e) => {
             e.stopPropagation();
-            setMonitorHovered(true);
+            setLaptopHovered(true);
           }}
-          onPointerOut={() => setMonitorHovered(false)}
+          onPointerOut={() => setLaptopHovered(false)}
         >
+          {/* Base Aluminum Unibody Chassis */}
           <mesh
             geometry={unitBoxGeo}
-            position={[0, 0.01, 0.02]}
-            scale={[0.28, 0.018, 0.18]}
-            material={materials.slateMonitorMat}
+            position={[0, 0.006, 0]}
+            scale={[0.37, 0.011, 0.25]}
+            material={materials.laptopChassisMat}
+            castShadow={shadowsEnabled}
+            receiveShadow={shadowsEnabled}
           />
+          {/* Subtle Metallic Rim / Hover Accent */}
           <mesh
             geometry={unitBoxGeo}
-            position={[0, 0.11, -0.02]}
-            scale={[0.055, 0.2, 0.04]}
-            material={materials.brassDarkMat}
+            position={[0, 0.006, 0]}
+            scale={[0.374, 0.007, 0.254]}
+            material={laptopHovered ? materials.brassMat : materials.laptopBezelMat}
           />
-          <group position={[0, 0.285, 0]} rotation={[-0.06, 0, 0]}>
+          {/* Keyboard & Glass Trackpad Deck */}
+          <mesh
+            position={[0, 0.0122, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            material={materials.laptopKeyboardMat}
+          >
+            <planeGeometry args={[0.352, 0.228]} />
+          </mesh>
+          {/* Precision Hinge Cylinder Barrel */}
+          <mesh
+            position={[0, 0.011, -0.12]}
+            rotation={[0, 0, Math.PI / 2]}
+            material={materials.laptopBezelMat}
+          >
+            <cylinderGeometry args={[0.006, 0.006, 0.28, 12]} />
+          </mesh>
+
+          {/* Hinged Laptop Screen Lid (tilted ~108° for seated eye comfort) */}
+          <group position={[0, 0.012, -0.12]} rotation={[-0.31, 0, 0]}>
+            {/* Anodized Aluminum Lid Back Shell */}
             <mesh
               geometry={unitBoxGeo}
-              scale={[0.68, 0.41, 0.036]}
-              material={materials.slateMonitorMat}
+              position={[0, 0.118, 0]}
+              scale={[0.37, 0.232, 0.006]}
+              material={materials.laptopChassisMat}
               castShadow={shadowsEnabled}
             />
+            {/* Thin Dark Display Bezel */}
             <mesh
               geometry={unitBoxGeo}
-              position={[0, 0, 0.002]}
-              scale={[0.692, 0.422, 0.024]}
+              position={[0, 0.118, 0.0025]}
+              scale={[0.358, 0.22, 0.0025]}
               material={
-                monitorHovered ? materials.brassMat : materials.brassDarkMat
+                laptopHovered ? materials.brassDarkMat : materials.laptopBezelMat
               }
             />
+            {/* Active Book Tracker Screen Plane */}
             <mesh
-              position={[0, 0.008, 0.019]}
+              position={[0, 0.119, 0.0042]}
               material={materials.monitorScreenMat}
             >
-              <planeGeometry args={[0.625, 0.355]} />
+              <planeGeometry args={[0.342, 0.204]} />
+            </mesh>
+            {/* Subtle Glass Screen Reflection Sheen */}
+            <mesh position={[0.06, 0.124, 0.0046]} raycast={NOOP_RAYCAST}>
+              <planeGeometry args={[0.16, 0.19]} />
+              <meshBasicMaterial
+                color="#dceaff"
+                transparent
+                opacity={laptopHovered ? 0.08 : 0.035}
+                depthWrite={false}
+              />
             </mesh>
           </group>
         </group>
 
-        {/* Keycap block & Mouse (clickable too) */}
-        <group
-          position={[0, 0.785, 0.12]}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenComputer();
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setMonitorHovered(true);
-          }}
-          onPointerOut={() => setMonitorHovered(false)}
-        >
-          <mesh
-            geometry={unitBoxGeo}
-            position={[0, 0.012, 0]}
-            rotation={[0.08, 0, 0]}
-            scale={[0.34, 0.008, 0.1]}
-            material={materials.keycapMat}
-          />
-          <mesh
-            position={[0.26, 0.01, 0.01]}
-            scale={[1, 0.65, 1.45]}
-            material={materials.slateMonitorMat}
-          >
-            <sphereGeometry args={[0.032, 10, 8]} />
-          </mesh>
-        </group>
-
-        {/* PHYSICAL BRASS BANKER DESK LAMP (Clickable Warm/Moonlight Switch) */}
+        {/* CLASSIC BRASS & EMERALD BANKER DESK LAMP (Clickable Warm/Cool Switch) */}
         <group
           position={[-0.72, 0.776, -0.09]}
           onClick={(e) => {
@@ -556,24 +625,48 @@ export function RoomArchitecture({
           }}
           onPointerOut={() => setLampHovered(false)}
         >
-          <mesh position={[0, 0.012, 0]} material={materials.brassMat}>
-            <cylinderGeometry args={[0.085, 0.095, 0.024, 16]} />
-          </mesh>
+          {/* Weighted Stepped Lathe Brass Base */}
+          <mesh geometry={lampBaseGeo} material={materials.brassMat} castShadow={shadowsEnabled} />
+          {/* Curved Brass Arm */}
           <mesh geometry={lampNeckGeo} material={materials.brassMat} />
+          {/* Brass Shade Yoke Swivel Caps */}
           <mesh
-            position={[0.085, 0.315, 0.075]}
+            position={[0.085, 0.32, 0.075]}
+            rotation={[0.35, -0.45, Math.PI / 2]}
+            material={materials.brassMat}
+          >
+            <cylinderGeometry args={[0.015, 0.015, 0.20, 10]} />
+          </mesh>
+          {/* Classic Emerald / Sapphire Enameled Shade */}
+          <mesh
+            position={[0.085, 0.32, 0.075]}
             rotation={[0.35, -0.45, Math.PI / 2]}
             material={materials.emeraldShadeMat}
           >
-            <cylinderGeometry args={[0.056, 0.056, 0.17, 12, 1, true, 0, Math.PI]} />
+            <cylinderGeometry args={[0.058, 0.062, 0.185, 16, 1, false, 0, Math.PI]} />
           </mesh>
-          <mesh position={[0.085, 0.295, 0.075]}>
-            <sphereGeometry args={[0.022, 8, 8]} />
-            <meshBasicMaterial color={lanternWarmth ? '#ffd280' : '#9cc1ff'} />
+          {/* Warm Filament Bulb */}
+          <mesh position={[0.085, 0.298, 0.075]}>
+            <sphereGeometry args={[0.022, 10, 8]} />
+            <meshBasicMaterial color={lanternWarmth ? '#ffd68a' : '#9cc1ff'} />
+          </mesh>
+          {/* Subtle Warm/Cool Light Pool on Desk Surface */}
+          <mesh
+            position={[0.09, 0.004, 0.08]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            raycast={NOOP_RAYCAST}
+          >
+            <circleGeometry args={[0.32, 24]} />
+            <meshBasicMaterial
+              color={lanternWarmth ? '#f2be6b' : '#7ea8eb'}
+              transparent
+              opacity={lanternWarmth ? 0.11 : 0.055}
+              depthWrite={false}
+            />
           </mesh>
           {lampHovered && (
-            <mesh position={[0, 0.18, 0]}>
-              <sphereGeometry args={[0.16, 10, 8]} />
+            <mesh position={[0.04, 0.22, 0.04]} raycast={NOOP_RAYCAST}>
+              <sphereGeometry args={[0.17, 10, 8]} />
               <meshBasicMaterial
                 color={lanternWarmth ? '#f2c679' : '#7797c9'}
                 transparent
@@ -584,9 +677,9 @@ export function RoomArchitecture({
           )}
         </group>
 
-        {/* Inkwell + Stacked Reference Books */}
-        <mesh position={[-0.53, 0.798, -0.12]} material={materials.brassDarkMat}>
-          <cylinderGeometry args={[0.024, 0.03, 0.044, 10]} />
+        {/* Brass Inkwell + Stacked Leather Reference Books */}
+        <mesh position={[-0.53, 0.798, -0.14]} material={materials.brassDarkMat}>
+          <cylinderGeometry args={[0.022, 0.028, 0.044, 12]} />
         </mesh>
         <group position={[0.68, 0.776, -0.02]}>
           <mesh
@@ -595,6 +688,7 @@ export function RoomArchitecture({
             rotation={[0, -0.12, 0]}
             scale={[0.19, 0.034, 0.25]}
             material={deskGreenBookMat}
+            castShadow={shadowsEnabled}
           />
           <mesh
             geometry={unitBoxGeo}
@@ -602,6 +696,7 @@ export function RoomArchitecture({
             rotation={[0, 0.08, 0]}
             scale={[0.17, 0.03, 0.23]}
             material={deskCrimsonBookMat}
+            castShadow={shadowsEnabled}
           />
         </group>
       </group>

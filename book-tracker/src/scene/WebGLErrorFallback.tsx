@@ -30,7 +30,7 @@ export function WebGLErrorFallback({
       <div className="w-full max-w-4xl space-y-6 rounded-2xl border border-[#B49A67]/40 bg-[#101827] p-6 shadow-2xl">
         <div className="space-y-2 border-b border-[#B49A67]/25 pb-4">
           <h2 className="font-archive-display text-xl font-bold text-[#F4EFE6]">
-            The Midnight Archive — Lightweight Mode
+            Book Tracker — Lightweight Mode
           </h2>
           <p className="text-xs sm:text-sm text-[#AEB9C9]">
             {reason ||

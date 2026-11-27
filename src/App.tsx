@@ -1902,10 +1902,29 @@ function AppContent() {
             >
               <BookTrackerApp
                 embedded
+                activeTheme={theme}
+                customThemeConfig={customThemeConfig}
+                rainIntensity={rainIntensity}
                 worldSwitcher={
                   <WorldSwitcher
                     currentMode={appMode}
                     onSelectMode={(mode) => setAppMode(mode)}
+                  />
+                }
+                appearanceControl={
+                  <AppearanceSelector
+                    currentTheme={theme}
+                    onThemeChange={handleThemeChange}
+                    isLiveWeather={isLiveWeather}
+                    onToggleLiveWeather={handleToggleLiveWeather}
+                    liveWeatherCondition={liveWeatherData?.conditionText}
+                    liveWeatherTemp={liveWeatherData?.temp}
+                    liveWeatherLoading={liveWeatherLoading}
+                    liveWeatherError={liveWeatherError}
+                    customConfig={customThemeConfig}
+                    onSaveCustomConfig={handleSaveCustomTheme}
+                    rainIntensity={rainIntensity}
+                    onRainIntensityChange={handleRainIntensityChange}
                   />
                 }
               />

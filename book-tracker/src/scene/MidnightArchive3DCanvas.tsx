@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
+import {
+  DEFAULT_CUSTOM_THEME,
+  type AppTheme,
+  type CustomThemeConfig,
+  type RainIntensityLevel,
+} from '../../../src/types/theme';
 import type { EnrichedBookRecord } from '../hooks/useLibraryData';
 import type { BookshelfPosition, Shelf } from '../types/domain';
 import {
@@ -12,6 +18,7 @@ import {
   BookPlacementFlight,
   HeroBookInspection,
 } from './BookPlacementAndInspection';
+import { FloatingMagicalBooks } from './FloatingMagicalBooks';
 import { InstancedBookshelfBooks } from './InstancedBookshelfBooks';
 import {
   LibraryCameraRig,
@@ -25,6 +32,7 @@ import {
 import type { ArchiveQualitySettings } from './qualityConfig';
 import { RoomArchitecture } from './RoomArchitecture';
 import { ScenePerformanceBridge } from './ScenePerformanceBridge';
+import { resolveSceneAtmosphere } from './themeAtmosphere';
 
 export interface Selected3DBookState {
   book: EnrichedBookRecord;
@@ -39,6 +47,9 @@ interface MidnightArchive3DCanvasProps {
   inspectShelf: BookshelfPosition;
   selected3DBook: Selected3DBookState | null;
   lanternWarmth: boolean;
+  activeTheme?: AppTheme;
+  customThemeConfig?: CustomThemeConfig;
+  rainIntensity?: RainIntensityLevel;
   quality: ArchiveQualitySettings;
   floatingPlacement: RegisteredBookPlacementEvent | null;
   onSelectBookshelf: (pos: BookshelfPosition) => void;
@@ -61,6 +72,9 @@ export function MidnightArchive3DCanvas({
   inspectShelf,
   selected3DBook,
   lanternWarmth,
+  activeTheme = 'dark',
+  customThemeConfig = DEFAULT_CUSTOM_THEME,
+  rainIntensity = 0,
   quality,
   floatingPlacement,
   onSelectBookshelf,
@@ -73,6 +87,17 @@ export function MidnightArchive3DCanvas({
 }: MidnightArchive3DCanvasProps) {
   const materials = useMemo(() => createArchiveMaterialLibrary(4), []);
 
+  const atmosphere = useMemo(
+    () =>
+      resolveSceneAtmosphere({
+        theme: activeTheme,
+        customConfig: customThemeConfig,
+        rainIntensity,
+        lanternWarmth,
+      }),
+    [activeTheme, customThemeConfig, rainIntensity, lanternWarmth]
+  );
+
   // Cleanly dispose shared materials & textures on unmount
   useEffect(() => {
     return () => {
@@ -81,11 +106,12 @@ export function MidnightArchive3DCanvas({
     };
   }, [materials]);
 
-  // Update procedural monitor display & banker lamp emissive shade when data/lamp toggles
+  // Update procedural laptop screen, banker lamp shade & wide window exterior sky when theme/data changes
   useEffect(() => {
-    materials.updateMonitorScreen(books.length, lanternWarmth);
+    materials.updateMonitorScreen(books.length, lanternWarmth, atmosphere);
     materials.updateLampShade(lanternWarmth);
-  }, [materials, books.length, lanternWarmth]);
+    materials.updateWindowAtmosphere(atmosphere);
+  }, [materials, books.length, lanternWarmth, atmosphere]);
 
   const activeShelf: BookshelfPosition | null =
     viewpoint === 'shelf_left'
@@ -153,12 +179,13 @@ export function MidnightArchive3DCanvas({
       />
 
       <LibraryLightingAndAtmosphere
-        lanternWarmth={lanternWarmth}
+        atmosphere={atmosphere}
         quality={quality}
       />
 
       <RoomArchitecture
         materials={materials}
+        atmosphere={atmosphere}
         lanternWarmth={lanternWarmth}
         shadowsEnabled={quality.shadows}
         activeViewpoint={viewpoint}
@@ -166,6 +193,12 @@ export function MidnightArchive3DCanvas({
         onSelectBookshelf={onSelectBookshelf}
         onOpenComputer={onOpenComputer}
         onToggleLantern={onToggleLantern}
+      />
+
+      <FloatingMagicalBooks
+        materials={materials}
+        quality={quality}
+        shadowsEnabled={quality.shadows}
       />
 
       <InstancedBookshelfBooks

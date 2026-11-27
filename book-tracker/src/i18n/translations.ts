@@ -3,7 +3,7 @@ import type { SupportedLocale } from '../types/domain';
 type Dictionary = Record<string, string>;
 
 const en: Dictionary = {
-  'app.title': 'The Midnight Archive — Book Tracker',
+  'app.title': 'AniVerse Book Tracker',
   'nav.dashboard': 'The Grand Hall',
   'nav.library': 'The Grand Stacks',
   'nav.reading': 'Currently Reading',
@@ -72,7 +72,7 @@ const en: Dictionary = {
 };
 
 const vi: Dictionary = {
-  'app.title': 'Tàng Thư Đêm — Book Tracker',
+  'app.title': 'AniVerse — Quản Lý Sách',
   'nav.dashboard': 'Đại Sảnh',
   'nav.library': 'Giá Sách Lớn',
   'nav.reading': 'Đang Đọc',

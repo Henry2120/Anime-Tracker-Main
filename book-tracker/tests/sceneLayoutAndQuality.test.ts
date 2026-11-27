@@ -12,7 +12,10 @@ import {
 } from '../src/scene/qualityConfig';
 import { getDeterministicBookSpineStyle } from '../src/utils/bookSpine';
 
-describe('Midnight Archive 3D layout & quality configuration', () => {
+import { resolveSceneAtmosphere } from '../src/scene/themeAtmosphere';
+import { DEFAULT_CUSTOM_THEME, THEME_OPTIONS } from '../../src/types/theme';
+
+describe('Book Tracker 3D layout, theme atmosphere & quality configuration', () => {
   it('places up to 160 books per bookcase into distinct non-overlapping tier/bay slots', () => {
     const seen = new Set<string>();
     for (let idx = 0; idx < 160; idx += 1) {
@@ -94,5 +97,47 @@ describe('Midnight Archive 3D layout & quality configuration', () => {
 
     expect(styleA.leatherHex).toMatch(/^#[0-9a-f]{6}$/i);
     expect(styleA.leatherHex).toBe(styleB.leatherHex);
+  });
+
+  it('maps every shared AniVerse theme, custom config, and rain intensity into 3D scene atmosphere', () => {
+    for (const option of THEME_OPTIONS) {
+      const profile = resolveSceneAtmosphere({
+        theme: option.id,
+        customConfig: DEFAULT_CUSTOM_THEME,
+        rainIntensity: 0,
+        lanternWarmth: true,
+      });
+      expect(profile.theme).toBe(option.id);
+      expect(profile.skyTop).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(profile.skyBottom).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(profile.dirLightIntensity).toBeGreaterThan(1);
+    }
+
+    const sakura = resolveSceneAtmosphere({ theme: 'sakura', lanternWarmth: true });
+    expect(sakura.weatherMode).toBe('petals');
+
+    const storm = resolveSceneAtmosphere({
+      theme: 'light',
+      rainIntensity: 4,
+      lanternWarmth: true,
+    });
+    expect(storm.weatherMode).toBe('rain');
+    expect(storm.effectiveRainIntensity).toBe(4);
+
+    const custom = resolveSceneAtmosphere({
+      theme: 'custom',
+      customConfig: {
+        ...DEFAULT_CUSTOM_THEME,
+        primary: '#FF5588',
+        secondary: '#00CCFF',
+        bgGradientStart: '#120826',
+        bgGradientEnd: '#2B1248',
+        useGradient: true,
+      },
+      lanternWarmth: false,
+    });
+    expect(custom.skyTop).toBe('#120826');
+    expect(custom.skyBottom).toBe('#2B1248');
+    expect(custom.accentHex).toBe('#FF5588');
   });
 });

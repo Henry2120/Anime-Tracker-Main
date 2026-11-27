@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
-  Flame,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -35,6 +34,13 @@ import type { BookshelfPosition } from './types/domain';
 import { BOOKSHELF_META } from './utils/bookshelfPlacement';
 import type { ShelfBucketKey } from './views/LibraryView';
 
+import {
+  DEFAULT_CUSTOM_THEME,
+  type AppTheme,
+  type CustomThemeConfig,
+  type RainIntensityLevel,
+} from '../../src/types/theme';
+
 export type NavTab =
   | 'dashboard'
   | 'library'
@@ -47,11 +53,19 @@ export type NavTab =
 
 export interface BookTrackerAppProps {
   worldSwitcher?: ReactNode;
+  appearanceControl?: ReactNode;
+  activeTheme?: AppTheme;
+  customThemeConfig?: CustomThemeConfig;
+  rainIntensity?: RainIntensityLevel;
   embedded?: boolean;
 }
 
 export function App({
   worldSwitcher,
+  appearanceControl,
+  activeTheme = 'dark',
+  customThemeConfig = DEFAULT_CUSTOM_THEME,
+  rainIntensity = 0,
   embedded = false,
 }: BookTrackerAppProps = {}) {
   const snapshot = useLibrarySnapshot();
@@ -62,6 +76,10 @@ export function App({
       <AppShell
         snapshot={snapshot}
         worldSwitcher={worldSwitcher}
+        appearanceControl={appearanceControl}
+        activeTheme={activeTheme}
+        customThemeConfig={customThemeConfig}
+        rainIntensity={rainIntensity}
         embedded={embedded}
       />
     </I18nProvider>
@@ -88,10 +106,18 @@ function shelfPositionToViewpoint(
 function AppShell({
   snapshot,
   worldSwitcher,
+  appearanceControl,
+  activeTheme,
+  customThemeConfig,
+  rainIntensity,
   embedded,
 }: {
   snapshot: ReturnType<typeof useLibrarySnapshot>;
   worldSwitcher?: ReactNode;
+  appearanceControl?: ReactNode;
+  activeTheme: AppTheme;
+  customThemeConfig: CustomThemeConfig;
+  rainIntensity: RainIntensityLevel;
   embedded: boolean;
 }) {
   const { t } = useI18n();
@@ -238,7 +264,7 @@ function AppShell({
   if (!settings) {
     return (
       <div className="midnight-archive-shell archive-backdrop flex min-h-screen items-center justify-center text-sm text-[#AEB9C9]">
-        Entering The Midnight Archive...
+        Loading AniVerse Book Tracker...
       </div>
     );
   }
@@ -349,7 +375,7 @@ function AppShell({
         ? selectedBook.work.title
         : activeShelfPos
           ? BOOKSHELF_META[activeShelfPos].label
-          : 'The Midnight Archive';
+          : 'AniVerse Book Tracker';
 
   return (
     <div
@@ -381,7 +407,7 @@ function AppShell({
             </button>
           ) : (
             <span className="font-archive-display text-sm sm:text-base font-bold text-[#F4EFE6] truncate">
-              The Midnight Archive
+              Book Tracker
             </span>
           )}
 
@@ -419,23 +445,11 @@ function AppShell({
 
           {!embedded && <PWAInstallPrompt />}
 
-          <button
-            type="button"
-            onClick={() => setLanternWarmth((v) => !v)}
-            aria-pressed={lanternWarmth}
-            title={
-              lanternWarmth
-                ? 'Switch to Cool Moonlight'
-                : 'Light Warm Candlelight'
-            }
-            className={`inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border transition-colors ${
-              lanternWarmth
-                ? 'border-[#B49A67]/55 bg-[#392A24]/75 text-[#D6BD8A]'
-                : 'border-[#7797C9]/40 bg-[#101827] text-[#7797C9]'
-            }`}
-          >
-            <Flame className="h-4 w-4" />
-          </button>
+          {appearanceControl && (
+            <div className="aniverse-appearance-control shrink-0">
+              {appearanceControl}
+            </div>
+          )}
 
           <button
             type="button"
@@ -471,7 +485,7 @@ function AppShell({
           </div>
         )}
 
-        {/* Real Three.js / R3F First-Person 3D Midnight Archive Room */}
+        {/* Real Three.js / R3F First-Person 3D Library Room */}
         <FirstPersonLibraryRoom
           books={snapshot.books}
           shelves={snapshot.shelves}
@@ -479,6 +493,9 @@ function AppShell({
           inspectShelf={inspectShelf}
           selected3DBook={selected3DBook}
           lanternWarmth={lanternWarmth}
+          activeTheme={activeTheme}
+          customThemeConfig={customThemeConfig}
+          rainIntensity={rainIntensity}
           onToggleLantern={() => setLanternWarmth((v) => !v)}
           onSelectBookshelf={handleSelectBookshelf}
           onReturnToLibrary={() => navigateViewpoint('room')}

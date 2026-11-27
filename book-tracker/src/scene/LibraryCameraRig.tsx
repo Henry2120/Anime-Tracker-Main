@@ -95,9 +95,9 @@ export function LibraryCameraRig({
       _desiredTarget.set(px * 0.6, 1.06 - py * 0.4, -1.25);
       desiredFov = isMobile ? 56 : 48;
     } else if (viewpoint === 'computer') {
-      _desiredPos.set(0, 1.08, isMobile ? 1.38 : 1.15);
-      _desiredTarget.set(0, 1.06, 0.68);
-      desiredFov = isMobile ? 52 : 43;
+      _desiredPos.set(0, 1.07, isMobile ? 1.44 : 1.24);
+      _desiredTarget.set(0, 0.87, 0.78);
+      desiredFov = isMobile ? 48 : 40;
     } else if (
       viewpoint === 'shelf_left' ||
       viewpoint === 'shelf_middle' ||
